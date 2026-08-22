@@ -1,12 +1,12 @@
-const CACHE_NAME = 'aide-redactionnelle-v1';
+const CACHE_NAME = 'aide-redactionnelle-v2';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/styles.css',
-  '/app.js',
-  '/manifest.json',
-  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'
+  '/aide-redactionnelle-technique/',
+  '/aide-redactionnelle-technique/index.html',
+  '/aide-redactionnelle-technique/styles.css',
+  '/aide-redactionnelle-technique/app.js',
+  '/aide-redactionnelle-technique/manifest.json',
+  '/aide-redactionnelle-technique/icon-192.png',
+  '/aide-redactionnelle-technique/icon-512.png'
 ];
 
 self.addEventListener('install', event => {
@@ -16,6 +16,7 @@ self.addEventListener('install', event => {
         console.log('Cache ouvert');
         return cache.addAll(urlsToCache);
       })
+      .catch(err => console.log('Erreur cache:', err))
   );
 });
 
@@ -27,8 +28,8 @@ self.addEventListener('fetch', event => {
           return response;
         }
         return fetch(event.request);
-      }
-    )
+      })
+      .catch(() => fetch(event.request))
   );
 });
 
