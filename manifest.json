@@ -1,7 +1,7 @@
 {
   "name": "Aide Rédactionnelle",
   "short_name": "AideRédac",
-  "description": "Analyse technique et juridique automobile basée sur le droit français",
+  "description": "Analyse technique et juridique automobile basée sur le droit français - Outil d'aide à la rédaction",
   "start_url": "/aide-redactionnelle-technique/index.html",
   "display": "standalone",
   "background_color": "#ffffff",
