@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#1a1a2e">
+    <title>Aide Rédactionnelle</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="styles.css">
+    <link rel="apple-touch-icon" href="icon-192.png">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>📋 Aide Rédactionnelle</h1>
+            <p class="subtitle">Analyse technique et juridique automobile</p>
+        </header>
+
+        <main>
+            <section class="input-section">
+                <div class="input-group">
+                    <label for="textInput">Saisie du texte :</label>
+                    <textarea id="textInput" placeholder="Saisissez votre texte ou analyse ici..."></textarea>
+                </div>
+
+                <div class="input-group">
+                    <label for="pdfUpload">Ou importez un PDF :</label>
+                    <input type="file" id="pdfUpload" accept=".pdf">
+                    <div id="pdfStatus" class="status"></div>
+                </div>
+
+                <div class="input-group">
+                    <label for="contextInfo">Informations complémentaires :</label>
+                    <textarea id="contextInfo" placeholder="Contexte, documents disponibles, situation spécifique..."></textarea>
+                </div>
+
+                <button id="analyzeBtn" class="btn-primary">
+                    🔍 Lancer l'analyse
+                </button>
+            </section>
+
+            <section id="analysisSection" class="analysis-section hidden">
+                <h2>Analyse Technique et Juridique</h2>
+                <div id="analysisResult" class="analysis-result"></div>
+                
+                <button id="generatePdfBtn" class="btn-secondary">
+                    📄 Générer le rapport PDF
+                </button>
+                
+                <button id="shareBtn" class="btn-secondary">
+                    📤 Partager l'analyse
+                </button>
+            </section>
+        </main>
+
+        <footer>
+            <p>Basé sur le droit français - Analyse technique automobile</p>
+        </footer>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
