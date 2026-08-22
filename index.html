@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#1a1a2e">
+    <meta name="description" content="Aide à la rédaction d'analyses techniques et juridiques automobiles">
     <title>Aide Rédactionnelle</title>
     <link rel="manifest" href="manifest.json">
     <link rel="stylesheet" href="styles.css">
@@ -13,34 +14,68 @@
     <div class="container">
         <header>
             <h1>📋 Aide Rédactionnelle</h1>
-            <p class="subtitle">Analyse technique et juridique automobile</p>
+            <p class="subtitle">Analyse technique et juridique automobile - Droit français</p>
         </header>
 
         <main>
             <section class="input-section">
-                <div class="input-group">
-                    <label for="textInput">Saisie du texte :</label>
-                    <textarea id="textInput" placeholder="Saisissez votre texte ou analyse ici..."></textarea>
+                <div class="vehicle-info">
+                    <h3> Informations sur le véhicule</h3>
+                    <div class="vehicle-fields">
+                        <div class="input-group">
+                            <label for="vehicleBrand">Marque :</label>
+                            <input type="text" id="vehicleBrand" placeholder="Ex: Renault, Peugeot, BMW...">
+                        </div>
+                        <div class="input-group">
+                            <label for="vehicleModel">Modèle :</label>
+                            <input type="text" id="vehicleModel" placeholder="Ex: Clio, 308, Série 3...">
+                        </div>
+                        <div class="input-group">
+                            <label for="vehicleYear">Année de mise en circulation :</label>
+                            <input type="text" id="vehicleYear" placeholder="Ex: 2015">
+                        </div>
+                        <div class="input-group">
+                            <label for="vehicleKilometrage">Kilométrage (optionnel) :</label>
+                            <input type="text" id="vehicleKilometrage" placeholder="Ex: 85000 km">
+                        </div>
+                        <div class="input-group">
+                            <label for="vehicleVin">VIN - Numéro de série (optionnel) :</label>
+                            <input type="text" id="vehicleVin" placeholder="17 caractères...">
+                        </div>
+                    </div>
                 </div>
 
                 <div class="input-group">
-                    <label for="pdfUpload">Ou importez un PDF :</label>
+                    <label for="textInput">Description des faits / Analyse technique :</label>
+                    <textarea id="textInput" placeholder="Décrivez les faits constatés, les dysfonctionnements, les pannes, les éléments techniques observés..."></textarea>
+                </div>
+
+                <div class="input-group">
+                    <label for="pdfUpload">Import d'un document PDF (expertise, facture, ordre de réparation...) :</label>
                     <input type="file" id="pdfUpload" accept=".pdf">
                     <div id="pdfStatus" class="status"></div>
                 </div>
 
                 <div class="input-group">
-                    <label for="contextInfo">Informations complémentaires :</label>
-                    <textarea id="contextInfo" placeholder="Contexte, documents disponibles, situation spécifique..."></textarea>
+                    <label for="contextInfo">Contexte et documents disponibles :</label>
+                    <textarea id="contextInfo" placeholder="Précisez : date d'achat, vendeur (professionnel/particulier), documents en votre possession (facture, ordre de réparation, contrôle technique, courrier...), historique du véhicule, démarches déjà effectuées..."></textarea>
+                </div>
+
+                <div class="input-group">
+                    <label for="objectiveInfo">Objectif recherché (optionnel) :</label>
+                    <textarea id="objectiveInfo" placeholder="Ex: obtenir un remboursement, faire réparer gratuitement, négocier une réduction de prix, constituer un dossier pour un avocat..."></textarea>
                 </div>
 
                 <button id="analyzeBtn" class="btn-primary">
-                    🔍 Lancer l'analyse
+                    🔍 Lancer l'analyse factuelle
                 </button>
             </section>
 
             <section id="analysisSection" class="analysis-section hidden">
-                <h2>Analyse Technique et Juridique</h2>
+                <h2>📊 Analyse Technique et Juridique</h2>
+                <div class="analysis-disclaimer">
+                    <strong>⚠️ Avertissement :</strong> Cette analyse est générée à partir des éléments fournis par l'utilisateur. Elle constitue une aide à la rédaction et ne se substitue pas à l'avis d'un professionnel du droit ou d'un expert technique. Les conclusions sont formulées de manière prudente et doivent être vérifiées par un conseil juridique qualifié.
+                </div>
                 <div id="analysisResult" class="analysis-result"></div>
                 
                 <button id="generatePdfBtn" class="btn-secondary">
@@ -54,7 +89,7 @@
         </main>
 
         <footer>
-            <p>Basé sur le droit français - Analyse technique automobile</p>
+            <p>Basé sur le droit français - Outil d'aide à la rédaction - Ne constitue pas un conseil juridique</p>
         </footer>
     </div>
 
