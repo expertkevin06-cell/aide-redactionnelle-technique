@@ -9,10 +9,11 @@ body {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
     min-height: 100vh;
     padding: 20px;
+    line-height: 1.6;
 }
 
 .container {
-    max-width: 900px;
+    max-width: 950px;
     margin: 0 auto;
     background: white;
     border-radius: 15px;
@@ -28,12 +29,12 @@ header {
 }
 
 header h1 {
-    font-size: 2.5em;
+    font-size: 2.2em;
     margin-bottom: 10px;
 }
 
 .subtitle {
-    font-size: 1.1em;
+    font-size: 1em;
     opacity: 0.9;
 }
 
@@ -45,6 +46,42 @@ main {
     margin-bottom: 30px;
 }
 
+/* Véhicule */
+.vehicle-info {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    padding: 20px;
+    border-radius: 10px;
+    margin-bottom: 25px;
+    border-left: 5px solid #667eea;
+}
+
+.vehicle-info h3 {
+    color: #1a1a2e;
+    margin-bottom: 15px;
+    font-size: 1.2em;
+}
+
+.vehicle-fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+}
+
+.vehicle-fields input {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font-size: 0.95em;
+    transition: border-color 0.3s;
+}
+
+.vehicle-fields input:focus {
+    outline: none;
+    border-color: #667eea;
+}
+
+/* Groupes de saisie */
 .input-group {
     margin-bottom: 25px;
 }
@@ -54,16 +91,16 @@ label {
     font-weight: 600;
     margin-bottom: 8px;
     color: #333;
-    font-size: 1.1em;
+    font-size: 1em;
 }
 
 textarea {
     width: 100%;
-    min-height: 150px;
+    min-height: 130px;
     padding: 15px;
     border: 2px solid #ddd;
     border-radius: 8px;
-    font-size: 1em;
+    font-size: 0.95em;
     font-family: inherit;
     resize: vertical;
     transition: border-color 0.3s;
@@ -81,6 +118,7 @@ input[type="file"] {
     border-radius: 8px;
     cursor: pointer;
     transition: border-color 0.3s;
+    background: #fafafa;
 }
 
 input[type="file"]:hover {
@@ -97,17 +135,20 @@ input[type="file"]:hover {
 .status.success {
     background: #d4edda;
     color: #155724;
+    border-left: 4px solid #28a745;
 }
 
 .status.error {
     background: #f8d7da;
     color: #721c24;
+    border-left: 4px solid #dc3545;
 }
 
+/* Boutons */
 .btn-primary, .btn-secondary {
     width: 100%;
     padding: 15px;
-    font-size: 1.2em;
+    font-size: 1.1em;
     font-weight: 600;
     border: none;
     border-radius: 8px;
@@ -121,9 +162,14 @@ input[type="file"]:hover {
     color: white;
 }
 
-.btn-primary:hover {
+.btn-primary:hover:not(:disabled) {
     transform: translateY(-2px);
     box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
 }
 
 .btn-secondary {
@@ -137,6 +183,7 @@ input[type="file"]:hover {
     box-shadow: 0 10px 20px rgba(45, 55, 72, 0.4);
 }
 
+/* Section analyse */
 .analysis-section {
     margin-top: 30px;
     padding: 25px;
@@ -148,7 +195,17 @@ input[type="file"]:hover {
 .analysis-section h2 {
     color: #1a1a2e;
     margin-bottom: 20px;
-    font-size: 1.8em;
+    font-size: 1.6em;
+}
+
+.analysis-disclaimer {
+    background: #fff3cd;
+    border-left: 5px solid #ffc107;
+    padding: 15px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+    font-size: 0.9em;
+    color: #856404;
 }
 
 .analysis-result {
@@ -161,19 +218,28 @@ input[type="file"]:hover {
 }
 
 .analysis-result h3 {
+    color: #1a1a2e;
+    margin-top: 25px;
+    margin-bottom: 12px;
+    font-size: 1.2em;
+    border-bottom: 2px solid #667eea;
+    padding-bottom: 8px;
+}
+
+.analysis-result h4 {
     color: #667eea;
-    margin-top: 20px;
+    margin-top: 18px;
     margin-bottom: 10px;
-    font-size: 1.3em;
+    font-size: 1.05em;
 }
 
 .analysis-result p {
-    margin-bottom: 15px;
+    margin-bottom: 12px;
     text-align: justify;
 }
 
 .analysis-result ul {
-    margin-left: 20px;
+    margin-left: 25px;
     margin-bottom: 15px;
 }
 
@@ -181,33 +247,81 @@ input[type="file"]:hover {
     margin-bottom: 8px;
 }
 
-.hidden {
-    display: none;
+.analysis-result strong {
+    color: #1a1a2e;
 }
 
+/* Alertes rappels */
+.rappel-alert {
+    background: linear-gradient(135deg, #fff3cd 0%, #ffe69c 100%);
+    border-left: 5px solid #ffc107;
+    padding: 15px;
+    border-radius: 8px;
+    margin: 15px 0;
+}
+
+.rappel-alert h4 {
+    color: #856404;
+    margin-bottom: 10px;
+}
+
+.rappel-critical {
+    background: linear-gradient(135deg, #f8d7da 0%, #f5c6cb 100%);
+    border-left: 5px solid #dc3545;
+}
+
+.rappel-critical h4 {
+    color: #721c24;
+}
+
+.rappel-info {
+    background: linear-gradient(135deg, #d1ecf1 0%, #bee5eb 100%);
+    border-left: 5px solid #17a2b8;
+}
+
+.rappel-info h4 {
+    color: #0c5460;
+}
+
+/* Niveaux de certitude */
+.certainty-high {
+    border-left: 4px solid #28a745;
+    padding-left: 12px;
+    margin: 10px 0;
+}
+
+.certainty-medium {
+    border-left: 4px solid #ffc107;
+    padding-left: 12px;
+    margin: 10px 0;
+}
+
+.certainty-low {
+    border-left: 4px solid #dc3545;
+    padding-left: 12px;
+    margin: 10px 0;
+}
+
+.verification-needed {
+    background: #e7f3ff;
+    border: 1px dashed #0066cc;
+    padding: 10px;
+    border-radius: 6px;
+    margin: 10px 0;
+    font-size: 0.9em;
+}
+
+/* Footer */
 footer {
     background: #f8f9fa;
     padding: 20px;
     text-align: center;
     color: #666;
-    font-size: 0.9em;
+    font-size: 0.85em;
     border-top: 1px solid #ddd;
 }
 
-@media (max-width: 768px) {
-    header h1 {
-        font-size: 1.8em;
-    }
-    
-    main {
-        padding: 20px;
-    }
-    
-    .btn-primary, .btn-secondary {
-        font-size: 1em;
-    }
-}
-
+/* Loading */
 .loading {
     display: inline-block;
     width: 20px;
@@ -216,8 +330,33 @@ footer {
     border-radius: 50%;
     border-top-color: white;
     animation: spin 1s ease-in-out infinite;
+    vertical-align: middle;
+    margin-right: 8px;
 }
 
 @keyframes spin {
     to { transform: rotate(360deg); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    header h1 {
+        font-size: 1.6em;
+    }
+    
+    main {
+        padding: 20px;
+    }
+    
+    .vehicle-fields {
+        grid-template-columns: 1fr;
+    }
+    
+    .btn-primary, .btn-secondary {
+        font-size: 1em;
+    }
+    
+    .analysis-result {
+        padding: 15px;
+    }
 }
