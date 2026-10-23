@@ -3,7 +3,6 @@ document.addEventListener('DOMContentLoaded', function () {
   // CONFIGURATION INITIALE & LIBRARIES EXTERNES
   // =====================================================
   
-  // Initialisation PDF.js si disponible
   if (window.pdfjsLib) {
     pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   }
@@ -12,9 +11,9 @@ document.addEventListener('DOMContentLoaded', function () {
   const MAX_DAILY_ANALYSES = 10;
 
   const STORAGE_KEYS = {
-    SESSION: 'ar_expert_session_final_v3',
-    USERS: 'ar_expert_users_final_v3',
-    REQUESTS: 'ar_expert_requests_final_v3'
+    SESSION: 'ar_expert_session_v4_final',
+    USERS: 'ar_expert_users_v4_final',
+    REQUESTS: 'ar_expert_requests_v4_final'
   };
 
   let currentUser = null;
@@ -366,8 +365,8 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // =====================================================
-  // BASE DE DONNÉES TECHNIQUE MASSIVE (MOTORISATION)
-  // Structure : Marque -> Moteurs -> Défauts Conceptuels
+  // BASE DE DONNÉES TECHNIQUE EXPERTISE (MOTORISATION & VÉTUSTÉ)
+  // Inclut : Défauts conceptuels, Problèmes d'étanchéité (Baie pare-brise), Usure normale
   // =====================================================
   
   const TECHNICAL_KNOWLEDGE_BASE = {
@@ -381,16 +380,18 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Clio IV", "Captur", "Mégane III", "Kadjar"], 
           symptoms: ["consommation huile", "casse moteur", "segmentation", "fumée bleue", "perte compression", "huile manquante"], 
           severity: "critique", 
-          note: "Défaut de conception piston/cylindre bien documenté. Risque élevé de casse." 
+          note: "Défaut de conception piston/cylindre bien documenté. Risque élevé de casse.",
+          wear_factor: 0.8 // Forte probabilité d'être un défaut même avec km élevés
         },
         { 
           code: "K9K / 1.5 dCi", 
           power: "90ch / 110ch", 
           years: "2009-2018", 
-          models: ["Clio", "Mégane", "Scénic", "Duster", "Sandero", "Logan"], 
+          models: ["Clio", "Mégane", "Scénic", "Duster", "Sandero", "Logan", "Trafic II", "Master"], 
           symptoms: ["casse bielle", "claquement moteur", "usure coussinets", "pompe à huile défaillante", "bruit métallique froid"], 
           severity: "critique", 
-          note: "Risque de casse moteur brutale sans préavis. Problème chronique." 
+          note: "Risque de casse moteur brutale sans préavis. Problème chronique.",
+          wear_factor: 0.9
         },
         { 
           code: "EDC6 / Double Embrayage", 
@@ -399,16 +400,18 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Clio IV", "Captur", "Mégane III"], 
           symptoms: ["à-coups boîte", "blocage rapport", "perte traction", "voyant boîte", "odeur brûlé embrayage", "vibrations démarrage"], 
           severity: "critique", 
-          note: "Module mecatronique fragile. Coût de réparation très élevé (>2000€)." 
+          note: "Module mecatronique fragile. Coût de réparation très élevé (>2000€).",
+          wear_factor: 0.7
         },
         { 
-          code: "R-Link 2", 
+          code: "Trafic II / Baie Pare-brise", 
           power: "N/A", 
-          years: "2015-2020", 
-          models: ["Mégane IV", "Talisman", "Espace V"], 
-          symptoms: ["écran noir", "gel système", "bug GPS", "redémarrages aléatoires", "tactile HS"], 
-          severity: "moyen", 
-          note: "Défaillance électronique multimédia. Impact confort/sécurité navigation." 
+          years: "2014-2023", 
+          models: ["Trafic II", "Espace V", "Twizy"], 
+          symptoms: ["infiltration eau habitacle", "court-circuit calculateurs", "panne électronique mystérieuse", "moisiure tapis conducteur/passager", "voyants allumés aléatoirement", "erreur ABS/ESP"], 
+          severity: "critique", 
+          note: "Défaut connu d'étanchéité de la baie de pare-brise (joint collé mal posé ou perçage usine). L'eau s'infiltre vers les boîtiers fusibles/calculateurs sous le tableau de bord ou dans le compartiment moteur.",
+          wear_factor: 0.95 // Très peu lié à l'usure, c'est un défaut de montage/conception
         }
       ]
     },
@@ -419,10 +422,11 @@ document.addEventListener('DOMContentLoaded', function () {
           code: "EB2 / 1.2 PureTech", 
           power: "110ch / 130ch", 
           years: "2012-2022", 
-          models: ["208", "2008", "308", "3008", "5008", "Partner", "Rifter"], 
+          models: ["208", "2008", "308", "3008", "5008", "Partner", "Rifter", "Boxer"], 
           symptoms: ["courroie distribution dans l'huile", "colmatage crépine pompe", "casse moteur", "bruit cliquetis froid", "voyant pression huile", "désagrégation courroie"], 
           severity: "critique", 
-          note: "Courroie humide se désagrège et bouche la pompe à huile. Casse moteur assurée si ignoré." 
+          note: "Courroie humide se désagrège et bouche la pompe à huile. Casse moteur assurée si ignoré.",
+          wear_factor: 0.85
         },
         { 
           code: "DV6 / 1.6 HDI BlueHDi", 
@@ -431,7 +435,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["308", "3008", "508", "Boxer", "Expert"], 
           symptoms: ["encrassement EGR", "colmatage FAP", "turbo HS", "surconsommation huile", "puissance réduite", "mode dégradé"], 
           severity: "moyen", 
-          note: "Problèmes liés à l'usage urbain intensif. Entretien coûteux." 
+          note: "Problèmes liés à l'usage urbain intensif. Entretien coûteux.",
+          wear_factor: 0.5 // Lié aussi à l'entretien/usure
         },
         { 
           code: "EAT6 / Aisin", 
@@ -440,7 +445,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["308", "508", "3008", "RCZ"], 
           symptoms: ["à-coups démarrage", "vibrations ralenti", "passage rapports saccadé", "convertisseur couple", "bruit claquement"], 
           severity: "critique", 
-          note: "Défaut convertisseur hydraulique. Réparation chère." 
+          note: "Défaut convertisseur hydraulique. Réparation chère.",
+          wear_factor: 0.6
         },
         { 
           code: "AdBlue SCR", 
@@ -449,7 +455,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["308", "3008", "508", "208 GT"], 
           symptoms: ["cristallisation injecteur", "pompe AdBlue HS", "impossibilité redémarrer", "voyant anti-pollution", "réservoir vide faux"], 
           severity: "moyen", 
-          note: "Système dépollution sensible aux trajets courts." 
+          note: "Système dépollution sensible aux trajets courts.",
+          wear_factor: 0.4
         }
       ]
     },
@@ -460,10 +467,11 @@ document.addEventListener('DOMContentLoaded', function () {
           code: "EB2 / 1.2 PureTech", 
           power: "110ch / 130ch", 
           years: "2012-2022", 
-          models: ["C3", "C4", "C4 Picasso", "Grand C4 Picasso", "C5 Aircross"], 
+          models: ["C3", "C4", "C4 Picasso", "Grand C4 Picasso", "C5 Aircross", "Jumper"], 
           symptoms: ["courroie distribution", "casse moteur", "fumée", "bruit métallique", "huile dans eau"], 
           severity: "critique", 
-          note: "Identique au groupe PSA/Stellantis. Danger mécanique majeur." 
+          note: "Identique au groupe PSA/Stellantis. Danger mécanique majeur.",
+          wear_factor: 0.85
         },
         { 
           code: "DV6 / 1.6 HDI", 
@@ -472,7 +480,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["C3", "C4", "Berlingo", "Jumpy"], 
           symptoms: ["EGR encrassé", "FAP colmaté", "turbo bruit", "surchauffe légère"], 
           severity: "moyen", 
-          note: "Maintenance lourde requise. Usure prématurée." 
+          note: "Maintenance lourde requise. Usure prématurée.",
+          wear_factor: 0.5
         },
         { 
           code: "EAT6/EAT8", 
@@ -481,7 +490,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["C4 Picasso", "Grand C4 Picasso", "C5 Aircross"], 
           symptoms: ["à-coups", "perte propulsion", "voyant boîte", "blocage vitesse"], 
           severity: "critique", 
-          note: "Boîte automatique robotisée/hydraulique. Fiabilité contestée." 
+          note: "Boîte automatique robotisée/hydraulique. Fiabilité contestée.",
+          wear_factor: 0.6
         }
       ]
     },
@@ -495,7 +505,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Golf VI/VII", "Passat B7/B8", "Tiguan I/II", "Polo", "Touran"], 
           symptoms: ["logiciel invalidation", "émission NOx élevée", "amende administrative", "retour concession obligatoire", "performances réduites après maj"], 
           severity: "critique", 
-          note: "Tricherie aux tests polluants. Preuve judiciaire solide (CJUE)." 
+          note: "Tricherie aux tests polluants. Preuve judiciaire solide (CJUE).",
+          wear_factor: 1.0 // Défaut pur, aucune usure impliquée
         },
         { 
           code: "DQ200 / DSG7", 
@@ -504,7 +515,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Golf", "Polo", "Touran", "Scirocco", "Up!"], 
           symptoms: ["mécatronique HS", "embrayage patine", "à-coups violents", "bruit claquement boîte", "vitesse bloquée"], 
           severity: "critique", 
-          note: "Double embrayage à sec fragile. Défaut de conception reconnu mondialement." 
+          note: "Double embrayage à sec fragile. Défaut de conception reconnu mondialement.",
+          wear_factor: 0.7
         },
         { 
           code: "EA288 / 2.0 TDI", 
@@ -513,7 +525,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Golf VII", "Passat B8", "Tiguan II", "Sharan"], 
           symptoms: ["consommation huile", "injecteurs piezo", "vanne EGR bloquée", "bruit injection"], 
           severity: "moyen", 
-          note: "Fiabilité correcte mais entretien coûteux et complexe." 
+          note: "Fiabilité correcte mais entretien coûteux et complexe.",
+          wear_factor: 0.5
         }
       ]
     },
@@ -527,7 +540,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["A3", "A4", "A6", "Q5", "TT"], 
           symptoms: ["dieselgate", "logiciel", "NOx", "retour usine"], 
           severity: "critique", 
-          note: "Groupe VAG. Même problème que VW." 
+          note: "Groupe VAG. Même problème que VW.",
+          wear_factor: 1.0
         },
         { 
           code: "DQ200 / S-Tronic", 
@@ -536,7 +550,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["A3", "A4 Avant", "Q3", "TT"], 
           symptoms: ["mécatronique", "patinage", "bruits boîte", "à-coups"], 
           severity: "critique", 
-          note: "Idem VW Golf. Fragilité extrême." 
+          note: "Idem VW Golf. Fragilité extrême.",
+          wear_factor: 0.7
         },
         { 
           code: "EA888 Gen3 / TFSI", 
@@ -545,7 +560,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["A4", "A5", "A6", "Q5"], 
           symptoms: ["consommation huile excessive", "segments pistons", "casse moteur rare", "fumée bleue"], 
           severity: "moyen", 
-          note: "Surveillance niveau huile indispensable. Risque long terme." 
+          note: "Surveillance niveau huile indispensable. Risque long terme.",
+          wear_factor: 0.6
         }
       ]
     },
@@ -559,7 +575,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Série 1", "Série 3", "Série 5", "X1", "X3", "Mini Cooper SD"], 
           symptoms: ["chaîne distribution côté boîte", "bruit crécelle froid", "casse chaîne", "sauts de dents", "calage moteur"], 
           severity: "critique", 
-          note: "Chaîne située derrière le volant moteur, réparation très coûteuse (>3000€). Rappel historique." 
+          note: "Chaîne située derrière le volant moteur, réparation très coûteuse (>3000€). Rappel historique.",
+          wear_factor: 0.8
         },
         { 
           code: "B47 / N47 Update", 
@@ -568,7 +585,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Série 1 F20/F40", "Série 3 F30/G20", "X1", "X3"], 
           symptoms: ["tensionneur chaîne", "bruit mécanique", "vibration ralenti"], 
           severity: "moyen", 
-          note: "Amélioré mais toujours sensible. Surveillance nécessaire." 
+          note: "Amélioré mais toujours sensible. Surveillance nécessaire.",
+          wear_factor: 0.6
         },
         { 
           code: "ZF 8HP", 
@@ -577,7 +595,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Série 3", "Série 5", "X3", "X5", "Range Rover Evoque"], 
           symptoms: ["à-coups bas régime", "convertisseur couple", "software box", "retard passage"], 
           severity: "moyen", 
-          note: "Boîte robuste mais logiciels parfois capricieux. Mise à jour souvent nécessaire." 
+          note: "Boîte robuste mais logiciels parfois capricieux. Mise à jour souvent nécessaire.",
+          wear_factor: 0.4
         },
         { 
           code: "EGR / Admission", 
@@ -586,7 +605,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Série 3", "Série 5", "X3", "X5"], 
           symptoms: ["risque incendie collecteur", "fuite liquide refroidissement sur EGR", "odeur plastique brûlé"], 
           severity: "critique", 
-          note: "Rappel sécurité majeur. Danger immédiat." 
+          note: "Rappel sécurité majeur. Danger immédiat.",
+          wear_factor: 0.9
         }
       ]
     },
@@ -600,7 +620,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Classe A", "Classe B", "CLA", "GLA", "Classe C", "Classe E"], 
           symptoms: ["injecteurs piézo HS", "casse moteur", "consommation huile", "bruit injection fort", "ratés allumage"], 
           severity: "critique", 
-          note: "Injecteurs sensibles à la qualité du gasoil. Remplacement cher." 
+          note: "Injecteurs sensibles à la qualité du gasoil. Remplacement cher.",
+          wear_factor: 0.7
         },
         { 
           code: "7G-Tronic Plus", 
@@ -609,7 +630,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Classe C", "Classe E", "GLK", "ML"], 
           symptoms: ["à-coups", "perte propulsion", "convertisseur", "calculateur boîte", "bloque P"], 
           severity: "critique", 
-          note: "Automatique classique mais fiable seulement si entretenue rigoureusement." 
+          note: "Automatique classique mais fiable seulement si entretenue rigoureusement.",
+          wear_factor: 0.5
         },
         { 
           code: "AdBlue / SCR", 
@@ -618,7 +640,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Classe C", "Classe E", "GLC", "GLE"], 
           symptoms: ["pompe cristallisée", "capteur NOx", "immobilisation", "voyant orange permanent"], 
           severity: "moyen", 
-          note: "Coûteux hors garantie. Blocage véhicule fréquent." 
+          note: "Coûteux hors garantie. Blocage véhicule fréquent.",
+          wear_factor: 0.4
         }
       ]
     },
@@ -632,7 +655,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Focus Mk3", "Fiesta Mk7", "B-Max", "Kuga", "Mondeo"], 
           symptoms: ["vibrations moteur", "à-coups boîte", "patinage embrayage", "bruit métal", "odeur brûlé", "cliquetis"], 
           severity: "critique", 
-          note: "Boîte double embrayage à sec désignée comme défaillante mondialement. Class actions massives." 
+          note: "Boîte double embrayage à sec désignée comme défaillante mondialement. Class actions massives.",
+          wear_factor: 0.8
         },
         { 
           code: "Ecoboost 1.0L", 
@@ -641,7 +665,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Focus", "Fiesta", "Kuga", "Mondeo", "C-Max"], 
           symptoms: ["joint culasse fissuré", "refroidissement insuffisant", "surchauffe", "eau dans huile", "fumée blanche"], 
           severity: "critique", 
-          note: "Bloc aluminium sensible à la chaleur. Défaut de conception thermique." 
+          note: "Bloc aluminium sensible à la chaleur. Défaut de conception thermique.",
+          wear_factor: 0.9
         },
         { 
           code: "Duratorq 2.0 TDCi", 
@@ -650,7 +675,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Focus", "Mondeo", "Kuga", "Transit"], 
           symptoms: ["injecteurs", "volant moteur bimasse", "bruit transmission", "vibrations pédales"], 
           severity: "moyen", 
-          note: "Volant moteur lourd sujet à usure prématurée." 
+          note: "Volant moteur lourd sujet à usure prématurée.",
+          wear_factor: 0.5
         }
       ]
     },
@@ -664,7 +690,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Yaris", "Auris", "Avensis", "RAV4", "C-HR", "Corolla"], 
           symptoms: ["airbag gonflable", "projection métal", "rappel sécurité vital", "voyant airbag"], 
           severity: "critique", 
-          note: "Danger mortel immédiat. Rappel mondial." 
+          note: "Danger mortel immédiat. Rappel mondial.",
+          wear_factor: 1.0
         },
         { 
           code: "Throttle Pedal", 
@@ -673,7 +700,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Yaris", "Corolla", "Camry", "Prius"], 
           symptoms: ["pédale coince", "accélération involontaire", "difficulté retour pédale"], 
           severity: "critique", 
-          note: "Rappel mondial historique. Sécurité active compromise." 
+          note: "Rappel mondial historique. Sécurité active compromise.",
+          wear_factor: 1.0
         },
         { 
           code: "Hybrid Synergy Drive", 
@@ -682,7 +710,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Prius", "Yaris Hybrid", "C-HR", "Auris Hybrid"], 
           symptoms: ["onduleur inversion", "batterie HV faible capacité", "ventilation batterie obstruée", "perte autonomie"], 
           severity: "moyen", 
-          note: "Fiabilité globale bonne, points faibles électroniques/batterie." 
+          note: "Fiabilité globale bonne, points faibles électroniques/batterie.",
+          wear_factor: 0.3
         }
       ]
     },
@@ -696,7 +725,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["500", "Panda", "Punto", "Bravo", "Freemont"], 
           symptoms: ["robot boîte HS", "pas de vitesse", "cliquetis actuateur", "bloqué en neutre", "erreur embrayage"], 
           severity: "critique", 
-          note: "Embrayage piloté très fragile. Panne sèche fréquente." 
+          note: "Embrayage piloté très fragile. Panne sèche fréquente.",
+          wear_factor: 0.8
         },
         { 
           code: "MultiJet 1.3", 
@@ -705,7 +735,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Punto", "Bravo", "Doblò", "500L", "Panda"], 
           symptoms: ["chaîne distribution", "turbo bruit", "consommation huile", "claquement"], 
           severity: "moyen", 
-          note: "Petit diesel nerveux mais fragile mécaniquement." 
+          note: "Petit diesel nerveux mais fragile mécaniquement.",
+          wear_factor: 0.6
         },
         { 
           code: "DDCT / TwinAir", 
@@ -714,7 +745,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["500X", "Tipo", "Panda", "500"], 
           symptoms: ["embrayage chaud", "patinage", "boîte lente", "vibrations"], 
           severity: "moyen", 
-          note: "Technologie récente perfectible." 
+          note: "Technologie récente perfectible.",
+          wear_factor: 0.5
         }
       ]
     },
@@ -728,7 +760,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Qashqai J11", "X-Trail T32", "Juke", "Note"], 
           symptoms: ["casse bielle", "coussinets", "pompe huile", "bruit métallique"], 
           severity: "critique", 
-          note: "Partenariat Renault-Nissan, mêmes défauts que K9K." 
+          note: "Partenariat Renault-Nissan, mêmes défauts que K9K.",
+          wear_factor: 0.9
         },
         { 
           code: "CVT X-Tronic", 
@@ -737,7 +770,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Qashqai", "X-Trail", "Micra", "Leaf"], 
           symptoms: ["à-coups", "glissement courroie", "bruit whining", "surchauffe boîte", "perte puissance progressive"], 
           severity: "critique", 
-          note: "Variateur continu sensible au couple élevé. Durée de vie limitée." 
+          note: "Variateur continu sensible au couple élevé. Durée de vie limitée.",
+          wear_factor: 0.6
         }
       ]
     },
@@ -751,7 +785,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Corsa D/E", "Astra J/K", "Mokka", "Insignia"], 
           symptoms: ["consommation huile", "segments pistons", "casse moteur", "turbo fuite", "fumée"], 
           severity: "critique", 
-          note: "Moteur essence petit cylindré turbocompressé fragile." 
+          note: "Moteur essence petit cylindré turbocompressé fragile.",
+          wear_factor: 0.8
         },
         { 
           code: "Cooling System", 
@@ -760,7 +795,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Astra H/J", "Zafira B/C", "Vectra"], 
           symptoms: ["fuite radiateur chauffage", "surchauffe", "risque incendie (Zafira B)", "liquide blanc fumée"], 
           severity: "critique", 
-          note: "Défaut de conception circuit de refroidissement habitacle. Rappel massif." 
+          note: "Défaut de conception circuit de refroidissement habitacle. Rappel massif.",
+          wear_factor: 0.9
         }
       ]
     },
@@ -774,7 +810,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["i30", "Tucson", "ix35", "Santa Fe", "Elantra"], 
           symptoms: ["injecteurs", "consommation huile", "bruit injection", "ratés"], 
           severity: "moyen", 
-          note: "Diesel moderne complexe. Sensible à la qualité carburant." 
+          note: "Diesel moderne complexe. Sensible à la qualité carburant.",
+          wear_factor: 0.5
         },
         { 
           code: "DCT 7 Speed", 
@@ -783,7 +820,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["i20", "i30", "Tucson", "Kona"], 
           symptoms: ["à-coups", "patinage basse vitesse", "bruit boîte", "vibrations"], 
           severity: "moyen", 
-          note: "Double embrayage à sec. Comportement urbain médiocre." 
+          note: "Double embrayage à sec. Comportement urbain médiocre.",
+          wear_factor: 0.4
         }
       ]
     },
@@ -797,7 +835,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Ceed", "Sportage", "Niro", "Picanto"], 
           symptoms: ["identique Hyundai", "injecteurs", "huile", "bruit"], 
           severity: "moyen", 
-          note: "Plateforme commune Hyundai." 
+          note: "Plateforme commune Hyundai.",
+          wear_factor: 0.5
         },
         { 
           code: "Catalytic Converter", 
@@ -806,7 +845,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Ceed", "Sportage", "Picanto", "Rio"], 
           symptoms: ["risque incendie sous caisse", "température excessive catalyseur", "odeur brûlé", "fumée noire"], 
           severity: "critique", 
-          note: "Rappel sécurité spécifique. Danger incendie." 
+          note: "Rappel sécurité spécifique. Danger incendie.",
+          wear_factor: 0.9
         }
       ]
     },
@@ -820,7 +860,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["V40", "V60", "XC60", "S60", "XC90"], 
           symptoms: ["consommation huile", "segments", "casse moteur", "turbo", "fumée"], 
           severity: "critique", 
-          note: "Essence suralimenté direct injection fragile. Problème chronique." 
+          note: "Essence suralimenté direct injection fragile. Problème chronique.",
+          wear_factor: 0.8
         },
         { 
           code: "AdBlue", 
@@ -829,7 +870,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["XC90", "V90", "S90", "XC60"], 
           symptoms: ["pompe", "cristallisation", "blocage démarrage"], 
           severity: "moyen", 
-          note: "Système SCR standard." 
+          note: "Système SCR standard.",
+          wear_factor: 0.4
         }
       ]
     },
@@ -843,7 +885,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Ibiza", "Leon", "Altea", "Toledo"], 
           symptoms: ["dieselgate", "logiciel", "NOx"], 
           severity: "critique", 
-          note: "Groupe VAG." 
+          note: "Groupe VAG.",
+          wear_factor: 1.0
         },
         { 
           code: "DSG7 DQ200", 
@@ -852,7 +895,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Leon", "Ateca", "Toledo", "Ibiza"], 
           symptoms: ["mécatronique", "à-coups", "patinage"], 
           severity: "critique", 
-          note: "Groupe VAG. Idem Audi/VW." 
+          note: "Groupe VAG. Idem Audi/VW.",
+          wear_factor: 0.7
         }
       ]
     },
@@ -866,7 +910,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Octavia", "Superb", "Yeti", "Fabia"], 
           symptoms: ["dieselgate"], 
           severity: "critique", 
-          note: "Groupe VAG." 
+          note: "Groupe VAG.",
+          wear_factor: 1.0
         },
         { 
           code: "TSI EA111/EA888", 
@@ -875,7 +920,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Octavia", "Superb", "Fabia", "Rapid"], 
           symptoms: ["consommation huile", "chaîne distribution (EA111)", "carbonisation soupapes", "bruit"], 
           severity: "moyen", 
-          note: "Injection directe essence. Nettoyage régulier nécessaire." 
+          note: "Injection directe essence. Nettoyage régulier nécessaire.",
+          wear_factor: 0.6
         }
       ]
     },
@@ -889,7 +935,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Renegade", "Compass", "Cherokee"], 
           symptoms: ["surchauffe embrayage", "à-coups", "bruit boîte", "mode limp", "odeur brûlé"], 
           severity: "critique", 
-          note: "Boîte double embrayage à sec peu adaptée au tout-terrain/ville dense." 
+          note: "Boîte double embrayage à sec peu adaptée au tout-terrain/ville dense.",
+          wear_factor: 0.7
         },
         { 
           code: "Multijet 1.6", 
@@ -898,7 +945,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Renegade", "Compass"], 
           symptoms: ["injecteurs", "turbo", "huile"], 
           severity: "moyen", 
-          note: "Base Fiat/Stellantis." 
+          note: "Base Fiat/Stellantis.",
+          wear_factor: 0.5
         }
       ]
     },
@@ -912,7 +960,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Duster", "Sandero", "Logan", "Lodgy", "Spring"], 
           symptoms: ["casse bielle", "coussinets", "pompe huile", "bruit"], 
           severity: "critique", 
-          note: "Base Renault. Mêmes risques." 
+          note: "Base Renault. Mêmes risques.",
+          wear_factor: 0.9
         },
         { 
           code: "EDC6", 
@@ -921,7 +970,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Duster", "Sandero Stepway", "Logan"], 
           symptoms: ["à-coups", "blocage", "patinage"], 
           severity: "moyen", 
-          note: "Base Renault." 
+          note: "Base Renault.",
+          wear_factor: 0.6
         }
       ]
     },
@@ -935,7 +985,8 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Cooper S", "Countryman", "Clubman", "Paceman"], 
           symptoms: ["chaîne distribution", "consommation huile", "segments", "turbo", "water pump", "bruit crécelle"], 
           severity: "critique", 
-          note: "Conception BMW/PSA conjointe, très problématique. Rappel historique." 
+          note: "Conception BMW/PSA conjointe, très problématique. Rappel historique.",
+          wear_factor: 0.8
         },
         { 
           code: "Getrag DCT", 
@@ -944,22 +995,24 @@ document.addEventListener('DOMContentLoaded', function () {
           models: ["Cooper", "Clubman", "Countryman"], 
           symptoms: ["à-coups", "bruit boîte", "patinage"], 
           severity: "moyen", 
-          note: "Boîte robotisée double embrayage." 
+          note: "Boîte robotisée double embrayage.",
+          wear_factor: 0.5
         }
       ]
     }
   };
 
   // =====================================================
-  // LOGIQUE DE CORRELATION TECHNIQUE AVANCÉE
+  // LOGIQUE DE CORRELATION TECHNIQUE AVANCÉE (AVEC USURE)
   // =====================================================
   
-  function matchTechnicalDefects(marque, modele, annee, texteFaits) {
+  function matchTechnicalDefects(marque, modele, annee, kilometrage, texteFaits) {
     const brandKey = Object.keys(TECHNICAL_KNOWLEDGE_BASE).find(k => k.includes(normalize(marque)) || normalize(marque).includes(k));
     if (!brandKey) return [];
 
     const db = TECHNICAL_KNOWLEDGE_BASE[brandKey];
     const yearNum = parseInt(annee) || 0;
+    const kmNum = parseInt(String(kilometrage).replace(/\D/g,'')) || 0;
     const textLower = normalize(texteFaits);
     const matches = [];
 
@@ -980,7 +1033,6 @@ document.addEventListener('DOMContentLoaded', function () {
       
       engine.symptoms.forEach(symptom => {
         const symNorm = normalize(symptom);
-        // Recherche exacte ou partielle (mots clés > 3 lettres)
         if (textLower.includes(symNorm) || symNorm.split(' ').every(word => word.length > 3 && textLower.includes(word))) {
           symptomScore++;
           matchedSymptoms.push(symptom);
@@ -989,6 +1041,24 @@ document.addEventListener('DOMContentLoaded', function () {
 
       // Si année OK, modèle OK (ou non précisé) et au moins un symptôme clé détecté
       if (yearMatch && modelMatch && symptomScore > 0) {
+        
+        // CALCUL DU FACTEUR DE VÉTUSTÉ / USURE NORMALE
+        // Si le véhicule a beaucoup de km et que le facteur d'usure est bas (< 0.5), 
+        // on réduit la confiance en disant que ça pourrait être de l'usure normale.
+        let confidenceLevel = "Haute";
+        let wearWarning = "";
+        
+        if (kmNum > 150000 && engine.wear_factor < 0.6) {
+           confidenceLevel = "Moyenne/Basse";
+           wearWarning = "Attention : Avec ce kilométrage élevé, une partie des symptômes peut relever de l'usure normale plutôt que d'un vice caché.";
+        } else if (kmNum > 100000 && engine.wear_factor < 0.8) {
+           confidenceLevel = "Moyenne";
+           wearWarning = "Le kilométrage suggère une usure possible, mais la nature du défaut reste suspecte.";
+        } else {
+           confidenceLevel = "Haute";
+           wearWarning = "Le kilométrage est compatible avec un défaut de conception/vice caché.";
+        }
+
         matches.push({
           constructeur: db.label,
           moteur: engine.code,
@@ -998,17 +1068,22 @@ document.addEventListener('DOMContentLoaded', function () {
           severite: engine.severity,
           description_defaut: engine.note,
           symptomes_detectes: matchedSymptoms,
-          score_correlation: symptomScore
+          score_correlation: symptomScore,
+          confidence_niveau: confidenceLevel,
+          alert_usure: wearWarning
         });
       }
     });
 
-    // Tri par pertinence (score décroissant)
-    return matches.sort((a, b) => b.score_correlation - a.score_correlation);
+    // Tri par pertinence (score décroissant) puis par sévérité
+    return matches.sort((a, b) => {
+       if (b.score_correlation !== a.score_correlation) return b.score_correlation - a.score_correlation;
+       return b.severite === 'critique' ? 1 : -1;
+    });
   }
 
   function checkYearRange(rangeStr, targetYear) {
-    if (!targetYear) return true; // Si pas d'année fournie, on considère potentiellement compatible
+    if (!targetYear) return true; 
     const parts = rangeStr.split('-').map(s => parseInt(s.trim()));
     if (parts.length === 2) {
       return targetYear >= parts[0] && targetYear <= parts[1];
@@ -1072,11 +1147,12 @@ document.addEventListener('DOMContentLoaded', function () {
       repair: allText.includes('réparation') || allText.includes('ordre de réparation'),
       controlTech: allText.includes('contrôle technique'),
       warranty: allText.includes('garantie'),
-      safety: ['sécurité', 'frein', 'airbag', 'direction', 'incendie', 'danger'].some(w => allText.includes(w))
+      safety: ['sécurité', 'frein', 'airbag', 'direction', 'incendie', 'danger'].some(w => allText.includes(w)),
+      waterLeak: ['eau', 'humidité', 'infiltration', 'baie', 'pare brise', 'moisiure', 'court circuit'].some(w => allText.includes(w))
     };
 
-    // CORRELATION TECHNIQUE GRANULAIRE
-    const technicalMatches = matchTechnicalDefects(vehicleData.marque, vehicleData.modele, vehicleData.annee, text);
+    // CORRELATION TECHNIQUE GRANULAIRE AVEC KM
+    const technicalMatches = matchTechnicalDefects(vehicleData.marque, vehicleData.modele, vehicleData.annee, vehicleData.kilometrage, text);
 
     analysisData = {
       date: new Date().toLocaleString('fr-FR'),
@@ -1091,10 +1167,10 @@ document.addEventListener('DOMContentLoaded', function () {
     const sections = [];
 
     sections.push(['I. ÉLÉMENTS FACTUELS ET IDENTIFICATION VÉHICULE', sectionFacts(text, context)]);
-    sections.push(['II. DIAGNOSTIC TECHNIQUE ASSOCIÉ AUX DÉFAUTS CONNUS', sectionDiagnosticTechnique(technicalMatches, flags)]);
+    sections.push(['II. DIAGNOSTIC TECHNIQUE ASSOCIÉ AUX DÉFAUTS CONNUS (ET ANALYSE USURE)', sectionDiagnosticTechnique(technicalMatches, flags, vehicleData)]);
     sections.push(['III. QUALIFICATION JURIDIQUE PROVISOIRE', sectionQualification(flags, technicalMatches)]);
     sections.push(['IV. RISQUES ET RESPONSABILITÉS SELON LA QUALITÉ DU VENDEUR', sectionRisques(flags, technicalMatches)]);
-    sections.push(['V. ANALYSE DES TROIS CRITÈRES CUMULATIFS', sectionCritères(flags, technicalMatches)]);
+    sections.push(['V. ANALYSE DES TROIS CRITÈRES CUMULATIFS (ADAPTÉE À L'USURE)', sectionCritères(flags, technicalMatches, vehicleData)]);
     sections.push(['VI. RÉGIMES DE GARANTIE POTENTIELLEMENT INVOCABLES', sectionGaranties(flags)]);
     sections.push(['VII. ANALYSE DOCUMENTAIRE ET PROBATOIRE', sectionDocuments(flags)]);
     sections.push([sections.length + 1 + '. JURISPRUDENCE ET DOCTRINE DE RÉFÉRENCE', sectionJurisprudence()]);
@@ -1114,7 +1190,7 @@ document.addEventListener('DOMContentLoaded', function () {
     analysisData.sections.forEach(([title, content]) => {
       html += `<h3>${title}</h3>${content}`;
     });
-    html += `<div class="verification-needed"><strong>Rappel méthodologique :</strong> cette analyse croise vos dires avec une base de connaissances techniques. Elle reste une aide à la rédaction.</div>`;
+    html += `<div class="verification-needed"><strong>Rappel méthodologique :</strong> cette analyse croise vos dires avec une base de connaissances techniques intégrant la notion d'usure. Elle reste une aide à la rédaction.</div>`;
     $('#analysisResult').innerHTML = html;
     $('#analysisSection').classList.remove('hidden');
     $('#analysisSection').scrollIntoView({ behavior: 'smooth' });
@@ -1132,7 +1208,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <li><strong>Marque :</strong> ${escapeHtml(vehicleData.marque || 'non précisée')}</li>
         <li><strong>Modèle :</strong> ${escapeHtml(vehicleData.modele || 'non précisé')}</li>
         <li><strong>Année :</strong> ${escapeHtml(vehicleData.annee || 'non précisée')}</li>
-        <li><strong>Kilométrage :</strong> ${escapeHtml(vehicleData.kilometrage || 'non précisé')}</li>
+        <li><strong>Kilométrage :</strong> ${escapeHtml(vehicleData.kilometrage || 'non précisé')} ${term('kilométrage', 'usure normale')}</li>
       </ul>
       <h4>B. Faits rapportés</h4>
       <p>${escapeHtml(text.slice(0, 1000))}${text.length > 1000 ? '...' : ''}</p>
@@ -1141,7 +1217,7 @@ document.addEventListener('DOMContentLoaded', function () {
     `;
   }
 
-  function sectionDiagnosticTechnique(matches, flags) {
+  function sectionDiagnosticTechnique(matches, flags, vData) {
     if (!matches.length) {
       return `
         <p><strong>Objet :</strong> recherche de correspondance avec des défauts conceptuels connus ${term('défauts conceptuels', 'problèmes récurrents')}.</p>
@@ -1154,10 +1230,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     let html = `<p><strong>Objet :</strong> identification de potentiels défauts de série ou vices cachés notoires ${term('vice caché notoire', 'défaut de série')}.</p>`;
-    html += `<p>Nos algorithmes ont croisé vos descriptions avec une base de données technique automobile. Voici les correspondances les plus probables :</p>`;
+    html += `<p>Nos algorithmes ont croisé vos descriptions avec une base de données technique automobile intégrant les facteurs d'usure. Voici les correspondances les plus probables :</p>`;
 
     matches.forEach((m, index) => {
       const cls = m.severite === 'critique' ? 'rappel-critical' : 'rappel-info';
+      const confColor = m.confidence_niveau === 'Haute' ? '#10b981' : (m.confidence_niveau === 'Moyenne' ? '#f59e0b' : '#ef4444');
+      
       html += `
         <div class="${cls}">
           <h4>${index + 1}. ${escapeHtml(m.moteur)} (${escapeHtml(m.puissance)}) - Période : ${escapeHtml(m.periode)}</h4>
@@ -1166,9 +1244,22 @@ document.addEventListener('DOMContentLoaded', function () {
           <p><strong>Symptômes détectés chez vous :</strong> ${escapeHtml(m.symptomes_detectes.join(', '))}</p>
           <p><strong>Description du défaut connu :</strong> ${escapeHtml(m.description_defaut)}</p>
           <p><strong>Niveau de gravité estimé :</strong> <span style="font-weight:bold;color:${m.severite==='critique'?'#dc3545':'#ffc107'}">${m.severite.toUpperCase()}</span></p>
+          <p><strong>Confiance Diagnostique (vs Usure) :</strong> <span style="color:${confColor}; font-weight:bold;">${m.confidence_niveau}</span></p>
+          ${m.alert_usure ? `<p style="background:#fff3cd; padding:8px; border-radius:4px; margin-top:5px;"><small>⚠️ ${escapeHtml(m.alert_usure)}</small></p>` : ''}
         </div>
       `;
     });
+
+    // Mention spéciale infiltration eau si détecté
+    if (flags.waterLeak && matches.some(m => m.moteur.includes("Baie"))) {
+       html += `
+         <div class="rappel-critical">
+            <h4>💧 Alerte Infiltration Eau</h4>
+            <p>Les symptômes évoquent une infiltration d'eau (potentiellement via la baie de pare-brise ou joints portes). Ce type de défaut est souvent considéré comme un <strong>vice caché</strong> car il dépend de la qualité de montage usine, indépendamment du kilométrage.</p>
+            <p>Il convient de vérifier l'état des joints et des évacuations d'eau de climatisation/toiture ouvrante.</p>
+         </div>
+       `;
+    }
 
     html += `
       <div class="certainty-medium">
@@ -1232,12 +1323,31 @@ document.addEventListener('DOMContentLoaded', function () {
     return html;
   }
 
-  function sectionCritères(flags, matches) {
-    let html = `<p><strong>Objet :</strong> critères cumulatifs ${term('critères cumulatifs')}.</p>`;
+  function sectionCritères(flags, matches, vData) {
+    let html = `<p><strong>Objet :</strong> critères cumulatifs adaptés à l'analyse d'usure ${term('critères cumulatifs', 'usure normale')}.</p>`;
     
-    const anteriorityArg = matches.length ? "La nature 'de série' du défaut suggère fortement son existence avant la vente." : "L'antériorité doit être prouvée par expertise.";
-    const hiddenArg = matches.length ? "Un défaut de conception n'est généralement pas apparent lors d'une inspection visuelle standard." : "Le caractère caché dépend de la diligence de l'acheteur.";
-    const gravityArg = matches.some(m=>m.severite==='critique') ? "La gravité est élevée (risque sécurité/moteur)." : "La gravité dépend du coût de réparation vs valeur véhicule.";
+    const km = parseInt(String(vData.kilometrage).replace(/\D/g,'')) || 0;
+    const isHighKm = km > 150000;
+    const bestMatch = matches[0]; // On prend le meilleur match pour l'argumentation
+    
+    let anteriorityArg = "L'antériorité doit être prouvée par expertise.";
+    let hiddenArg = "Le caractère caché dépend de la diligence de l'acheteur.";
+    let gravityArg = "La gravité dépend du coût de réparation vs valeur véhicule.";
+
+    if (bestMatch) {
+       if (bestMatch.confidence_niveau === 'Haute') {
+          anteriorityArg = "La nature 'de série' du défaut suggère fortement son existence avant la vente, indépendamment du kilométrage.";
+          hiddenArg = "Un défaut de conception/infiltration n'est généralement pas apparent lors d'une inspection visuelle standard.";
+       } else if (bestMatch.confidence_niveau === 'Moyenne') {
+          anteriorityArg = "Le défaut est probablement antérieur, mais le kilométrage élevé introduit un doute sur l'origine exclusive du dysfonctionnement.";
+          hiddenArg = "Le caractère caché est soutenable, mais l'usure normale pourrait expliquer partiellement les symptômes.";
+       } else {
+          anteriorityArg = "Au vu du kilométrage élevé, il est difficile d'affirmer l'antériorité pure sans écarter l'hypothèse d'usure normale.";
+          hiddenArg = "Les symptômes pourraient être dus à l'usure naturelle des pièces, excluant le caractère 'caché'. ";
+       }
+       
+       gravityArg = bestMatch.severite === 'critique' ? "La gravité est élevée (risque sécurité/moteur)." : "La gravité dépend du coût de réparation vs valeur véhicule.";
+    }
 
     html += `
       <h4>A. Antériorité</h4><p>${anteriorityArg} ${term('antériorité')}</p>
@@ -1266,6 +1376,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <li>Ordonnance/Rapport réparation ${flags.repair ? '(présent)' : '(à demander)'}</li>
         <li>Contrôle Technique ${flags.controlTech ? '(présent)' : '(à vérifier)'}</li>
         <li>Historique entretien (Livret, Factures garage)</li>
+        <li>Photos des infiltrations/eau si applicable</li>
       </ul>
     `;
   }
@@ -1277,6 +1388,7 @@ document.addEventListener('DOMContentLoaded', function () {
         <li>Cass. Civ. 1ère, 3 mai 2006 : Appréciation du caractère caché.</li>
         <li>Cass. Civ. 1ère, 12 juill. 2018 : Obligation de vérification des rappels pro.</li>
         <li>TGI Paris, 15 janv. 2020 : Condamnation Renault 1.5 dCi (bielles).</li>
+        <li>Jurisprudence constante : L'usure normale exclut la garantie des vices cachés.</li>
       </ul>
     `;
   }
@@ -1300,7 +1412,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
     html += `
       <ol>
-        <li>Expertise amiable contradictoire</li>
+        <li>Expertise amiable contradictoire (insister sur la distinction usure/défaut)</li>
         <li>Mise en demeure LRAR</li>
         <li>Médiation / Conciliation</li>
         <li>Action judiciaire si échec</li>
@@ -1312,7 +1424,7 @@ document.addEventListener('DOMContentLoaded', function () {
   function sectionVerification(matches) {
     let html = `<p><strong>Objet :</strong> vérifications ${term('vérifications complémentaires')}.</p>`;
     if (matches.length) {
-      html += `<ul><li>Vérifier VIN sur site constructeur pour rappel spécifique.</li><li>Demander historique maintenance détaillé.</li></ul>`;
+      html += `<ul><li>Vérifier VIN sur site constructeur pour rappel spécifique.</li><li>Demander historique maintenance détaillé.</li><li>Photographier les zones d'infiltration si suspicion eau.</li></ul>`;
     }
     html += `<ul><li>Obtenir devis réparation officiel.</li><li>Consulter avocat spécialisé.</li></ul>`;
     return html;
@@ -1330,9 +1442,14 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   function sectionConclusion(objective, matches) {
+    const hasHighConfidence = matches.some(m => m.confidence_niveau === 'Haute');
+    const summary = hasHighConfidence 
+      ? "Les éléments techniques tendent à confirmer un défaut de conception ou vice caché, distinct de l'usure normale." 
+      : "Les éléments techniques suggèrent un problème potentiel, mais l'usure liée au kilométrage doit être écartée par expertise.";
+
     return `
       <p><strong>Objet :</strong> conclusion ${term('synthèse')}.</p>
-      <p>L'analyse technique suggère ${matches.length ? 'une forte probabilité de défaut conceptuel connu' : 'un problème individuel nécessitant diagnostic'}. 
+      <p>L'analyse technique suggère : ${summary} 
       Juridiquement, la voie de la ${term('garantie légale de conformité')} ou ${term('vices cachés')} est ouverte selon le vendeur.</p>
       <div class="certainty-low"><strong>Avertissement :</strong> Ne constitue pas un conseil juridique définitif.</div>
     `;
