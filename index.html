@@ -4,11 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#1a1a2e" />
-  <meta name="description" content="Aide rédactionnelle experte en analyse technique et juridique automobile - droit français" />
   <title>Aide Rédactionnelle Expert</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
-  <link rel="apple-touch-icon" href="icon-192.png" />
 </head>
 <body>
 
@@ -31,7 +29,7 @@
       <!-- Admin -->
       <div id="adminPane" class="auth-pane active">
         <label for="adminPassword">Mot de passe administrateur</label>
-        <input type="password" id="adminPassword" placeholder="Mot de passe" />
+        <input type="password" id="adminPassword" placeholder="Entrez le mot de passe" />
         <button id="adminLoginBtn" class="btn-primary">Se connecter</button>
       </div>
 
@@ -39,13 +37,10 @@
       <div id="requestPane" class="auth-pane">
         <label for="reqName">Nom complet</label>
         <input type="text" id="reqName" placeholder="Nom et prénom" />
-
         <label for="reqEmail">Email</label>
         <input type="email" id="reqEmail" placeholder="email@exemple.fr" />
-
         <label for="reqReason">Motif de la demande</label>
-        <textarea id="reqReason" placeholder="Expliquez brièvement votre besoin d’accès..."></textarea>
-
+        <textarea id="reqReason" placeholder="Expliquez brièvement votre besoin..."></textarea>
         <button id="requestBtn" class="btn-secondary">Envoyer la demande</button>
       </div>
 
@@ -53,10 +48,8 @@
       <div id="loginPane" class="auth-pane">
         <label for="loginName">Nom complet</label>
         <input type="text" id="loginName" placeholder="Nom utilisé lors de la demande" />
-
         <label for="loginEmail">Email</label>
         <input type="email" id="loginEmail" placeholder="Email utilisé lors de la demande" />
-
         <button id="thirdLoginBtn" class="btn-secondary">Se connecter</button>
       </div>
 
@@ -67,92 +60,73 @@
   <!-- ========================= -->
   <!-- APPLICATION PRINCIPALE    -->
   <!-- ========================= -->
-  <div id="mainApp" class="hidden">
-    <div class="container">
-      <header>
-        <div class="header-top">
-          <h1>📋 Aide Rédactionnelle Expert</h1>
-          <div class="header-actions">
-            <span id="userBadge" class="badge"></span>
-            <button id="installBtn" class="icon-btn hidden" title="Installer l’application">📲</button>
-            <button id="adminPanelBtn" class="icon-btn hidden" title="Panneau admin">⚙️</button>
-            <button id="logoutBtn" class="icon-btn" title="Déconnexion">🚪</button>
+  <div id="mainApp" class="container hidden">
+    <header>
+      <div class="header-top">
+        <h1>📋 Analyse Expert Auto</h1>
+        <div class="header-actions">
+          <span id="userBadge" class="badge"></span>
+          <button id="installBtn" class="icon-btn hidden" title="Installer l’application">📲</button>
+          <button id="adminPanelBtn" class="icon-btn hidden" title="Panneau admin">⚙️</button>
+          <button id="logoutBtn" class="icon-btn" title="Déconnexion">🚪</button>
+        </div>
+      </div>
+      <p class="subtitle">Analyse factuelle — niveau ingénieur / juriste</p>
+      <div id="dailyCounter" class="counter"></div>
+    </header>
+
+    <main>
+      <section class="input-section">
+        <div class="vehicle-box">
+          <h3>🚗 Véhicule</h3>
+          <div class="grid">
+            <div><label for="vehicleBrand">Marque</label><input id="vehicleBrand" type="text" placeholder="Renault, Peugeot..." /></div>
+            <div><label for="vehicleModel">Modèle</label><input id="vehicleModel" type="text" placeholder="Clio, 308..." /></div>
+            <div><label for="vehicleYear">Année</label><input id="vehicleYear" type="text" placeholder="2015" /></div>
+            <div><label for="vehicleKilometrage">Km</label><input id="vehicleKilometrage" type="text" placeholder="85000" /></div>
+            <div><label for="vehicleVin">VIN</label><input id="vehicleVin" type="text" placeholder="Numéro série" /></div>
           </div>
         </div>
-        <p class="subtitle">Analyse factuelle — niveau ingénieur / juriste / avocat</p>
-        <div id="dailyCounter" class="counter"></div>
-      </header>
 
-      <main>
-        <section class="input-section">
-          <div class="vehicle-box">
-            <h3>🚗 Véhicule</h3>
-            <div class="grid">
-              <div>
-                <label for="vehicleBrand">Marque</label>
-                <input id="vehicleBrand" type="text" placeholder="Renault, Peugeot, BMW..." />
-              </div>
-              <div>
-                <label for="vehicleModel">Modèle</label>
-                <input id="vehicleModel" type="text" placeholder="Clio, 308, Série 3..." />
-              </div>
-              <div>
-                <label for="vehicleYear">Année</label>
-                <input id="vehicleYear" type="text" placeholder="2015" />
-              </div>
-              <div>
-                <label for="vehicleKilometrage">Kilométrage</label>
-                <input id="vehicleKilometrage" type="text" placeholder="85000 km" />
-              </div>
-              <div>
-                <label for="vehicleVin">VIN</label>
-                <input id="vehicleVin" type="text" placeholder="Numéro de série" />
-              </div>
-            </div>
-          </div>
+        <div class="field">
+          <label for="textInput">Faits / Désordres / Symptômes</label>
+          <textarea id="textInput" placeholder="Décrivez précisément les pannes, bruits, fuites, à-coups..."></textarea>
+        </div>
 
-          <div class="field">
-            <label for="textInput">Faits / désordres / éléments techniques</label>
-            <textarea id="textInput" placeholder="Décrivez précisément les faits constatés, symptômes, dates, documents, échanges..."></textarea>
-          </div>
+        <div class="field">
+          <label for="pdfUpload">Importer PDF (Optionnel)</label>
+          <input id="pdfUpload" type="file" accept=".pdf" />
+          <div id="pdfStatus" class="status"></div>
+        </div>
 
-          <div class="field">
-            <label for="pdfUpload">Importer un PDF (facultatif)</label>
-            <input id="pdfUpload" type="file" accept=".pdf" />
-            <div id="pdfStatus" class="status"></div>
-          </div>
+        <div class="field">
+          <label for="contextInfo">Contexte Vendeur/Date</label>
+          <textarea id="contextInfo" placeholder="Vendeur pro ou particulier ? Date d'achat ? Documents dispo ?"></textarea>
+        </div>
 
-          <div class="field">
-            <label for="contextInfo">Contexte</label>
-            <textarea id="contextInfo" placeholder="Date d’achat, vendeur pro ou particulier, documents disponibles, démarches déjà faites..."></textarea>
-          </div>
+        <div class="field">
+          <label for="objectiveInfo">Objectif</label>
+          <textarea id="objectiveInfo" placeholder="Remboursement, réparation, dossier avocat..."></textarea>
+        </div>
 
-          <div class="field">
-            <label for="objectiveInfo">Objectif recherché</label>
-            <textarea id="objectiveInfo" placeholder="Remboursement, réparation, réduction de prix, dossier pour avocat, mise en demeure..."></textarea>
-          </div>
+        <button id="analyzeBtn" class="btn-primary">🔍 Lancer l’analyse experte</button>
+      </section>
 
-          <button id="analyzeBtn" class="btn-primary">🔍 Lancer l’analyse experte</button>
-        </section>
+      <section id="analysisSection" class="analysis-section hidden">
+        <h2>📊 Rapport d'Analyse</h2>
+        <div class="disclaimer">
+          <strong>⚠️ Avertissement :</strong> Document généré automatiquement. Ne remplace pas un conseil juridique officiel ni une expertise judiciaire contradictoire.
+        </div>
+        <div id="analysisResult" class="analysis-result"></div>
+        
+        <div class="actions-row">
+          <button id="generatePdfBtn" class="btn-secondary">📄 Télécharger PDF</button>
+          <button id="shareBtn" class="btn-secondary">📤 Partager Texte</button>
+        </div>
+      </section>
+    </main>
 
-        <section id="analysisSection" class="analysis-section hidden">
-          <h2>📊 Analyse technique et juridique</h2>
-          <div class="disclaimer">
-            <strong>⚠️ Avertissement :</strong> cette analyse est générée à partir des éléments fournis. Elle constitue une aide à la rédaction et ne remplace ni une expertise contradictoire, ni l’avis d’un avocat ou d’un expert judiciaire.
-          </div>
-          <div id="analysisResult" class="analysis-result"></div>
-
-          <div class="actions-row">
-            <button id="generatePdfBtn" class="btn-secondary">📄 Générer le PDF</button>
-            <button id="shareBtn" class="btn-secondary">📤 Partager</button>
-          </div>
-        </section>
-      </main>
-
-      <footer>
-        Droit français — outil d’aide à la rédaction — ne constitue pas un conseil juridique personnalisé.
-      </footer>
-    </div>
+    <footer>Droit Français - Outil d'aide à la rédaction.</footer>
   </div>
 
   <!-- ========================= -->
@@ -168,41 +142,25 @@
       <div class="admin-tabs">
         <button class="admin-tab active" data-admin-tab="requests">🔑 Demandes</button>
         <button class="admin-tab" data-admin-tab="users">👥 Utilisateurs</button>
-        <button class="admin-tab" data-admin-tab="stats">📈 Statistiques</button>
-        <button class="admin-tab" data-admin-tab="apk">📦 APK / Données</button>
+        <button class="admin-tab" data-admin-tab="stats">📈 Stats</button>
+        <button class="admin-tab" data-admin-tab="apk">📦 APK/Data</button>
       </div>
 
-      <div id="requestsPane" class="admin-pane active">
-        <h3>Demandes en attente</h3>
-        <div id="pendingRequests" class="list"></div>
-      </div>
-
-      <div id="usersPane" class="admin-pane">
-        <h3>Tiers enregistrés</h3>
-        <div id="authorizedUsers" class="list"></div>
-      </div>
-
-      <div id="statsPane" class="admin-pane">
-        <h3>Statistiques</h3>
-        <div id="statsContent" class="stats"></div>
-      </div>
-
+      <div id="requestsPane" class="admin-pane active"><h3>Demandes en attente</h3><div id="pendingRequests" class="list"></div></div>
+      <div id="usersPane" class="admin-pane"><h3>Tiers autorisés</h3><div id="authorizedUsers" class="list"></div></div>
+      <div id="statsPane" class="admin-pane"><h3>Statistiques</h3><div id="statsContent" class="stats"></div></div>
+      
       <div id="apkPane" class="admin-pane">
-        <h3>APK / PWA / Données</h3>
-        <p class="muted">
-          Pour générer un APK téléchargeable et partageable, utilisez PWABuilder avec l’URL déployée du site.
-        </p>
+        <h3>Génération APK & Données</h3>
+        <p class="muted">Pour créer l'APK, cliquez ci-dessous. Assurez-vous que le site est bien en ligne (GitHub Pages).</p>
         <div class="actions-row">
           <button id="apkBtn" class="btn-secondary">📦 Ouvrir PWABuilder</button>
-          <button id="copyUrlBtn" class="btn-secondary">🔗 Copier l’URL</button>
-          <button id="installBtn2" class="btn-secondary hidden">📲 Installer</button>
+          <button id="copyUrlBtn" class="btn-secondary">🔗 Copier URL</button>
         </div>
-
-        <hr />
-
+        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;" />
         <div class="actions-row">
-          <button id="exportDataBtn" class="btn-secondary">⬇️ Exporter les données</button>
-          <button id="importDataBtn" class="btn-secondary">⬆️ Importer les données</button>
+          <button id="exportDataBtn" class="btn-secondary">⬇️ Exporter JSON</button>
+          <button id="importDataBtn" class="btn-secondary">⬆️ Importer JSON</button>
         </div>
       </div>
     </div>
@@ -210,8 +168,11 @@
 
   <div id="toast" class="toast hidden"></div>
 
+  <!-- Scripts Externes -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  
+  <!-- Script Principal -->
   <script src="app.js"></script>
 </body>
 </html>
