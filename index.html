@@ -53,18 +53,25 @@
       </div>
 
       <!-- Demande d'accès -->
-      <div id="requestPane" class="auth-pane">
-        <label for="reqName">Nom complet</label>
-        <input type="text" id="reqName" placeholder="Nom et prénom" />
+      <!-- Panneau Demande d'accès -->
+<div id="requestPane" class="auth-pane">
+  <label for="reqName">Nom complet</label>
+  <input type="text" id="reqName" placeholder="Nom et prénom" />
 
-        <label for="reqEmail">Email</label>
-        <input type="email" id="reqEmail" placeholder="email@exemple.fr" />
+  <label for="reqEmail">Email</label>
+  <input type="email" id="reqEmail" placeholder="email@exemple.fr" />
 
-        <label for="reqReason">Motif de la demande</label>
-        <textarea id="reqReason" placeholder="Décrivez votre besoin : litige, expertise, analyse, document..."></textarea>
+  <label for="reqReason">Motif de la demande</label>
+  <textarea id="reqReason" placeholder="Expliquez brièvement votre besoin..."></textarea>
 
-        <button id="requestBtn" class="btn-secondary">Envoyer la demande</button>
-      </div>
+  <button id="requestBtn" class="btn-secondary" type="button">
+    Envoyer la demande
+  </button>
+
+  <button id="shareRequestBtn" class="btn-secondary hidden" type="button">
+    📤 Partager la demande avec l’admin
+  </button>
+</div>
 
       <!-- Connexion tiers -->
       <div id="loginPane" class="auth-pane">
