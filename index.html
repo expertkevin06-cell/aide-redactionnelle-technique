@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#1a1a2e" />
-  <meta name="description" content="Analyse technique et juridique automobile en mode expert, ingénieur, juriste, sécurité, auto-diagnostic et motorisation." />
-  <title>Aide Rédactionnelle Expert Auto v15</title>
+  <meta name="description" content="Analyse technique et juridique automobile en mode expert, ingénieur, juriste, sécurité, auto-diagnostic, motorisation et sélection véhicule intelligente." />
+  <title>Aide Rédactionnelle Expert Auto v16</title>
 
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
@@ -18,7 +18,7 @@
       <div class="login-head">
         <h1>📋 Aide Rédactionnelle Expert</h1>
         <p>Analyse technique & juridique automobile</p>
-        <small class="version">v15 — Motorisation dynamique + auto-diagnostic + connexion tiers réparée</small>
+        <small class="version">v16 — Marque prédictive + Modèle filtré + Motorisation réelle par modèle/année</small>
       </div>
 
       <div class="auth-tabs">
@@ -135,37 +135,58 @@
     <main>
       <section class="input-section">
         <div class="vehicle-box">
-          <h3>1. Identification du véhicule</h3>
+          <h3>1. Identification intelligente du véhicule</h3>
+
           <div class="grid">
-            <div>
+            <div class="suggest-wrap" id="brandWrap">
               <label for="vehicleBrand">Marque</label>
-              <input id="vehicleBrand" type="text" placeholder="Renault, Peugeot, Tesla, BYD..." />
+              <input
+                id="vehicleBrand"
+                type="text"
+                placeholder="Tapez : Renault, Peugeot, Tesla, BYD..."
+                autocomplete="off"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
+              />
+              <div id="brandSuggestions" class="suggest-box hidden"></div>
             </div>
+
             <div>
               <label for="vehicleModel">Modèle</label>
-              <input id="vehicleModel" type="text" placeholder="Clio, 3008, Model Y, Atto 3..." />
+              <select id="vehicleModel">
+                <option value="">Choisir d’abord une marque</option>
+              </select>
             </div>
+
             <div>
               <label for="vehicleYear">Année / mise en circulation</label>
               <input id="vehicleYear" type="number" min="1990" max="2035" placeholder="2021" />
             </div>
+
             <div>
               <label for="vehicleEngine">Motorisation</label>
               <select id="vehicleEngine">
-                <option value="">Automatique / non précisée</option>
+                <option value="">Choisir d’abord un modèle</option>
               </select>
               <small id="engineHelp" class="help-text">
-                Saisissez marque, modèle et année pour charger les motorisations compatibles.
+                Les motorisations proposées dépendent du modèle et de l’année.
               </small>
             </div>
+
             <div>
               <label for="vehicleKilometrage">Kilométrage</label>
               <input id="vehicleKilometrage" type="number" min="0" placeholder="85000" />
             </div>
+
             <div>
               <label for="vehicleVin">VIN / numéro de série</label>
               <input id="vehicleVin" type="text" placeholder="VF1... / WVW... / 5YJ..." />
             </div>
+          </div>
+
+          <div id="selectionSummary" class="selection-summary">
+            Aucune sélection véhicule complète.
           </div>
         </div>
 
@@ -231,7 +252,7 @@
     </main>
 
     <footer>
-      © 2026 Aide Rédactionnelle Expert — Base locale autonome + motorisation + auto-diagnostic.
+      © 2026 Aide Rédactionnelle Expert — Sélection véhicule intelligente + base locale + auto-diagnostic.
     </footer>
   </div>
 
@@ -281,8 +302,7 @@
       <div id="dbPane" class="admin-pane">
         <h3>Base technique locale + motorisation + auto-diagnostic</h3>
         <p class="muted">
-          Base ingénieur 2017–2027, catalogue de motorisations dynamique, appui auto-diagnostic,
-          DTC, rappels, fiches expert, corrélation juridique.
+          Catalogue local de marques, modèles et motorisations, enrichissable par JSON et synchronisable avec auto-diagnostic.
         </p>
 
         <div class="stats-grid">
@@ -293,6 +313,10 @@
           <div class="stat-box">
             <span>Marques</span>
             <b id="statBrands">--</b>
+          </div>
+          <div class="stat-box">
+            <span>Modèles</span>
+            <b id="statModels">--</b>
           </div>
           <div class="stat-box">
             <span>Motorisations</span>
