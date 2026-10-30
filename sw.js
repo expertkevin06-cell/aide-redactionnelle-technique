@@ -1,38 +1,44 @@
-const CACHE_NAME = 'aide-redactionnelle-expert-v4';
+const CACHE_NAME = "arex-expert-v11";
 const ASSETS = [
-  './',
-  './index.html',
-  './styles.css',
-  './app.js',
-  './manifest.json',
-  './icon-192.png',
-  './icon-512.png'
+  "./",
+  "./index.html",
+  "./styles.css",
+  "./app.js",
+  "./manifest.json",
+  "./icon-192.png",
+  "./icon-512.png"
 ];
 
-self.addEventListener('install', (event) => {
+self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return Promise.allSettled(ASSETS.map((asset) => cache.add(asset)));
+      return cache.addAll(ASSETS).catch(() => {
+        // Si une icône manque, ne pas bloquer l'installation du SW.
+        return cache.addAll(["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"]);
+      });
     })
   );
   self.skipWaiting();
 });
 
-self.addEventListener('activate', (event) => {
+self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
       );
     })
   );
   self.clients.claim();
 });
 
-self.addEventListener('fetch', (event) => {
-  if (event.request.method !== 'GET') return;
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url);
+
+  // Ne pas intercepter les requêtes cross-origin type CDN si elles échouent.
+  if (url.origin !== location.origin) {
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
@@ -40,7 +46,7 @@ self.addEventListener('fetch', (event) => {
 
       return fetch(event.request)
         .then((response) => {
-          if (!response || response.status !== 200 || response.type !== 'basic') {
+          if (!response || response.status !== 200 || response.type !== "basic") {
             return response;
           }
 
@@ -51,7 +57,11 @@ self.addEventListener('fetch', (event) => {
 
           return response;
         })
-        .catch(() => caches.match('./index.html'));
+        .catch(() => {
+          if (event.request.destination === "document") {
+            return caches.match("./index.html");
+          }
+        });
     })
   );
 });
