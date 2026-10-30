@@ -58,7 +58,7 @@ body {
 
 .login-card {
   width: 100%;
-  max-width: 540px;
+  max-width: 560px;
   background: #fff;
   border-radius: 18px;
   box-shadow: 0 24px 60px rgba(0,0,0,0.22);
@@ -188,15 +188,19 @@ textarea {
   -webkit-text-security: none !important;
   user-select: none;
   -webkit-user-select: none;
+  letter-spacing: 0;
+  font-size: 16px;
 }
 
 .invisible-password::placeholder {
   color: #9ca3af;
+  -webkit-text-fill-color: #9ca3af;
 }
 
 .invisible-password::selection {
   background: transparent;
   color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 
 input.invisible-password:-webkit-autofill,
@@ -829,6 +833,24 @@ footer {
   }
 
   .actions-row button {
+    width: 100%;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #analysisResult,
+  #analysisResult * {
+    visibility: visible;
+  }
+
+  #analysisResult {
+    position: absolute;
+    left: 0;
+    top: 0;
     width: 100%;
   }
 }
