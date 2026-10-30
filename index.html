@@ -7,7 +7,6 @@
   <title>Aide Rédactionnelle Expert - Auto/Tech</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
-  <!-- Icônes -->
   <link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
@@ -20,7 +19,7 @@
       <div class="login-head">
         <h1>📋 Aide Rédactionnelle Expert</h1>
         <p>Analyse Technique & Juridique Automobile</p>
-        <small style="color:#666; display:block; margin-top:5px;">Version Offline/Hybrid v6.0</small>
+        <small style="color:#666; display:block; margin-top:5px;">Version Autonome v8.0 (Offline Ready)</small>
       </div>
 
       <div class="auth-tabs">
@@ -82,7 +81,7 @@
       </div>
       <p class="subtitle">Ingénierie • Droit Civil • Consommation</p>
       <div id="dailyCounter" class="counter"></div>
-      <div id="dataStatus" class="data-status">Chargement base technique...</div>
+      <div id="dataStatus" class="data-status">Initialisation...</div>
     </header>
 
     <main>
@@ -111,7 +110,7 @@
 
         <div class="grid-2">
           <div class="field">
-            <label for="contextInfo">4. Contexte Vendeur</label>
+            <label for="sellerType">4. Type Vendeur</label>
             <select id="sellerType">
               <option value="unknown">Inconnu / Préciser ci-dessous</option>
               <option value="professional">Professionnel (Garage/Concession)</option>
@@ -120,7 +119,7 @@
             <textarea id="contextInfo" placeholder="Date achat, garanties restantes, échanges antérieurs..."></textarea>
           </div>
           <div class="field">
-            <label for="objectiveInfo">5. Objectif Recherché</label>
+            <label for="goalSelect">5. Objectif Recherché</label>
             <select id="goalSelect">
               <option value="refund">Remboursement Total</option>
               <option value="repair">Prise en charge Réparation</option>
@@ -181,13 +180,12 @@
 
       <div id="dbPane" class="admin-pane">
         <h3>Gestion Base de Données Technique</h3>
-        <p class="muted">La base intègre automatiquement les données locales et tente une synchronisation avec les sources externes (si connectées).</p>
+        <p class="muted">Base locale intégrée. Aucune connexion internet requise.</p>
         <div class="stats-grid">
           <div class="stat-box"><span>Entrées Défauts</span><b id="statEntries">--</b></div>
           <div class="stat-box"><span>Marques Couvertes</span><b id="statBrands">--</b></div>
-          <div class="stat-box"><span>Dernière Synchro</span><b id="statSync">Jamais</b></div>
+          <div class="stat-box"><span>Statut</span><b id="statSync">Locale</b></div>
         </div>
-        <button id="forceSyncBtn" class="btn-secondary mt-2">🔄 Forcer Synchronisation Externe</button>
       </div>
 
       <div id="apkPane" class="admin-pane">
