@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#1a1a2e" />
-  <meta name="description" content="Analyse technique et juridique automobile en mode expert, ingénieur, juriste, sécurité, auto-diagnostic, motorisation et sélection véhicule intelligente." />
-  <title>Aide Rédactionnelle Expert Auto v16</title>
+  <meta name="description" content="Analyse technique et juridique automobile en mode expert, ingénieur, juriste, sécurité, auto-diagnostic, catalogue marques/modèles/motorisations." />
+  <title>Aide Rédactionnelle Expert Auto v17</title>
 
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
@@ -18,7 +18,7 @@
       <div class="login-head">
         <h1>📋 Aide Rédactionnelle Expert</h1>
         <p>Analyse technique & juridique automobile</p>
-        <small class="version">v16 — Marque prédictive + Modèle filtré + Motorisation réelle par modèle/année</small>
+        <small class="version">v17 — Catalogue intelligent marque / modèle / motorisation / puissance</small>
       </div>
 
       <div class="auth-tabs">
@@ -127,7 +127,7 @@
         </div>
       </div>
 
-      <p class="subtitle">Ingénieur • Juriste • Avocat • Sécurité automobile • Auto-diagnostic • Motorisation</p>
+      <p class="subtitle">Ingénieur • Juriste • Avocat • Sécurité automobile • Auto-diagnostic • Catalogue véhicule</p>
       <div id="dailyCounter" class="counter"></div>
       <div id="dataStatus" class="data-status">Initialisation...</div>
     </header>
@@ -138,25 +138,29 @@
           <h3>1. Identification intelligente du véhicule</h3>
 
           <div class="grid">
-            <div class="suggest-wrap" id="brandWrap">
-              <label for="vehicleBrand">Marque</label>
+            <div class="combo" id="brandCombo">
+              <label for="brandInput">Marque</label>
               <input
-                id="vehicleBrand"
+                id="brandInput"
                 type="text"
-                placeholder="Tapez : Renault, Peugeot, Tesla, BYD..."
+                placeholder="Tapez : Renault, Peugeot, Tesla, BYD, Volkswagen..."
                 autocomplete="off"
                 autocorrect="off"
                 autocapitalize="off"
                 spellcheck="false"
               />
-              <div id="brandSuggestions" class="suggest-box hidden"></div>
+              <div id="brandPanel" class="combo-panel hidden"></div>
             </div>
 
-            <div>
-              <label for="vehicleModel">Modèle</label>
-              <select id="vehicleModel">
-                <option value="">Choisir d’abord une marque</option>
-              </select>
+            <div class="combo" id="modelCombo">
+              <label for="modelButton">Modèle</label>
+              <button id="modelButton" type="button" class="combo-button" disabled>
+                Choisir d’abord une marque
+              </button>
+              <div id="modelPanel" class="combo-panel hidden">
+                <input id="modelSearch" class="combo-search" type="text" placeholder="Rechercher un modèle..." />
+                <div id="modelList" class="combo-list"></div>
+              </div>
             </div>
 
             <div>
@@ -164,14 +168,15 @@
               <input id="vehicleYear" type="number" min="1990" max="2035" placeholder="2021" />
             </div>
 
-            <div>
-              <label for="vehicleEngine">Motorisation</label>
-              <select id="vehicleEngine">
-                <option value="">Choisir d’abord un modèle</option>
-              </select>
-              <small id="engineHelp" class="help-text">
-                Les motorisations proposées dépendent du modèle et de l’année.
-              </small>
+            <div class="combo" id="engineCombo">
+              <label for="engineButton">Motorisation / puissance</label>
+              <button id="engineButton" type="button" class="combo-button" disabled>
+                Choisir d’abord un modèle
+              </button>
+              <div id="enginePanel" class="combo-panel hidden">
+                <input id="engineSearch" class="combo-search" type="text" placeholder="Rechercher énergie, moteur, puissance, boîte..." />
+                <div id="engineList" class="combo-list"></div>
+              </div>
             </div>
 
             <div>
@@ -187,6 +192,10 @@
 
           <div id="selectionSummary" class="selection-summary">
             Aucune sélection véhicule complète.
+          </div>
+
+          <div id="catalogHelp" class="help-text">
+            Les listes se remplissent selon la marque, le modèle et l’année. Le catalogue peut être complété par import JSON ou synchronisation auto-diagnostic.
           </div>
         </div>
 
@@ -252,7 +261,7 @@
     </main>
 
     <footer>
-      © 2026 Aide Rédactionnelle Expert — Sélection véhicule intelligente + base locale + auto-diagnostic.
+      © 2026 Aide Rédactionnelle Expert — Catalogue véhicule intelligent + base locale + auto-diagnostic.
     </footer>
   </div>
 
@@ -300,16 +309,12 @@
       </div>
 
       <div id="dbPane" class="admin-pane">
-        <h3>Base technique locale + motorisation + auto-diagnostic</h3>
+        <h3>Base technique locale + catalogue véhicule + auto-diagnostic</h3>
         <p class="muted">
-          Catalogue local de marques, modèles et motorisations, enrichissable par JSON et synchronisable avec auto-diagnostic.
+          Le catalogue est construit à partir des fichiers locaux, de la base auto-diagnostic, des imports JSON et, si activé, de NHTSA vPIC.
         </p>
 
         <div class="stats-grid">
-          <div class="stat-box">
-            <span>Défauts locaux</span>
-            <b id="statEntries">--</b>
-          </div>
           <div class="stat-box">
             <span>Marques</span>
             <b id="statBrands">--</b>
@@ -321,6 +326,10 @@
           <div class="stat-box">
             <span>Motorisations</span>
             <b id="statEngines">--</b>
+          </div>
+          <div class="stat-box">
+            <span>Défauts / fiches</span>
+            <b id="statEntries">--</b>
           </div>
           <div class="stat-box">
             <span>Auto-diagnostic</span>
@@ -337,30 +346,44 @@
         </div>
 
         <div class="admin-field">
+          <label for="vehicleCatalogUrl">URL catalogue véhicule</label>
+          <input id="vehicleCatalogUrl" type="url" placeholder="./data/vehicle-catalog.json" />
+        </div>
+
+        <div class="admin-field">
+          <label for="engineCatalogUrl">URL catalogue motorisations</label>
+          <input id="engineCatalogUrl" type="url" placeholder="./data/engine-catalog.json" />
+        </div>
+
+        <div class="admin-field">
           <label for="autoBaseUrl">URL base auto-diagnostic</label>
           <input id="autoBaseUrl" type="url" placeholder="https://expertkevin06-cell.github.io/auto-diagnostic/" />
         </div>
 
         <div class="admin-field">
-          <label for="autoEndpoints">Endpoints JSON / fichiers à tester (un par ligne)</label>
-          <textarea id="autoEndpoints" placeholder="data/base.json
-data/pannes.json
+          <label for="autoEndpoints">Endpoints JSON auto-diagnostic (un par ligne)</label>
+          <textarea id="autoEndpoints" placeholder="data/vehicle-catalog.json
+data/engine-catalog.json
 data/models.json
 data/motorisations.json
-data/engine-catalog.json
-data/dtc.json
+data/base.json
 db.json"></textarea>
         </div>
 
+        <div class="checkbox-group">
+          <input type="checkbox" id="nhtsaEnabled" />
+          <label for="nhtsaEnabled">Activer le chargement complémentaire NHTSA vPIC pour les modèles</label>
+        </div>
+
         <div class="actions-row">
-          <button id="saveAutoCfgBtn" class="btn-secondary" type="button">
-            💾 Enregistrer configuration auto-diagnostic
+          <button id="saveCatalogCfgBtn" class="btn-secondary" type="button">
+            💾 Enregistrer configuration catalogue
+          </button>
+          <button id="reloadCatalogBtn" class="btn-secondary" type="button">
+            🔄 Recharger catalogues
           </button>
           <button id="syncAutoBtn" class="btn-secondary" type="button">
-            🔄 Synchroniser auto-diagnostic maintenant
-          </button>
-          <button id="loadEngineCatalogBtn" class="btn-secondary" type="button">
-            ⚙️ Charger catalogue motorisations
+            📡 Synchroniser auto-diagnostic
           </button>
         </div>
 
@@ -377,11 +400,55 @@ db.json"></textarea>
         </div>
 
         <div class="verification-needed">
-          Format attendu pour <code>technical-updates.json</code> :
-          <pre>{ "defects": [ { "b":"Marque", "m":"Modèle1|Modèle2", "y":"2017-2027", "e":"Moteur", "p":"Puissance", "s":"symptome1|symptome2", "sev":"critique", "wf":0.9, "n":"Description", "law":"Base légale", "rec":"Rappel/TSB", "tg":"tags", "dtc":"P0xxx|P1xxx", "sourceUrl":"https://..." } ] }</pre>
+          Format accepté pour <code>vehicle-catalog.json</code> :
+          <pre>{
+  "brands": ["Renault", "Peugeot", "..."],
+  "models": [
+    ["Renault", "Clio V", "2019-2026"],
+    ["Peugeot", "3008 III", "2024-2026"]
+  ],
+  "engines": [
+    ["Renault", "Clio V", "2019-2026", "1.0 TCe", "65ch|90ch", "Essence", "BVM6"],
+    ["Peugeot", "3008 III", "2024-2026", "1.6 Hybrid 225", "225ch", "Hybride rechargeable", "EAT8"]
+  ]
+}</pre>
 
-          Format attendu pour <code>engine-catalog.json</code> :
-          <pre>{ "motorisations": [ { "b":"Marque", "m":"Modèle1|Modèle2", "y":"2019-2024", "e":"1.2 PureTech", "p":"100ch|130ch", "t":"Essence" } ] }</pre>
+          Format accepté pour <code>engine-catalog.json</code> :
+          <pre>{
+  "motorisations": [
+    {
+      "b": "Marque",
+      "m": "Modèle",
+      "y": "2019-2026",
+      "e": "1.2 PureTech",
+      "p": "130ch",
+      "t": "Essence",
+      "tr": "BVM6"
+    }
+  ]
+}</pre>
+
+          Format accepté pour <code>technical-updates.json</code> :
+          <pre>{
+  "defects": [
+    {
+      "b": "Marque",
+      "m": "Modèle1|Modèle2",
+      "y": "2017-2027",
+      "e": "Moteur / système",
+      "p": "Puissance",
+      "s": "symptome1|symptome2",
+      "sev": "critique",
+      "wf": 0.9,
+      "n": "Description technique",
+      "law": "Base légale",
+      "rec": "Rappel/TSB",
+      "tg": "tags",
+      "dtc": "P0xxx|P1xxx",
+      "sourceUrl": "https://..."
+    }
+  ]
+}</pre>
         </div>
       </div>
 
