@@ -182,6 +182,28 @@
     }
   }
 
+  function resolveUrl(base, path) {
+    try {
+      return new URL(path, base).href;
+    } catch (e) {
+      return String(base || "") + String(path || "");
+    }
+  }
+
+  function valToString(v) {
+    if (Array.isArray(v)) return v.join("|");
+    if (v == null) return "";
+    return String(v);
+  }
+
+  function firstVal(obj, keys) {
+    for (var i = 0; i < keys.length; i++) {
+      var k = keys[i];
+      if (obj && obj[k] != null && obj[k] !== "") return obj[k];
+    }
+    return "";
+  }
+
   /* =========================================================
      CHARGEMENT DYNAMIQUE DES BIBLIOTHEQUES
      L'application démarre même si ces bibliothèques échouent.
@@ -258,16 +280,42 @@
     maxDailyAnalyses: 10,
     updateIntervalDays: 30,
     updateUrl: "./data/technical-updates.json",
-    pollAdminMs: 5000
+    pollAdminMs: 5000,
+    autoDiagnostic: {
+      baseUrl: "https://expertkevin06-cell.github.io/auto-diagnostic/",
+      pageUrl: "index.html",
+      endpoints: [
+        "data/base.json",
+        "data/pannes.json",
+        "data/models.json",
+        "data/dtc.json",
+        "data/technical-updates.json",
+        "db.json",
+        "database.json",
+        "data/db.json",
+        "assets/db.json",
+        "js/data.json"
+      ],
+      scriptUrls: [
+        "js/app.js",
+        "js/data.js",
+        "js/base.js",
+        "app.js",
+        "data.js"
+      ]
+    }
   };
 
   var KEYS = {
-    SESSION: "arex_session_v13",
-    USERS: "arex_users_v13",
-    REQUESTS: "arex_requests_v13",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v13",
-    TECH_UPDATES: "arex_tech_updates_v13",
-    LAST_UPDATE: "arex_last_update_v13"
+    SESSION: "arex_session_v14",
+    USERS: "arex_users_v14",
+    REQUESTS: "arex_requests_v14",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v14",
+    TECH_UPDATES: "arex_tech_updates_v14",
+    LAST_UPDATE: "arex_last_update_v14",
+    AUTO_DB: "arex_auto_db_v14",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v14",
+    AUTO_CFG: "arex_auto_cfg_v14"
   };
 
   var currentUser = null;
@@ -277,6 +325,9 @@
   var termesMobilises = new Set();
   var deferredPrompt = null;
   var techUpdates = [];
+  var autoDb = [];
+  var autoLastSync = 0;
+  var autoConfig = Object.assign({}, CONFIG.autoDiagnostic);
   var swRegistration = null;
   var adminPollTimer = null;
   var lastPendingSignature = "";
@@ -1542,7 +1593,7 @@
   var SEED_DEFECTS = SPECIFIC_DEFECTS.concat(GENERATED_DEFECTS);
 
   function normalizeDefect(d) {
-    return {
+    var out = {
       b: d.b || d.brand || "",
       m: d.m || d.models || "",
       y: d.y || d.years || "",
@@ -1556,6 +1607,12 @@
       rec: d.rec || d.recall || d.recallRef || "",
       tg: d.tg || d.tags || ""
     };
+
+    if (d.source) out.source = d.source;
+    if (d.sourceUrl) out.sourceUrl = d.sourceUrl;
+    if (d.dtc) out.dtc = d.dtc;
+
+    return out;
   }
 
   function isValidDefect(d) {
@@ -1578,7 +1635,350 @@
   }
 
   function allDefects() {
-    return SEED_DEFECTS.concat(techUpdates || []);
+    return SEED_DEFECTS.concat(techUpdates || [], autoDb || []);
+  }
+
+  /* =========================================================
+     INTEGRATION AUTO-DIAGNOSTIC
+     ========================================================= */
+  function inferAutoLegal(sev, tags, symptoms) {
+    var laws = [];
+    var t = norm(tags || "");
+    var s = norm(symptoms || "");
+
+    if (sev === "critique") {
+      laws.push("Vice caché art. 1641 C.civ.");
+      laws.push("Défaut de conformité L.217-4 C.consom. si vendeur professionnel.");
+      laws.push("Tromperie L.213-1 C.consom. en cas de dissimulation.");
+    } else {
+      laws.push("Vice caché art. 1641 C.civ. à confirmer par expertise.");
+      laws.push("Usure normale à écarter selon kilométrage, entretien et usage.");
+    }
+
+    if (t.indexOf("eau") >= 0 || t.indexOf("electricite") >= 0 || s.indexOf("court circuit") >= 0) {
+      laws.push("Défaut de sécurité L.423-1 C.consom.");
+      laws.push("Produits défectueux art. 1245 C.civ.");
+    }
+
+    if (t.indexOf("incendie") >= 0 || s.indexOf("incendie") >= 0 || s.indexOf("airbag") >= 0) {
+      laws.push("Mise en danger art. 223-1 C.pénal.");
+      laws.push("Homicide/blessures involontaires art. 221-6 / 222-19 C.pénal en cas d’accident.");
+    }
+
+    if (t.indexOf("adas") >= 0 || s.indexOf("autopilot") >= 0 || s.indexOf("phantom") >= 0) {
+      laws.push("Sécurité des systèmes automatisés L.423-1 C.consom.");
+      laws.push("Responsabilité du constructeur art. 1245 C.civ.");
+    }
+
+    if (t.indexOf("batterie") >= 0 || s.indexOf("thermal runaway") >= 0) {
+      laws.push("Risque incendie batterie : sécurité L.423-1, produits défectueux 1245 C.civ.");
+    }
+
+    return laws.filter(function (v, i, a) { return a.indexOf(v) === i; }).join(" | ");
+  }
+
+  function normalizeAutoRecord(r, sourceUrl) {
+    if (!r || typeof r !== "object") return null;
+
+    var brand = valToString(firstVal(r, ["b", "brand", "marque", "constructeur", "make"]));
+    var model = valToString(firstVal(r, ["m", "models", "model", "modele", "modèle", "vehicle", "vehicule"]));
+    var years = valToString(firstVal(r, ["y", "years", "annee", "année", "millésime", "range", "period"]));
+    var engine = valToString(firstVal(r, ["e", "engine", "motorisation", "moteur", "powertrain"]));
+    var power = valToString(firstVal(r, ["p", "power", "puissance", "ch", "kw"]));
+    var symptoms = valToString(firstVal(r, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"]));
+    var severityRaw = norm(valToString(firstVal(r, ["sev", "severity", "gravite", "gravité", "niveau"])));
+    var note = valToString(firstVal(r, ["n", "note", "description", "fiche", "ficheExpert", "expert", "detail"]));
+    var law = valToString(firstVal(r, ["law", "legal", "baseLegale", "droit", "fondement"]));
+    var recall = valToString(firstVal(r, ["rec", "recall", "rappel", "campagne", "campaign", "source"]));
+    var tags = valToString(firstVal(r, ["tg", "tags", "categorie", "category", "family", "systeme"]));
+    var dtc = valToString(firstVal(r, ["dtc", "codeDtc", "code", "codes", "DTC"]));
+    var recSourceUrl = valToString(firstVal(r, ["sourceUrl", "url", "lien", "link"]));
+    var wfRaw = firstVal(r, ["wf", "wearFactor", "coefUsure", "resistanceUsure"]);
+    var wf = typeof wfRaw === "number" ? wfRaw : parseFloat(String(wfRaw || ""));
+    if (!isFinite(wf)) wf = 0.6;
+
+    if (!brand || !symptoms) return null;
+
+    if (!years && r.annee) years = String(r.annee);
+    if (years && /^\d{4}$/.test(years)) years = years + "-" + years;
+
+    var sev = "moyen";
+    if (severityRaw.indexOf("critique") >= 0 || severityRaw.indexOf("high") >= 0 || severityRaw.indexOf("major") >= 0) sev = "critique";
+    else if (severityRaw.indexOf("moyen") >= 0 || severityRaw.indexOf("medium") >= 0) sev = "moyen";
+    else if (severityRaw.indexOf("faible") >= 0 || severityRaw.indexOf("low") >= 0) sev = "faible";
+
+    if (!law) law = inferAutoLegal(sev, tags, symptoms);
+
+    return {
+      b: brand,
+      m: model || "*",
+      y: years || "2017-2027",
+      e: engine || "Auto-diagnostic",
+      p: power || "N/A",
+      s: symptoms,
+      sev: sev,
+      wf: wf,
+      n: note || "Fiche technique issue de la base auto-diagnostic.",
+      law: law,
+      rec: recall || "Source auto-diagnostic",
+      tg: tags || "auto-diagnostic",
+      dtc: dtc,
+      source: "auto-diagnostic",
+      sourceUrl: recSourceUrl || sourceUrl || autoConfig.baseUrl
+    };
+  }
+
+  function parseBalanced(text, start) {
+    var open = text.charAt(start);
+    if (open !== "[" && open !== "{") return null;
+
+    var stack = [open];
+    var inString = false;
+    var escape = false;
+    var max = Math.min(text.length, start + 1500000);
+
+    for (var i = start + 1; i < max; i++) {
+      var ch = text.charAt(i);
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (ch === "[" || ch === "{") {
+        stack.push(ch);
+      } else if (ch === "]" || ch === "}") {
+        var expected = ch === "]" ? "[" : "{";
+        if (stack.pop() !== expected) return null;
+        if (stack.length === 0) return text.substring(start, i + 1);
+      }
+    }
+
+    return null;
+  }
+
+  function extractJsonCandidates(text) {
+    var out = [];
+    if (!text) return out;
+
+    var keywordRe = /marque|brand|modele|model|panne|defaut|dtc|symptom|rappel|recall|motorisation|engine|fiche/i;
+    var max = Math.min(text.length, 2000000);
+    var attempts = 0;
+
+    for (var i = 0; i < max && attempts < 120; i++) {
+      var ch = text.charAt(i);
+      if (ch !== "[" && ch !== "{") continue;
+
+      var snippet = text.substr(i, 400).toLowerCase();
+      if (!keywordRe.test(snippet)) continue;
+
+      attempts++;
+      var raw = parseBalanced(text, i);
+      if (!raw) continue;
+
+      try {
+        var obj = JSON.parse(raw);
+        out.push(obj);
+        i += raw.length;
+      } catch (e) {}
+    }
+
+    return out;
+  }
+
+  function collectRecordsFromJson(json, sourceUrl, depth) {
+    depth = depth || 0;
+    var out = [];
+    if (!json || depth > 4) return out;
+
+    if (Array.isArray(json)) {
+      json.forEach(function (item) {
+        if (item && typeof item === "object" && Array.isArray(item.pannes)) {
+          var parent = Object.assign({}, item);
+          delete parent.pannes;
+          item.pannes.forEach(function (p) {
+            var sub = Object.assign({}, parent, p || {});
+            var rec = normalizeAutoRecord(sub, sourceUrl);
+            if (rec) out.push(rec);
+          });
+        } else {
+          var rec = normalizeAutoRecord(item, sourceUrl);
+          if (rec) out.push(rec);
+        }
+      });
+      return out;
+    }
+
+    if (typeof json === "object") {
+      var direct = normalizeAutoRecord(json, sourceUrl);
+      if (direct) out.push(direct);
+
+      ["defects", "base", "pannes", "models", "dtc", "records", "data", "items", "technicalUpdates", "autoDiagnostic"].forEach(function (key) {
+        if (json[key] && typeof json[key] === "object") {
+          out = out.concat(collectRecordsFromJson(json[key], sourceUrl, depth + 1));
+        }
+      });
+    }
+
+    return out;
+  }
+
+  function fetchJsonUrl(url) {
+    return fetch(url, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      });
+  }
+
+  function fetchTextUrl(url) {
+    return fetch(url, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      });
+  }
+
+  function syncAutoDiagnostic(manual) {
+    if (!window.fetch) {
+      if (manual) toast("Synchronisation impossible : fetch non supporté.", "warning");
+      return Promise.resolve(false);
+    }
+
+    updateDataStatus(manual ? "Synchronisation auto-diagnostic en cours..." : "Synchronisation auto-diagnostic en arrière-plan...");
+
+    var baseUrl = autoConfig.baseUrl || CONFIG.autoDiagnostic.baseUrl;
+    var endpoints = autoConfig.endpoints || CONFIG.autoDiagnostic.endpoints;
+    var scriptUrls = autoConfig.scriptUrls || CONFIG.autoDiagnostic.scriptUrls;
+    var pageUrl = autoConfig.pageUrl || CONFIG.autoDiagnostic.pageUrl;
+
+    var tasks = [];
+
+    endpoints.forEach(function (ep) {
+      var url = resolveUrl(baseUrl, ep);
+      tasks.push(
+        fetchJsonUrl(url)
+          .then(function (json) {
+            return collectRecordsFromJson(json, url, 0);
+          })
+          .catch(function () {
+            return [];
+          })
+      );
+    });
+
+    return Promise.all(tasks).then(function (results) {
+      var incoming = [];
+      results.forEach(function (arr) {
+        incoming = incoming.concat(arr);
+      });
+
+      if (incoming.length) {
+        finishAutoSync(incoming, manual, "JSON direct");
+        return true;
+      }
+
+      var textTasks = [];
+
+      textTasks.push(
+        fetchTextUrl(resolveUrl(baseUrl, pageUrl))
+          .then(function (text) {
+            var candidates = extractJsonCandidates(text);
+            var recs = [];
+            candidates.forEach(function (c) {
+              recs = recs.concat(collectRecordsFromJson(c, resolveUrl(baseUrl, pageUrl), 0));
+            });
+            return recs;
+          })
+          .catch(function () { return []; })
+      );
+
+      scriptUrls.forEach(function (sp) {
+        var url = resolveUrl(baseUrl, sp);
+        textTasks.push(
+          fetchTextUrl(url)
+            .then(function (text) {
+              var candidates = extractJsonCandidates(text);
+              var recs = [];
+              candidates.forEach(function (c) {
+                recs = recs.concat(collectRecordsFromJson(c, url, 0));
+              });
+              return recs;
+            })
+            .catch(function () { return []; })
+        );
+      });
+
+      return Promise.all(textTasks).then(function (textResults) {
+        var fallbackIncoming = [];
+        textResults.forEach(function (arr) {
+          fallbackIncoming = fallbackIncoming.concat(arr);
+        });
+
+        if (fallbackIncoming.length) {
+          finishAutoSync(fallbackIncoming, manual, "extraction HTML/JS");
+          return true;
+        }
+
+        save(KEYS.AUTO_LAST_SYNC, Date.now());
+        autoLastSync = Date.now();
+        updateAdminStats();
+        updateDataStatus("Auto-diagnostic : aucune donnée JSON exploitable trouvée");
+        if (manual) toast("Aucune donnée auto-diagnostic exploitable trouvée. Utilisez import JSON ou exposez data/base.json.", "warning");
+        return false;
+      });
+    }).catch(function (err) {
+      console.warn("[AR-EXPERT] Sync auto-diagnostic impossible:", err);
+      updateDataStatus("Auto-diagnostic indisponible — base locale conservée");
+      if (manual) toast("Synchronisation auto-diagnostic impossible.", "warning");
+      return false;
+    });
+  }
+
+  function finishAutoSync(incoming, manual, mode) {
+    autoDb = mergeDefects(autoDb, incoming);
+    save(KEYS.AUTO_DB, autoDb);
+    autoLastSync = Date.now();
+    save(KEYS.AUTO_LAST_SYNC, autoLastSync);
+    updateAdminStats();
+    updateDataStatus("Auto-diagnostic synchronisé (" + mode + ")");
+    if (manual) toast("Auto-diagnostic synchronisé : " + incoming.length + " entrées traitées.", "success");
+    notify("Auto-diagnostic synchronisé", incoming.length + " entrées traitées (" + mode + ").");
+  }
+
+  function renderAutoConfig() {
+    var baseEl = q("#autoBaseUrl");
+    var epEl = q("#autoEndpoints");
+
+    if (baseEl) baseEl.value = autoConfig.baseUrl || "";
+    if (epEl) epEl.value = (autoConfig.endpoints || []).join("\n");
+  }
+
+  function saveAutoConfigFromUi() {
+    var baseEl = q("#autoBaseUrl");
+    var epEl = q("#autoEndpoints");
+
+    autoConfig.baseUrl = baseEl ? baseEl.value.trim() : autoConfig.baseUrl;
+    var rawEndpoints = epEl ? epEl.value : "";
+    autoConfig.endpoints = String(rawEndpoints)
+      .split(/[\n,]+/)
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return s; });
+
+    save(KEYS.AUTO_CFG, autoConfig);
+    toast("Configuration auto-diagnostic enregistrée.", "success");
   }
 
   /* =========================================================
@@ -1586,7 +1986,7 @@
      ========================================================= */
   function updateDataStatus(msg) {
     var el = q("#dataStatus");
-    if (el) el.textContent = msg;
+    if (el) el.textContent = msg + " • Auto-diagnostic: " + (autoDb ? autoDb.length : 0);
   }
 
   function checkAutoUpdate(manual) {
@@ -1789,20 +2189,24 @@
           baseLegale: legalFor(d),
           rappelRef: d.rec || "À vérifier via VIN auprès constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate.",
           wearFactor: d.wf,
-          tags: d.tg
+          tags: d.tg,
+          dtc: d.dtc || "",
+          source: d.source || "base locale",
+          sourceUrl: d.sourceUrl || ""
         });
       }
     });
 
-    return results.sort(function (a, b) { return b.score - a.score; }).slice(0, 12);
+    return results.sort(function (a, b) { return b.score - a.score; }).slice(0, 15);
   }
 
   function researchLinks(brand, model, engine, symptoms) {
     var baseQuery = (brand + " " + model + " " + (engine || "") + " " + (symptoms || []).slice(0, 3).join(" ")).trim();
-    var q1 = encodeURIComponent(baseQuery + " défaut panne rappel incendie");
+    var q1 = encodeURIComponent(baseQuery + " défaut panne rappel incendie DTC");
     var q2 = encodeURIComponent(brand + " " + model);
 
     return [
+      { label: "Base auto-diagnostic", url: autoConfig.baseUrl || CONFIG.autoDiagnostic.baseUrl },
       { label: "Recherche spécialisée Google / forums techniques", url: "https://www.google.com/search?q=" + q1 },
       { label: "Rappel Conso France (DGCCRF)", url: "https://www.rappel.conso.gouv.fr/recherche/?search=" + q2 },
       { label: "NHTSA Recalls (USA)", url: "https://www.nhtsa.gov/recalls?search=" + q2 },
@@ -1818,7 +2222,7 @@
   function addTerm() {
     var args = Array.prototype.slice.call(arguments);
     args.forEach(function (t) { termesMobilises.add(t); });
-    return `<span class="termes-juridiques">(${args.join(", ")})</span>`;
+    return '<span class="termes-juridiques">(' + args.join(", ") + ")</span>";
   }
 
   function runAnalysis(text, context, objective, sellerType) {
@@ -1831,6 +2235,7 @@
       waterLeak: ["eau", "humidité", "infiltration", "baie", "pare brise", "pare-brise", "moisiure", "court circuit", "traces d’eau", "flaque", "égouttement"].some(function (w) { return all.indexOf(w) >= 0; }),
       safety: ["sécurité", "frein", "airbag", "direction", "incendie", "danger", "vie", "intégrité physique", "mise en danger", "ADAS", "autopilot"].some(function (w) { return all.indexOf(w) >= 0; }),
       ev: ["batterie", "charge", "autonomie", "electrique", "électrique", "hybride", "BMS", "DC", "AC", "recharge"].some(function (w) { return all.indexOf(w) >= 0; }),
+      dtc: /\bp[0-9a-z]{3,5}\b/i.test(all) || all.indexOf("dtc") >= 0 || all.indexOf("code défaut") >= 0,
       invoice: all.indexOf("facture") >= 0,
       repair: all.indexOf("réparation") >= 0 || all.indexOf("ordre de réparation") >= 0 || all.indexOf("devis") >= 0,
       controlTech: all.indexOf("contrôle technique") >= 0 || all.indexOf(" ct ") >= 0,
@@ -1852,6 +2257,7 @@
     var S = [];
     S.push(["I. ÉLÉMENTS FACTUELS ET IDENTIFICATION DU VÉHICULE", secFacts(text, context)]);
     S.push(["II. DIAGNOSTIC TECHNIQUE — DÉFAUTS CONNUS, VÉTUSTÉ, USURE, SÉCURITÉ", secDiag(matches, flags, vehicleData)]);
+    S.push(["II-B. APPUI TECHNIQUE AUTO-DIAGNOSTIC IMPORTÉ", secAutoAppui(matches, flags)]);
     S.push(["III. QUALIFICATION JURIDIQUE PROVISOIRE", secQualif(flags, matches)]);
     S.push(["IV. RISQUES ET RESPONSABILITÉS SELON LA QUALITÉ DU VENDEUR", secRisques(flags, matches)]);
     S.push(["V. TROIS CRITÈRES CUMULATIFS : ANTÉRIORITÉ, CARACTÈRE CACHÉ, GRAVITÉ", secCriteres(flags, matches, vehicleData)]);
@@ -1872,10 +2278,10 @@
   function renderAnalysis() {
     var html = "";
     analysisData.sections.forEach(function (pair) {
-      html += `<h3>${pair[0]}</h3>${pair[1]}`;
+      html += "<h3>" + pair[0] + "</h3>" + pair[1];
     });
 
-    html += `<div class="verification-needed"><strong>Rappel méthodologique :</strong> ce rapport effectue d’abord un croisement local technique/juridique avant toute rédaction assistée par IA. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>`;
+    html += '<div class="verification-needed"><strong>Rappel méthodologique :</strong> ce rapport effectue d’abord un croisement local technique/juridique/auto-diagnostic avant toute rédaction assistée par IA. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>';
 
     var result = q("#analysisResult");
     if (result) result.innerHTML = html;
@@ -1888,24 +2294,24 @@
   }
 
   function secFacts(text, context) {
-    var h = `<p><strong>Objet :</strong> recensement des éléments fournis ${addTerm("éléments factuels", "faits allégués")}.</p>`;
+    var h = "<p><strong>Objet :</strong> recensement des éléments fournis " + addTerm("éléments factuels", "faits allégués") + ".</p>";
 
-    h += `<h4>A. Véhicule déclaré</h4><ul>`;
-    h += `<li><strong>Marque :</strong> ${esc(vehicleData.marque || "non précisée")}</li>`;
-    h += `<li><strong>Modèle :</strong> ${esc(vehicleData.modele || "non précisé")}</li>`;
-    h += `<li><strong>Année :</strong> ${esc(vehicleData.annee || "non précisée")} ${addTerm("millésime", "date de première mise en circulation")}</li>`;
-    h += `<li><strong>Kilométrage :</strong> ${esc(vehicleData.kilometrage || "non précisé")} km ${addTerm("kilométrage", "usure normale", "vétusté")}</li>`;
-    h += `<li><strong>VIN :</strong> ${esc(vehicleData.vin || "non communiqué")} ${addTerm("VIN", "numéro de série", "traçabilité")}</li>`;
-    h += `</ul>`;
+    h += "<h4>A. Véhicule déclaré</h4><ul>";
+    h += "<li><strong>Marque :</strong> " + esc(vehicleData.marque || "non précisée") + "</li>";
+    h += "<li><strong>Modèle :</strong> " + esc(vehicleData.modele || "non précisé") + "</li>";
+    h += "<li><strong>Année :</strong> " + esc(vehicleData.annee || "non précisée") + " " + addTerm("millésime", "date de première mise en circulation") + "</li>";
+    h += "<li><strong>Kilométrage :</strong> " + esc(vehicleData.kilometrage || "non précisé") + " km " + addTerm("kilométrage", "usure normale", "vétusté") + "</li>";
+    h += "<li><strong>VIN :</strong> " + esc(vehicleData.vin || "non communiqué") + " " + addTerm("VIN", "numéro de série", "traçabilité") + "</li>";
+    h += "</ul>";
 
-    h += `<h4>B. Faits rapportés</h4>`;
-    h += `<p>${esc(text.substring(0, 1400))}${text.length > 1400 ? " [...] (tronqué pour affichage, analyse complète conservée en mémoire)" : ""}</p>`;
+    h += "<h4>B. Faits rapportés</h4>";
+    h += "<p>" + esc(text.substring(0, 1400)) + (text.length > 1400 ? " [...] (tronqué pour affichage, analyse complète conservée en mémoire)" : "") + "</p>";
 
     if (context) {
-      h += `<h4>C. Contexte transactionnel</h4><p>${esc(context.substring(0, 1000))}</p>`;
+      h += "<h4>C. Contexte transactionnel</h4><p>" + esc(context.substring(0, 1000)) + "</p>";
     }
 
-    h += `<div class="certainty-low"><strong>Limite :</strong> faits non vérifiés par expertise contradictoire ${addTerm("faits non vérifiés", "principe du contradictoire")}.</div>`;
+    h += '<div class="certainty-low"><strong>Limite :</strong> faits non vérifiés par expertise contradictoire ' + addTerm("faits non vérifiés", "principe du contradictoire") + ".</div>";
     return h;
   }
 
@@ -1915,123 +2321,193 @@
     var age = new Date().getFullYear() - (yr || new Date().getFullYear());
 
     if (!matches.length) {
-      var h0 = `<p><strong>Objet :</strong> recherche de défauts conceptuels connus ${addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série")}.</p>`;
-      h0 += `<div class="verification-needed">`;
-      h0 += `<p>Aucune correspondance exacte trouvée dans la base locale pour Marque/Modèle/Année/Symptômes.</p>`;
-      h0 += `<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>`;
-      h0 += `<p>Une expertise individuelle est nécessaire ${addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine")}.</p>`;
-      h0 += `</div>`;
+      var h0 = "<p><strong>Objet :</strong> recherche de défauts conceptuels connus " + addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série") + ".</p>";
+      h0 += '<div class="verification-needed">';
+      h0 += "<p>Aucune correspondance exacte trouvée dans la base locale / auto-diagnostic pour Marque/Modèle/Année/Symptômes.</p>";
+      h0 += "<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>";
+      h0 += "<p>Une expertise individuelle est nécessaire " + addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine") + ".</p>";
+      h0 += "</div>";
       return h0;
     }
 
-    var h = `<p><strong>Objet :</strong> croisement technique local avec défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA et bases de sécurité ${addTerm("vice caché notoire", "défaut de série", "défaut de conception")}.</p>`;
+    var h = "<p><strong>Objet :</strong> croisement technique local avec défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA, auto-diagnostic et bases de sécurité " + addTerm("vice caché notoire", "défaut de série", "défaut de conception") + ".</p>";
 
     matches.forEach(function (m, i) {
       var cls = m.severite === "critique" ? "rappel-critical" : "rappel-info";
       var confColor = m.confiance === "Haute" ? "#10b981" : (m.confiance === "Moyenne" ? "#f59e0b" : "#ef4444");
 
-      h += `<div class="${cls}">`;
-      h += `<h4>${i + 1}. ${esc(m.moteur)} — ${esc(m.puissance)} — ${esc(m.periode)}</h4>`;
-      h += `<p><strong>Constructeur :</strong> ${esc(m.constructeur)}</p>`;
-      h += `<p><strong>Modèles concernés :</strong> ${esc(m.modeles.join(", "))}</p>`;
-      h += `<p><strong>Symptômes détectés :</strong> ${esc(m.symptomes.join(", "))}</p>`;
-      h += `<p><strong>Tags système :</strong> ${esc(m.tags || "non précisé")}</p>`;
-      h += `<p><strong>Description technique :</strong> ${esc(m.description)}</p>`;
-      h += `<p><strong>Gravité :</strong> <span style="font-weight:bold;color:${m.severite === "critique" ? "#dc3545" : "#ffc107"}">${esc(m.severite.toUpperCase())}</span></p>`;
-      h += `<p><strong>Confiance vs usure :</strong> <span style="color:${confColor};font-weight:bold">${esc(m.confiance)}</span> — indice de non-usure : ${Math.round(m.wearFactor * 100)}%</p>`;
-      h += `<p style="background:#fff3cd;padding:8px;border-radius:4px;">⚠️ ${esc(m.alerteUsure)}</p>`;
-      h += `<p><strong>Croisement juridique local :</strong> ${esc(m.baseLegale)} ${addTerm("vice caché", "défaut de conformité", "tromperie")}</p>`;
-      h += `<p><strong>Rappel / TSB / source :</strong> ${esc(m.rappelRef)} ${addTerm("rappel constructeur", "campagne technique", "TSB")}</p>`;
-      h += `</div>`;
+      h += '<div class="' + cls + '">';
+      h += "<h4>" + (i + 1) + ". " + esc(m.moteur) + " — " + esc(m.puissance) + " — " + esc(m.periode) + "</h4>";
+      h += "<p><strong>Constructeur :</strong> " + esc(m.constructeur) + "</p>";
+      h += "<p><strong>Modèles concernés :</strong> " + esc(m.modeles.join(", ")) + "</p>";
+      h += "<p><strong>Symptômes détectés :</strong> " + esc(m.symptomes.join(", ")) + "</p>";
+      if (m.dtc) h += "<p><strong>Codes DTC associés :</strong> " + esc(m.dtc) + "</p>";
+      h += "<p><strong>Tags système :</strong> " + esc(m.tags || "non précisé") + "</p>";
+      h += "<p><strong>Source :</strong> " + esc(m.source || "base locale") + (m.sourceUrl ? " — <a href='" + esc(m.sourceUrl) + "' target='_blank' rel='noopener noreferrer'>ouvrir la source</a>" : "") + "</p>";
+      h += "<p><strong>Description technique :</strong> " + esc(m.description) + "</p>";
+      h += '<p><strong>Gravité :</strong> <span style="font-weight:bold;color:' + (m.severite === "critique" ? "#dc3545" : "#ffc107") + '">' + esc(m.severite.toUpperCase()) + "</span></p>";
+      h += '<p><strong>Confiance vs usure :</strong> <span style="color:' + confColor + ';font-weight:bold">' + esc(m.confiance) + "</span> — indice de non-usure : " + Math.round(m.wearFactor * 100) + "%</p>";
+      h += '<p style="background:#fff3cd;padding:8px;border-radius:4px;">⚠️ ' + esc(m.alerteUsure) + "</p>";
+      h += "<p><strong>Croisement juridique local :</strong> " + esc(m.baseLegale) + " " + addTerm("vice caché", "défaut de conformité", "tromperie") + "</p>";
+      h += "<p><strong>Rappel / TSB / source :</strong> " + esc(m.rappelRef) + " " + addTerm("rappel constructeur", "campagne technique", "TSB") + "</p>";
+      h += "</div>";
     });
 
-    h += `<h4>Analyse de vétusté et kilométrage</h4><ul>`;
-    h += `<li><strong>Âge approximatif :</strong> ${age} ans</li>`;
-    h += `<li><strong>Kilométrage :</strong> ${km.toLocaleString("fr-FR")} km</li>`;
-    h += `<li><strong>Rythme estimé :</strong> ${age > 0 ? Math.round(km / age).toLocaleString("fr-FR") : "N/A"} km/an</li>`;
+    h += "<h4>Analyse de vétusté et kilométrage</h4><ul>";
+    h += "<li><strong>Âge approximatif :</strong> " + age + " ans</li>";
+    h += "<li><strong>Kilométrage :</strong> " + km.toLocaleString("fr-FR") + " km</li>";
+    h += "<li><strong>Rythme estimé :</strong> " + (age > 0 ? Math.round(km / age).toLocaleString("fr-FR") : "N/A") + " km/an</li>";
 
     if (km > 200000) {
-      h += `<li class="certainty-low">Kilométrage très élevé : usure normale fortement plausible. Expertise indispensable pour distinguer défaut et usure.</li>`;
+      h += '<li class="certainty-low">Kilométrage très élevé : usure normale fortement plausible. Expertise indispensable pour distinguer défaut et usure.</li>';
     } else if (km > 120000) {
-      h += `<li class="certainty-medium">Kilométrage élevé : usure possible, mais défaut de série documenté maintient une suspicion forte.</li>`;
+      h += '<li class="certainty-medium">Kilométrage élevé : usure possible, mais défaut de série documenté maintient une suspicion forte.</li>';
     } else {
-      h += `<li class="certainty-high">Kilométrage modéré : la thèse du vice caché / défaut de conception est renforcée.</li>`;
+      h += '<li class="certainty-high">Kilométrage modéré : la thèse du vice caché / défaut de conception est renforcée.</li>';
     }
-    h += `</ul>`;
+    h += "</ul>";
 
     if (flags.waterLeak) {
-      h += `<div class="rappel-critical"><h4>💧 Alerte infiltration d’eau — angle ingénieur / sapeur-pompier</h4>`;
-      h += `<p>Les symptômes évoquent une infiltration d’eau (baie de pare-brise, joints, évacuations, toit ouvrant, climatisation).</p>`;
-      h += `<p><strong>Point expert :</strong> ce type de désordre relève souvent d’un défaut de montage ou de conception, indépendant du kilométrage.</p>`;
-      h += `<p><strong>Risques :</strong> court-circuit, destruction de calculateurs, corrosion, dysfonctionnement ABS/ESP, airbag, direction, risque d’incendie électrique.</p>`;
-      h += `<p><strong>Constat recommandé :</strong> photos des moisiures, boîtier fusibles, connecteurs sous tableau de bord, cavillon, joints de pare-brise, évacuations.</p>`;
-      h += `</div>`;
+      h += '<div class="rappel-critical"><h4>💧 Alerte infiltration d’eau — angle ingénieur / sapeur-pompier</h4>';
+      h += "<p>Les symptômes évoquent une infiltration d’eau (baie de pare-brise, joints, évacuations, toit ouvrant, climatisation).</p>";
+      h += "<p><strong>Point expert :</strong> ce type de désordre relève souvent d’un défaut de montage ou de conception, indépendant du kilométrage.</p>";
+      h += "<p><strong>Risques :</strong> court-circuit, destruction de calculateurs, corrosion, dysfonctionnement ABS/ESP, airbag, direction, risque d’incendie électrique.</p>";
+      h += "<p><strong>Constat recommandé :</strong> photos des moisiures, boîtier fusibles, connecteurs sous tableau de bord, cavillon, joints de pare-brise, évacuations.</p>";
+      h += "</div>";
     }
 
     if (flags.ev) {
-      h += `<div class="rappel-info"><h4>🔋 Angle électrique / batterie / charge</h4>`;
-      h += `<p>Le dossier évoque batterie, charge, autonomie ou système électrique/hybride.</p>`;
-      h += `<p><strong>Vérifications :</strong> état de santé batterie (SOH), équilibrage cellules, BMS, charge AC/DC, température, logiciel, batterie 12V, DC-DC, isolation HV.</p>`;
-      h += `<p><strong>Sécurité :</strong> en cas d’odeur, fumée, échauffement, gonflement batterie ou erreur isolement, immobiliser le véhicule et éloigner les personnes.</p>`;
-      h += `</div>`;
+      h += '<div class="rappel-info"><h4>🔋 Angle électrique / batterie / charge</h4>';
+      h += "<p>Le dossier évoque batterie, charge, autonomie ou système électrique/hybride.</p>";
+      h += "<p><strong>Vérifications :</strong> état de santé batterie (SOH), équilibrage cellules, BMS, charge AC/DC, température, logiciel, batterie 12V, DC-DC, isolation HV.</p>";
+      h += "<p><strong>Sécurité :</strong> en cas d’odeur, fumée, échauffement, gonflement batterie ou erreur isolement, immobiliser le véhicule et éloigner les personnes.</p>";
+      h += "</div>";
+    }
+
+    if (flags.dtc) {
+      h += '<div class="rappel-info"><h4>🧾 Angle codes défaut / DTC</h4>';
+      h += "<p>Des codes défaut ou mentions DTC semblent présents dans le dossier.</p>";
+      h += "<p><strong>Recommandation :</strong> faire extraire la liste complète des DTC par un diagnostiqueur indépendant, conserver le rapport horodaté, croiser avec les fiches auto-diagnostic et les TSB constructeurs.</p>";
+      h += "</div>";
     }
 
     if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += `<div class="rappel-critical"><h4>🚨 Alerte sécurité civile / sapeur-pompier</h4>`;
-      h += `<p>Un défaut critique est identifié : risque moteur, incendie, perte de contrôle, airbag, batterie ou immobilisation brutale.</p>`;
-      h += `<p>En attendant expertise, limiter l’usage du véhicule, éviter autoroutes, transports d’enfants, trajets de nuit et longue durée.</p>`;
-      h += `</div>`;
+      h += '<div class="rappel-critical"><h4>🚨 Alerte sécurité civile / sapeur-pompier</h4>';
+      h += "<p>Un défaut critique est identifié : risque moteur, incendie, perte de contrôle, airbag, batterie ou immobilisation brutale.</p>";
+      h += "<p>En attendant expertise, limiter l’usage du véhicule, éviter autoroutes, transports d’enfants, trajets de nuit et longue durée.</p>";
+      h += "</div>";
     }
 
-    h += `<div class="certainty-medium"><strong>Synthèse :</strong> faisceau d’indices techniques ${addTerm("faisceau d’indices", "indice grave précis et concordant")} en faveur d’un défaut antérieur, caché et grave. Le vendeur professionnel aurait pu connaître ce risque ${addTerm("obligation de renseignement", "présomption de connaissance")}.</div>`;
+    h += '<div class="certainty-medium"><strong>Synthèse :</strong> faisceau d’indices techniques ' + addTerm("faisceau d’indices", "indice grave précis et concordant") + " en faveur d’un défaut antérieur, caché et grave. Le vendeur professionnel aurait pu connaître ce risque " + addTerm("obligation de renseignement", "présomption de connaissance") + ".</div>";
+
+    return h;
+  }
+
+  function secAutoAppui(matches, flags) {
+    var autoMatches = matches.filter(function (m) {
+      return m.source === "auto-diagnostic";
+    });
+
+    var h = "<p><strong>Objet :</strong> appui technique issu de la base auto-diagnostic, corrélé au contexte du litige " + addTerm("appui technique", "corrélation auto-diagnostic", "fiche expert", "DTC") + ".</p>";
+
+    if (!autoDb.length) {
+      h += '<div class="verification-needed">';
+      h += "<p>La base auto-diagnostic n’est pas encore synchronisée localement.</p>";
+      h += "<p>L’application a tenté de récupérer les données depuis :</p>";
+      h += "<p><code>" + esc(autoConfig.baseUrl || CONFIG.autoDiagnostic.baseUrl) + "</code></p>";
+      h += "<p>Si aucune donnée n’est exposée en JSON, déposer un export JSON dans :</p>";
+      h += "<p><code>" + esc(resolveUrl(autoConfig.baseUrl || CONFIG.autoDiagnostic.baseUrl, "data/base.json")) + "</code></p>";
+      h += "<p>ou utiliser : Admin → Base technique → Importer JSON.</p>";
+      h += "</div>";
+      return h;
+    }
+
+    h += "<p><strong>Entrées auto-diagnostic disponibles localement :</strong> " + autoDb.length + ".</p>";
+
+    if (!autoMatches.length) {
+      h += '<div class="certainty-medium">';
+      h += "<p>Aucune fiche auto-diagnostic ne correspond directement au véhicule / symptômes déclarés.</p>";
+      h += "<p>Cela n’exclut pas un défaut individuel. Une lecture OBD / DTC et une expertise restent nécessaires.</p>";
+      h += "</div>";
+      return h;
+    }
+
+    h += '<div class="rappel-info">';
+    h += "<h4>Fiches auto-diagnostic corrélées au litige</h4>";
+    h += "<ul>";
+
+    autoMatches.slice(0, 10).forEach(function (m, i) {
+      h += "<li><strong>" + (i + 1) + ". " + esc(m.constructeur) + " " + esc(m.modeles.join(", ")) + " — " + esc(m.moteur) + "</strong>";
+      if (m.dtc) h += " — DTC : " + esc(m.dtc);
+      h += "<br/><strong>Symptômes :</strong> " + esc(m.symptomes.join(", "));
+      h += "<br/><strong>Description :</strong> " + esc(m.description);
+      if (m.sourceUrl) h += "<br/><strong>Source :</strong> <a href='" + esc(m.sourceUrl) + "' target='_blank' rel='noopener noreferrer'>" + esc(m.sourceUrl) + "</a>";
+      h += "<br/><strong>Appui juridique :</strong> " + esc(m.baseLegale);
+      h += "</li>";
+    });
+
+    h += "</ul>";
+    h += "</div>";
+
+    h += "<h4>Exploitation experte / juriste de l’appui auto-diagnostic</h4><ul>";
+    h += "<li>" + addTerm("corrélation technique", "faisceau d’indices") + " : les fiches auto-diagnostic permettent de démontrer que le désordre n’est pas isolé mais documenté.</li>";
+    h += "<li>" + addTerm("antériorité", "défaut de série") + " : si la fiche vise le même moteur / boîte / système, l’origine antérieure à la vente est renforcée.</li>";
+    h += "<li>" + addTerm("caractère caché", "non-décelable par examen standard") + " : les défauts électroniques, logiciels, ADAS, batterie, infiltration ou mécatronique ne sont généralement pas visibles lors d’un essai court.</li>";
+    h += "<li>" + addTerm("gravité", "coût de réparation", "sécurité") + " : les DTC et fiches expert aident à qualifier l’impact sur la sécurité, la valeur d’usage et le coût de remise en état.</li>";
+    if (flags.professional) {
+      h += "<li>" + addTerm("vendeur professionnel", "obligation de conseil", "vérification des rappels") + " : la notoriété du défaut dans la base auto-diagnostic peut fonder une présomption de connaissance ou de faute.</li>";
+    } else {
+      h += "<li>" + addTerm("vendeur particulier", "mauvaise foi", "réticence dolosive") + " : si le vendeur connaissait la fiche / rappel / DTC, la clause vendu en l’état peut être écartée.</li>";
+    }
+    h += "</ul>";
 
     return h;
   }
 
   function secQualif(flags, matches) {
-    var h = `<p><strong>Objet :</strong> qualification juridique provisoire ${addTerm("qualification juridique", "qualification incertaine")}.</p>`;
+    var h = "<p><strong>Objet :</strong> qualification juridique provisoire " + addTerm("qualification juridique", "qualification incertaine") + ".</p>";
 
     if (flags.professional && !flags.privateSeller) {
-      h += `<div class="certainty-high"><p>Vendeur présumé professionnel ${addTerm("vendeur professionnel")}. Protection consommateur renforcée : garantie légale de conformité, charge de la preuve allégée, obligation d’information et de vérification des rappels.</p></div>`;
+      h += '<div class="certainty-high"><p>Vendeur présumé professionnel ' + addTerm("vendeur professionnel") + ". Protection consommateur renforcée : garantie légale de conformité, charge de la preuve allégée, obligation d’information et de vérification des rappels.</p></div>";
     } else if (flags.privateSeller && !flags.professional) {
-      h += `<div class="certainty-medium"><p>Vendeur présumé particulier ${addTerm("vente entre particuliers")}. Garantie des vices cachés du Code civil. Charge de la preuve plus lourde pour l’acquéreur.</p></div>`;
+      h += '<div class="certainty-medium"><p>Vendeur présumé particulier ' + addTerm("vente entre particuliers") + ". Garantie des vices cachés du Code civil. Charge de la preuve plus lourde pour l’acquéreur.</p></div>";
     } else {
-      h += `<div class="certainty-low"><p>Statut du vendeur incertain ${addTerm("ambiguïté statut vendeur")}. Qualifier d’abord le vendeur avant action.</p></div>`;
+      h += '<div class="certainty-low"><p>Statut du vendeur incertain ' + addTerm("ambiguïté statut vendeur") + ". Qualifier d’abord le vendeur avant action.</p></div>";
     }
 
     if (matches.length) {
-      h += `<p>La probabilité d’un ${addTerm("défaut de conception", "vice caché notoire")} renforce la non-conformité initiale du bien.</p>`;
+      h += "<p>La probabilité d’un " + addTerm("défaut de conception", "vice caché notoire") + " renforce la non-conformité initiale du bien.</p>";
     }
 
     return h;
   }
 
   function secRisques(flags, matches) {
-    var h = `<p><strong>Objet :</strong> risques et responsabilités ${addTerm("risques encourus", "responsabilité contractuelle", "responsabilité délictuelle")}.</p>`;
+    var h = "<p><strong>Objet :</strong> risques et responsabilités " + addTerm("risques encourus", "responsabilité contractuelle", "responsabilité délictuelle") + ".</p>";
 
     if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += `<div class="rappel-critical"><h4>⚠️ Responsabilité aggravée</h4><ul>`;
-      h += `<li>Professionnel : faute lourde ou dolosive possible ${addTerm("faute lourde", "faute dolosive")}.</li>`;
-      h += `<li>Particulier : mauvaise foi si défaut connu ou dissimulé ${addTerm("mauvaise foi", "réticence dolosive")}.</li>`;
-      h += `<li>Pénal possible en cas d’accident ${addTerm("homicide involontaire", "blessures involontaires", "mise en danger")}.</li>`;
-      h += `<li>Constructeur : produits défectueux ${addTerm("article 1245 C.civ.")}.</li>`;
-      h += `</ul></div>`;
+      h += '<div class="rappel-critical"><h4>⚠️ Responsabilité aggravée</h4><ul>';
+      h += "<li>Professionnel : faute lourde ou dolosive possible " + addTerm("faute lourde", "faute dolosive") + ".</li>";
+      h += "<li>Particulier : mauvaise foi si défaut connu ou dissimulé " + addTerm("mauvaise foi", "réticence dolosive") + ".</li>";
+      h += "<li>Pénal possible en cas d’accident " + addTerm("homicide involontaire", "blessures involontaires", "mise en danger") + ".</li>";
+      h += "<li>Constructeur : produits défectueux " + addTerm("article 1245 C.civ.") + ".</li>";
+      h += "</ul></div>";
     }
 
-    h += `<h4>A. Si professionnel</h4><ul>`;
-    h += `<li>${addTerm("garantie légale de conformité", "L.217-4 C.consom.")} : réparation, remplacement, réduction, résolution.</li>`;
-    h += `<li>${addTerm("présomption d’antériorité")} pendant 12 mois, 24 mois depuis 2022.</li>`;
-    h += `<li>${addTerm("responsabilité contractuelle", "1231-1 C.civ.")} : dommages-intérêts.</li>`;
-    h += `<li>${addTerm("tromperie", "L.213-1 C.consom.")} si dissimulation.</li>`;
-    h += `<li>${addTerm("DGCCRF", "rappel conso", "sanctions administratives")}.</li>`;
-    h += `</ul>`;
+    h += "<h4>A. Si professionnel</h4><ul>";
+    h += "<li>" + addTerm("garantie légale de conformité", "L.217-4 C.consom.") + " : réparation, remplacement, réduction, résolution.</li>";
+    h += "<li>" + addTerm("présomption d’antériorité") + " pendant 12 mois, 24 mois depuis 2022.</li>";
+    h += "<li>" + addTerm("responsabilité contractuelle", "1231-1 C.civ.") + " : dommages-intérêts.</li>";
+    h += "<li>" + addTerm("tromperie", "L.213-1 C.consom.") + " si dissimulation.</li>";
+    h += "<li>" + addTerm("DGCCRF", "rappel conso", "sanctions administratives") + ".</li>";
+    h += "</ul>";
 
-    h += `<h4>B. Si particulier</h4><ul>`;
-    h += `<li>${addTerm("garantie des vices cachés", "1641 C.civ.")}.</li>`;
-    h += `<li>${addTerm("action rédhibitoire")} ou ${addTerm("action estimatoire")}.</li>`;
-    h += `<li>${addTerm("charge de la preuve")} sur l’acquéreur.</li>`;
-    h += `<li>${addTerm("clause vendu en l’état")} inopposable en cas de mauvaise foi.</li>`;
-    h += `</ul>`;
+    h += "<h4>B. Si particulier</h4><ul>";
+    h += "<li>" + addTerm("garantie des vices cachés", "1641 C.civ.") + ".</li>";
+    h += "<li>" + addTerm("action rédhibitoire") + " ou " + addTerm("action estimatoire") + ".</li>";
+    h += "<li>" + addTerm("charge de la preuve") + " sur l’acquéreur.</li>";
+    h += "<li>" + addTerm("clause vendu en l’état") + " inopposable en cas de mauvaise foi.</li>";
+    h += "</ul>";
 
     return h;
   }
@@ -2040,213 +2516,216 @@
     var km = parseKm(vData.kilometrage);
     var best = matches[0];
 
-    var h = `<p><strong>Objet :</strong> critères cumulatifs adaptés à l’usure et à la vétusté ${addTerm("critères cumulatifs", "usure normale", "vétusté")}.</p>`;
+    var h = "<p><strong>Objet :</strong> critères cumulatifs adaptés à l’usure et à la vétusté " + addTerm("critères cumulatifs", "usure normale", "vétusté") + ".</p>";
 
-    h += `<h4>A. Antériorité ${addTerm("antériorité")}</h4>`;
+    h += "<h4>A. Antériorité " + addTerm("antériorité") + "</h4>";
     if (best && best.confiance === "Haute") {
-      h += `<p class="certainty-high">Défaut de série/conception/software : antériorité fortement présumée, souvent indépendante du kilométrage.</p>`;
+      h += '<p class="certainty-high">Défaut de série/conception/software : antériorité fortement présumée, souvent indépendante du kilométrage.</p>';
     } else if (best && best.confiance === "Moyenne") {
-      h += `<p class="certainty-medium">Antériorité probable, mais km élevé (${km.toLocaleString("fr-FR")}) : expertise pour écarter l’usure.</p>`;
+      h += '<p class="certainty-medium">Antériorité probable, mais km élevé (' + km.toLocaleString("fr-FR") + ") : expertise pour écarter l’usure.</p>";
     } else if (best) {
-      h += `<p class="certainty-low">Antériorité difficile à établir sans expertise : km très élevé, usure normale plausible.</p>`;
+      h += '<p class="certainty-low">Antériorité difficile à établir sans expertise : km très élevé, usure normale plausible.</p>';
     } else {
-      h += `<p class="verification-needed">Antériorité à prouver par expertise contradictoire.</p>`;
+      h += '<p class="verification-needed">Antériorité à prouver par expertise contradictoire.</p>';
     }
 
-    h += `<h4>B. Caractère caché ${addTerm("caractère caché")}</h4>`;
+    h += "<h4>B. Caractère caché " + addTerm("caractère caché") + "</h4>";
     if (best && best.wearFactor >= 0.8) {
-      h += `<p class="certainty-high">Défaut non apparent lors d’un examen visuel standard et d’un essai court.</p>`;
+      h += '<p class="certainty-high">Défaut non apparent lors d’un examen visuel standard et d’un essai court.</p>';
     } else if (best) {
-      h += `<p class="certainty-medium">Caractère caché soutenable, mais dépend de la diligence de l’acheteur et de la visibilité du symptôme.</p>`;
+      h += '<p class="certainty-medium">Caractère caché soutenable, mais dépend de la diligence de l’acheteur et de la visibilité du symptôme.</p>';
     } else {
-      h += `<p>Caractère caché à apprécier concrètement.</p>`;
+      h += "<p>Caractère caché à apprécier concrètement.</p>";
     }
 
-    h += `<h4>C. Gravité ${addTerm("gravité")}</h4>`;
+    h += "<h4>C. Gravité " + addTerm("gravité") + "</h4>";
     if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += `<p class="certainty-high">Gravité élevée : sécurité, casse moteur, incendie, immobilisation, coût disproportionné.</p>`;
+      h += '<p class="certainty-high">Gravité élevée : sécurité, casse moteur, incendie, immobilisation, coût disproportionné.</p>';
     } else if (matches.length) {
-      h += `<p class="certainty-medium">Gravité à mesurer par rapport au coût de réparation et à la valeur du véhicule.</p>`;
+      h += '<p class="certainty-medium">Gravité à mesurer par rapport au coût de réparation et à la valeur du véhicule.</p>';
     } else {
-      h += `<p>Gravité à évaluer par devis et usage normal du véhicule.</p>`;
+      h += "<p>Gravité à évaluer par devis et usage normal du véhicule.</p>";
     }
 
-    h += `<div class="verification-needed">Réunion des critères à confirmer par expertise ${addTerm("confirmation expertise")}.</div>`;
+    h += '<div class="verification-needed">Réunion des critères à confirmer par expertise ' + addTerm("confirmation expertise") + ".</div>";
     return h;
   }
 
   function secGaranties(flags, matches) {
-    var h = `<p><strong>Objet :</strong> régimes de garantie et croisement juridique local ${addTerm("régimes de garantie", "cumul des garanties")}.</p>`;
+    var h = "<p><strong>Objet :</strong> régimes de garantie et croisement juridique local " + addTerm("régimes de garantie", "cumul des garanties") + ".</p>";
 
     if (flags.professional) {
-      h += `<h4>Professionnel</h4><ul>`;
-      h += `<li>${addTerm("garantie légale de conformité", "L.217-4 et s. C.consom.")}</li>`;
-      h += `<li>${addTerm("garantie des vices cachés", "1641 C.civ.")} cumulable</li>`;
-      h += `<li>${addTerm("responsabilité contractuelle", "1231-1 C.civ.")}</li>`;
-      h += `<li>${addTerm("tromperie", "L.213-1 C.consom.")}</li>`;
-      h += `<li>${addTerm("pratique commerciale trompeuse", "L.121-2 C.consom.")}</li>`;
-      h += `</ul>`;
+      h += "<h4>Professionnel</h4><ul>";
+      h += "<li>" + addTerm("garantie légale de conformité", "L.217-4 et s. C.consom.") + "</li>";
+      h += "<li>" + addTerm("garantie des vices cachés", "1641 C.civ.") + " cumulable</li>";
+      h += "<li>" + addTerm("responsabilité contractuelle", "1231-1 C.civ.") + "</li>";
+      h += "<li>" + addTerm("tromperie", "L.213-1 C.consom.") + "</li>";
+      h += "<li>" + addTerm("pratique commerciale trompeuse", "L.121-2 C.consom.") + "</li>";
+      h += "</ul>";
     } else {
-      h += `<h4>Particulier</h4><ul>`;
-      h += `<li>${addTerm("garantie des vices cachés", "1641 à 1649 C.civ.")}</li>`;
-      h += `<li>${addTerm("action rédhibitoire")} / ${addTerm("action estimatoire")}</li>`;
-      h += `<li>${addTerm("dol", "1137 C.civ.")} si dissimulation</li>`;
-      h += `<li>${addTerm("obligation d’information précontractuelle", "1112-1 C.civ.")}</li>`;
-      h += `</ul>`;
+      h += "<h4>Particulier</h4><ul>";
+      h += "<li>" + addTerm("garantie des vices cachés", "1641 à 1649 C.civ.") + "</li>";
+      h += "<li>" + addTerm("action rédhibitoire") + " / " + addTerm("action estimatoire") + "</li>";
+      h += "<li>" + addTerm("dol", "1137 C.civ.") + " si dissimulation</li>";
+      h += "<li>" + addTerm("obligation d’information précontractuelle", "1112-1 C.civ.") + "</li>";
+      h += "</ul>";
     }
 
     if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += `<h4>Constructeur / sécurité</h4><ul>`;
-      h += `<li>${addTerm("produits défectueux", "1245 C.civ.")}</li>`;
-      h += `<li>${addTerm("défaut de sécurité", "L.423-1 C.consom.")}</li>`;
-      h += `<li>${addTerm("rappel obligatoire", "DGCCRF", "NHTSA", "KBA")}</li>`;
-      h += `</ul>`;
+      h += "<h4>Constructeur / sécurité</h4><ul>";
+      h += "<li>" + addTerm("produits défectueux", "1245 C.civ.") + "</li>";
+      h += "<li>" + addTerm("défaut de sécurité", "L.423-1 C.consom.") + "</li>";
+      h += "<li>" + addTerm("rappel obligatoire", "DGCCRF", "NHTSA", "KBA") + "</li>";
+      h += "</ul>";
     }
 
     return h;
   }
 
   function secDocs(flags, matches) {
-    var h = `<p><strong>Objet :</strong> preuve documentaire ${addTerm("preuve documentaire", "dossier probatoire")}.</p><ul>`;
-    h += `<li>Facture : ${flags.invoice ? "présente" : "à récupérer"}</li>`;
-    h += `<li>Certificat de cession : à conserver</li>`;
-    h += `<li>Carte grise : vérifier cohérence kilométrage</li>`;
-    h += `<li>Contrôle technique : ${flags.controlTech ? "présent" : "à récupérer"}</li>`;
-    h += `<li>Historique entretien / carnet / factures garage</li>`;
-    h += `<li>Preuve des rappels effectués via VIN</li>`;
-    h += `<li>Devis réparation (minimum 2)</li>`;
-    h += `<li>Lecture OBD / codes défaut DTC</li>`;
-    h += `<li>Photos : moisiure, eau, corrosion, voyants, niveaux, batterie, charge</li>`;
+    var h = "<p><strong>Objet :</strong> preuve documentaire " + addTerm("preuve documentaire", "dossier probatoire") + ".</p><ul>";
+    h += "<li>Facture : " + (flags.invoice ? "présente" : "à récupérer") + "</li>";
+    h += "<li>Certificat de cession : à conserver</li>";
+    h += "<li>Carte grise : vérifier cohérence kilométrage</li>";
+    h += "<li>Contrôle technique : " + (flags.controlTech ? "présent" : "à récupérer") + "</li>";
+    h += "<li>Historique entretien / carnet / factures garage</li>";
+    h += "<li>Preuve des rappels effectués via VIN</li>";
+    h += "<li>Devis réparation (minimum 2)</li>";
+    h += "<li>Lecture OBD / codes défaut DTC</li>";
+    h += "<li>Rapport auto-diagnostic / fiches expert corrélées</li>";
+    h += "<li>Photos : moisiure, eau, corrosion, voyants, niveaux, batterie, charge</li>";
     if (matches.length) {
-      h += `<li>Vérification VIN sur sites constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate</li>`;
+      h += "<li>Vérification VIN sur sites constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate, auto-diagnostic</li>";
     }
-    h += `</ul>`;
-    h += `<div class="verification-needed">Sans facture, CT ou historique, la preuve de l’antériorité sera fragilisée ${addTerm("insuffisance probatoire")}.</div>`;
+    h += "</ul>";
+    h += '<div class="verification-needed">Sans facture, CT ou historique, la preuve de l’antériorité sera fragilisée ' + addTerm("insuffisance probatoire") + ".</div>";
     return h;
   }
 
   function secJuri(matches) {
-    var h = `<p><strong>Objet :</strong> textes et jurisprudence ${addTerm("jurisprudence", "doctrine")}.</p>`;
-    h += `<h4>Textes</h4><ul>`;
-    h += `<li>1641 à 1649 C.civ. — vices cachés</li>`;
-    h += `<li>1130 à 1144 C.civ. — vices du consentement</li>`;
-    h += `<li>1112-1 C.civ. — information précontractuelle</li>`;
-    h += `<li>1231-1 C.civ. — responsabilité contractuelle</li>`;
-    h += `<li>1240, 1241 C.civ. — responsabilité délictuelle</li>`;
-    h += `<li>1245 et s. C.civ. — produits défectueux</li>`;
-    h += `<li>L.217-3 à L.217-20 C.consom. — conformité</li>`;
-    h += `<li>L.213-1 C.consom. — tromperie</li>`;
-    h += `<li>L.121-2 C.consom. — pratique commerciale trompeuse</li>`;
-    h += `<li>L.423-1 C.consom. — sécurité des produits</li>`;
-    h += `<li>221-6, 222-19, 223-1, 313-1, 441-1 C.pénal</li>`;
-    h += `</ul>`;
+    var h = "<p><strong>Objet :</strong> textes et jurisprudence " + addTerm("jurisprudence", "doctrine") + ".</p>";
+    h += "<h4>Textes</h4><ul>";
+    h += "<li>1641 à 1649 C.civ. — vices cachés</li>";
+    h += "<li>1130 à 1144 C.civ. — vices du consentement</li>";
+    h += "<li>1112-1 C.civ. — information précontractuelle</li>";
+    h += "<li>1231-1 C.civ. — responsabilité contractuelle</li>";
+    h += "<li>1240, 1241 C.civ. — responsabilité délictuelle</li>";
+    h += "<li>1245 et s. C.civ. — produits défectueux</li>";
+    h += "<li>L.217-3 à L.217-20 C.consom. — conformité</li>";
+    h += "<li>L.213-1 C.consom. — tromperie</li>";
+    h += "<li>L.121-2 C.consom. — pratique commerciale trompeuse</li>";
+    h += "<li>L.423-1 C.consom. — sécurité des produits</li>";
+    h += "<li>221-6, 222-19, 223-1, 313-1, 441-1 C.pénal</li>";
+    h += "</ul>";
 
-    h += `<h4>Jurisprudence / références</h4><ul>`;
-    h += `<li>Cass. civ. 1ère, 3 mai 2006 — caractère caché</li>`;
-    h += `<li>Cass. civ. 1ère, 12 juill. 2018 — vérification des rappels par pro</li>`;
-    h += `<li>Cass. civ. 1ère, 27 févr. 2019 — clause vendu en l’état et mauvaise foi</li>`;
-    h += `<li>CJUE, 5 avril 2023, C-277/22 — defeat device et conformité</li>`;
-    h += `<li>TGI Paris, 15 janv. 2020 — Renault 1.5 dCi bielles</li>`;
-    h += `<li>NHTSA / KBA / DGCCRF — rappels sécurité, batteries, ADAS, incendies</li>`;
-    h += `</ul>`;
+    h += "<h4>Jurisprudence / références</h4><ul>";
+    h += "<li>Cass. civ. 1ère, 3 mai 2006 — caractère caché</li>";
+    h += "<li>Cass. civ. 1ère, 12 juill. 2018 — vérification des rappels par pro</li>";
+    h += "<li>Cass. civ. 1ère, 27 févr. 2019 — clause vendu en l’état et mauvaise foi</li>";
+    h += "<li>CJUE, 5 avril 2023, C-277/22 — defeat device et conformité</li>";
+    h += "<li>TGI Paris, 15 janv. 2020 — Renault 1.5 dCi bielles</li>";
+    h += "<li>NHTSA / KBA / DGCCRF / auto-diagnostic — rappels sécurité, batteries, ADAS, incendies, DTC</li>";
+    h += "</ul>";
 
     if (matches.length) {
-      h += `<h4>Références spécifiques aux défauts détectés</h4><ul>`;
+      h += "<h4>Références spécifiques aux défauts détectés</h4><ul>";
       matches.forEach(function (m) {
-        h += `<li><strong>${esc(m.moteur)} :</strong> ${esc(m.rappelRef)}</li>`;
+        h += "<li><strong>" + esc(m.moteur) + " :</strong> " + esc(m.rappelRef) + (m.sourceUrl ? " — source : " + esc(m.sourceUrl) : "") + "</li>";
       });
-      h += `</ul>`;
+      h += "</ul>";
     }
 
     return h;
   }
 
   function secPrejudice(flags, matches) {
-    var h = `<p><strong>Objet :</strong> préjudice ${addTerm("évaluation du préjudice", "réparation intégrale")}.</p>`;
-    h += `<h4>Préjudices matériels</h4><ul>`;
-    h += `<li>Coût réparations / devis</li>`;
-    h += `<li>Remboursement prix si résolution</li>`;
-    h += `<li>Moins-value</li>`;
-    h += `<li>Location véhicule remplacement</li>`;
-    h += `<li>Frais expertise / avocat / dépens</li>`;
-    h += `<li>Manque à gagner si usage professionnel</li>`;
-    h += `</ul>`;
+    var h = "<p><strong>Objet :</strong> préjudice " + addTerm("évaluation du préjudice", "réparation intégrale") + ".</p>";
+    h += "<h4>Préjudices matériels</h4><ul>";
+    h += "<li>Coût réparations / devis</li>";
+    h += "<li>Remboursement prix si résolution</li>";
+    h += "<li>Moins-value</li>";
+    h += "<li>Location véhicule remplacement</li>";
+    h += "<li>Frais expertise / avocat / dépens</li>";
+    h += "<li>Manque à gagner si usage professionnel</li>";
+    h += "</ul>";
 
-    h += `<h4>Préjudices moraux / corporels</h4><ul>`;
-    h += `<li>Préjudice d’anxiété si dangerosité</li>`;
-    h += `<li>Trouble dans les conditions d’existence</li>`;
-    h += `<li>Souffrances endurées / préjudice esthétique / DFT / DFP si accident</li>`;
-    h += `</ul>`;
+    h += "<h4>Préjudices moraux / corporels</h4><ul>";
+    h += "<li>Préjudice d’anxiété si dangerosité</li>";
+    h += "<li>Trouble dans les conditions d’existence</li>";
+    h += "<li>Souffrances endurées / préjudice esthétique / DFT / DFP si accident</li>";
+    h += "</ul>";
 
     if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += `<div class="rappel-critical"><strong>Angle sapeur-pompier / sécurité :</strong> la peur de conduire un véhicule dangereux peut justifier un préjudice moral même sans accident ${addTerm("préjudice d’anxiété")}.</div>`;
+      h += '<div class="rappel-critical"><strong>Angle sapeur-pompier / sécurité :</strong> la peur de conduire un véhicule dangereux peut justifier un préjudice moral même sans accident ' + addTerm("préjudice d’anxiété") + ".</div>";
     }
 
     return h;
   }
 
   function secStrategie(flags, matches, objective) {
-    var h = `<p><strong>Objet :</strong> stratégie ${addTerm("stratégie contentieuse", "MARD")}.</p>`;
+    var h = "<p><strong>Objet :</strong> stratégie " + addTerm("stratégie contentieuse", "MARD") + ".</p>";
 
-    h += `<h4>Phase 1 — consolidation probatoire</h4><ol>`;
-    h += `<li>Expertise amiable contradictoire</li>`;
-    h += `<li>Devis réparation</li>`;
-    h += `<li>Lecture OBD</li>`;
-    h += `<li>Vérification VIN / rappels</li>`;
-    h += `<li>Photos et constats</li>`;
-    h += `</ol>`;
+    h += "<h4>Phase 1 — consolidation probatoire</h4><ol>";
+    h += "<li>Expertise amiable contradictoire</li>";
+    h += "<li>Devis réparation</li>";
+    h += "<li>Lecture OBD / DTC</li>";
+    h += "<li>Export / impression des fiches auto-diagnostic corrélées</li>";
+    h += "<li>Vérification VIN / rappels</li>";
+    h += "<li>Photos et constats</li>";
+    h += "</ol>";
 
-    h += `<h4>Phase 2 — mise en demeure</h4><ol>`;
-    h += `<li>LRAR au vendeur</li>`;
+    h += "<h4>Phase 2 — mise en demeure</h4><ol>";
+    h += "<li>LRAR au vendeur</li>";
     if (matches.length) {
-      h += `<li>Invoquer le défaut de série documenté ${addTerm("défaut de série", "présomption de connaissance")}</li>`;
+      h += "<li>Invoquer le défaut de série documenté " + addTerm("défaut de série", "présomption de connaissance") + "</li>";
     }
-    h += `<li>Délai 15 jours</li>`;
-    h += `<li>Joindre rapport, devis, photos</li>`;
-    h += `</ol>`;
+    h += "<li>Joindre annexes auto-diagnostic / DTC / devis / photos</li>";
+    h += "<li>Délai 15 jours</li>";
+    h += "</ol>";
 
-    h += `<h4>Phase 3 — résolution amiable</h4><ol>`;
-    h += `<li>Conciliation</li>`;
-    if (flags.professional) h += `<li>Médiation de la consommation</li>`;
-    h += `<li>Transaction écrite si accord</li>`;
-    h += `</ol>`;
+    h += "<h4>Phase 3 — résolution amiable</h4><ol>";
+    h += "<li>Conciliation</li>";
+    if (flags.professional) h += "<li>Médiation de la consommation</li>";
+    h += "<li>Transaction écrite si accord</li>";
+    h += "</ol>";
 
-    h += `<h4>Phase 4 — judiciaire</h4><ol>`;
-    h += `<li>Assignation TJ / tribunal de proximité</li>`;
-    h += `<li>Demande d’expertise judiciaire si nécessaire</li>`;
-    h += `<li>Référé si urgence / danger</li>`;
+    h += "<h4>Phase 4 — judiciaire</h4><ol>";
+    h += "<li>Assignation TJ / tribunal de proximité</li>";
+    h += "<li>Demande d’expertise judiciaire si nécessaire</li>";
+    h += "<li>Référé si urgence / danger</li>";
     if (matches.length && matches.some(function (m) { return m.severite === "critique"; })) {
-      h += `<li>Signalement DGCCRF / préfet / NHTSA / KBA si danger collectif</li>`;
+      h += "<li>Signalement DGCCRF / préfet / NHTSA / KBA si danger collectif</li>";
     }
-    h += `</ol>`;
+    h += "</ol>";
 
     if (objective) {
-      h += `<p><strong>Objectif déclaré :</strong> ${esc(objective)}</p>`;
+      h += "<p><strong>Objectif déclaré :</strong> " + esc(objective) + "</p>";
     }
 
     return h;
   }
 
   function secVerif(matches, flags) {
-    var h = `<p><strong>Objet :</strong> vérifications et recherche approfondie ${addTerm("vérifications complémentaires")}.</p>`;
+    var h = "<p><strong>Objet :</strong> vérifications et recherche approfondie " + addTerm("vérifications complémentaires") + ".</p>";
 
-    h += `<ul>`;
-    h += `<li>Vérifier VIN sur site constructeur</li>`;
-    h += `<li>Consulter rappel.conso.gouv.fr</li>`;
-    h += `<li>Consulter NHTSA si véhicule importé / groupe international</li>`;
-    h += `<li>Consulter KBA pour rappels allemands</li>`;
-    h += `<li>Consulter SafetyGate / bases européennes</li>`;
-    h += `<li>Rechercher TSB / notes techniques atelier</li>`;
-    h += `<li>Consulter forums spécialisés et retours propriétaires</li>`;
-    h += `<li>Vérifier historique entretien et rappels effectués</li>`;
-    h += `<li>Faire lire les codes défaut OBD</li>`;
+    h += "<ul>";
+    h += "<li>Vérifier VIN sur site constructeur</li>";
+    h += "<li>Consulter auto-diagnostic et ses fiches / DTC</li>";
+    h += "<li>Consulter rappel.conso.gouv.fr</li>";
+    h += "<li>Consulter NHTSA si véhicule importé / groupe international</li>";
+    h += "<li>Consulter KBA pour rappels allemands</li>";
+    h += "<li>Consulter SafetyGate / bases européennes</li>";
+    h += "<li>Rechercher TSB / notes techniques atelier</li>";
+    h += "<li>Consulter forums spécialisés et retours propriétaires</li>";
+    h += "<li>Vérifier historique entretien et rappels effectués</li>";
+    h += "<li>Faire lire les codes défaut OBD</li>";
     if (flags.waterLeak) {
-      h += `<li>Inspecter baie de pare-brise, cavillon, évacuations, boîtier fusibles, connecteurs</li>`;
+      h += "<li>Inspecter baie de pare-brise, cavillon, évacuations, boîtier fusibles, connecteurs</li>";
     }
     if (flags.ev) {
-      h += `<li>Contrôler SOH batterie, BMS, charge AC/DC, température, isolation HV, batterie 12V</li>`;
+      h += "<li>Contrôler SOH batterie, BMS, charge AC/DC, température, isolation HV, batterie 12V</li>";
     }
-    h += `</ul>`;
+    h += "</ul>";
 
     var links = researchLinks(
       vehicleData.marque,
@@ -2255,71 +2734,74 @@
       matches[0] ? matches[0].symptomes : []
     );
 
-    h += `<h4>Pistes de recherche externe à ouvrir manuellement</h4><ul>`;
+    h += "<h4>Pistes de recherche externe à ouvrir manuellement</h4><ul>";
     links.forEach(function (l) {
-      h += `<li><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a></li>`;
+      h += '<li><a href="' + esc(l.url) + '" target="_blank" rel="noopener noreferrer">' + esc(l.label) + "</a></li>";
     });
-    h += `</ul>`;
+    h += "</ul>";
 
-    h += `<div class="verification-needed">Ces liens ne sont pas appelés automatiquement par l’application. Ils servent à confirmer localement la notoriété du défaut avant conclusion finale.</div>`;
+    h += '<div class="verification-needed">Ces liens ne sont pas appelés automatiquement pendant l’analyse. Ils servent à confirmer la notoriété du défaut avant conclusion finale.</div>';
 
     return h;
   }
 
   function secVoies(flags, matches) {
-    var h = `<p><strong>Objet :</strong> voies d’action ${addTerm("voies d’action")}.</p><ul>`;
-    h += `<li>Action civile en garantie des vices cachés</li>`;
+    var h = "<p><strong>Objet :</strong> voies d’action " + addTerm("voies d’action") + ".</p><ul>";
+    h += "<li>Action civile en garantie des vices cachés</li>";
     if (flags.professional) {
-      h += `<li>Garantie légale de conformité</li>`;
-      h += `<li>Signalement DGCCRF / rappel.conso</li>`;
-      h += `<li>Médiation de la consommation</li>`;
+      h += "<li>Garantie légale de conformité</li>";
+      h += "<li>Signalement DGCCRF / rappel.conso</li>";
+      h += "<li>Médiation de la consommation</li>";
     }
     if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += `<li>Action contre constructeur : produits défectueux</li>`;
-      h += `<li>Plainte pénale si danger dissimulé</li>`;
-      h += `<li>Action collective si défaut massif</li>`;
+      h += "<li>Action contre constructeur : produits défectueux</li>";
+      h += "<li>Plainte pénale si danger dissimulé</li>";
+      h += "<li>Action collective si défaut massif</li>";
     }
-    h += `<li>Expertise judiciaire</li>`;
-    h += `</ul>`;
+    h += "<li>Expertise judiciaire</li>";
+    h += "</ul>";
     return h;
   }
 
   function secConclu(objective, matches, flags, vData) {
     var high = matches.some(function (m) { return m.confiance === "Haute"; });
     var critical = matches.some(function (m) { return m.severite === "critique"; });
+    var auto = matches.some(function (m) { return m.source === "auto-diagnostic"; });
 
-    var h = `<p><strong>Objet :</strong> conclusion prudente ${addTerm("synthèse")}.</p>`;
+    var h = "<p><strong>Objet :</strong> conclusion prudente " + addTerm("synthèse") + ".</p>";
 
-    h += `<p>`;
-    if (high && critical) {
-      h += `Le croisement local technique/juridique oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave. La voie du vice caché et/ou de la conformité est sérieusement ouverte.`;
+    h += "<p>";
+    if (high && critical && auto) {
+      h += "Le croisement local technique/juridique/auto-diagnostic oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave. L’appui auto-diagnostic renforce la démonstration du caractère documenté et non isolé du désordre.";
+    } else if (high && critical) {
+      h += "Le croisement local technique/juridique oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave.";
     } else if (matches.length) {
-      h += `Un défaut connu est probable, mais le kilométrage ou la nature du symptôme impose une expertise pour écarter l’usure normale.`;
+      h += "Un défaut connu est probable, mais le kilométrage ou la nature du symptôme impose une expertise pour écarter l’usure normale.";
     } else {
-      h += `Aucun défaut de série identifié localement. Le problème peut être individuel : diagnostic et expertise nécessaires.`;
+      h += "Aucun défaut de série identifié localement. Le problème peut être individuel : diagnostic et expertise nécessaires.";
     }
-    h += `</p>`;
+    h += "</p>";
 
-    h += `<p><strong>Recommandation opérationnelle :</strong> ne pas effectuer de réparation destructrice avant constat/expertise. Conserver le véhicule en l’état si possible, photographier, obtenir devis, puis mise en demeure LRAR.</p>`;
+    h += "<p><strong>Recommandation opérationnelle :</strong> ne pas effectuer de réparation destructrice avant constat/expertise. Conserver le véhicule en l’état si possible, photographier, obtenir devis, exporter les fiches auto-diagnostic corrélées, puis mise en demeure LRAR.</p>";
 
     if (flags.professional) {
-      h += `<p><strong>Si vendeur professionnel :</strong> privilégier garantie légale de conformité + signalement DGCCRF si danger.</p>`;
+      h += "<p><strong>Si vendeur professionnel :</strong> privilégier garantie légale de conformité + signalement DGCCRF si danger.</p>";
     } else {
-      h += `<p><strong>Si vendeur particulier :</strong> privilégier expertise amiable puis action en vices cachés.</p>`;
+      h += "<p><strong>Si vendeur particulier :</strong> privilégier expertise amiable puis action en vices cachés.</p>";
     }
 
-    h += `<div class="certainty-low"><strong>Avertissement :</strong> document d’aide à la rédaction. Ne constitue pas un avis juridique définitif.</div>`;
+    h += '<div class="certainty-low"><strong>Avertissement :</strong> document d’aide à la rédaction. Ne constitue pas un avis juridique définitif.</div>';
 
     return h;
   }
 
   function secLexique() {
     var terms = Array.from(termesMobilises).sort();
-    var h = `<p><strong>Termes mobilisés :</strong> ${terms.length}</p><div class="lexique-section">`;
+    var h = "<p><strong>Termes mobilisés :</strong> " + terms.length + '</p><div class="lexique-section">';
     terms.forEach(function (t) {
-      h += `<div class="lexique-item"><strong>${esc(t)}</strong></div>`;
+      h += '<div class="lexique-item"><strong>' + esc(t) + "</strong></div>";
     });
-    h += `</div>`;
+    h += "</div>";
     return h;
   }
 
@@ -2334,10 +2816,15 @@
 
     var statEntries = q("#statEntries");
     var statBrands = q("#statBrands");
+    var statAutoEntries = q("#statAutoEntries");
+    var statAutoSync = q("#statAutoSync");
     var statSync = q("#statSync");
 
     if (statEntries) statEntries.textContent = allDefects().length;
     if (statBrands) statBrands.textContent = Object.keys(brands).length;
+    if (statAutoEntries) statAutoEntries.textContent = autoDb.length;
+
+    if (statAutoSync) statAutoSync.textContent = autoLastSync ? new Date(autoLastSync).toLocaleString("fr-FR") : "Jamais";
 
     var last = load(KEYS.LAST_UPDATE, 0);
     if (statSync) statSync.textContent = last ? new Date(last).toLocaleString("fr-FR") : "Jamais";
@@ -2363,32 +2850,31 @@
     if (count) count.textContent = pending.length;
 
     if (!all.length) {
-      box.innerHTML = `<p class="empty-state">Aucune demande.</p>`;
+      box.innerHTML = '<p class="empty-state">Aucune demande.</p>';
       return;
     }
 
     var html = "";
 
-    html += `<h4>À traiter (${pending.length})</h4>`;
+    html += "<h4>À traiter (" + pending.length + ")</h4>";
 
     if (!pending.length) {
-      html += `<p class="empty-state">Aucune demande en attente.</p>`;
+      html += '<p class="empty-state">Aucune demande en attente.</p>';
     } else {
       html += pending.map(function (r) {
-        return `<div class="card pending">
-          <strong>${esc(r.name)}</strong> <small>${esc(r.email)}</small>
-          <p>${esc(r.reason)}</p>
-          <small>${esc(r.date || "")} • source : ${esc(r.source || "locale")}</small>
-          <div class="actions">
-            <button class="btn-ok" data-action="approve" data-id="${esc(r.id)}" type="button">Accepter</button>
-            <button class="btn-no" data-action="refuse" data-id="${esc(r.id)}" type="button">Refuser</button>
-          </div>
-        </div>`;
+        return '<div class="card pending">' +
+          "<strong>" + esc(r.name) + "</strong> <small>" + esc(r.email) + "</small>" +
+          "<p>" + esc(r.reason) + "</p>" +
+          "<small>" + esc(r.date || "") + " • source : " + esc(r.source || "locale") + "</small>" +
+          '<div class="actions">' +
+          '<button class="btn-ok" data-action="approve" data-id="' + esc(r.id) + '" type="button">Accepter</button>' +
+          '<button class="btn-no" data-action="refuse" data-id="' + esc(r.id) + '" type="button">Refuser</button>' +
+          "</div></div>";
       }).join("");
     }
 
     if (processed.length) {
-      html += `<h4>Dernières demandes traitées</h4>`;
+      html += "<h4>Dernières demandes traitées</h4>";
 
       html += processed.map(function (r) {
         var cls = r.status === "approved" ? "approved" : "refused";
@@ -2397,17 +2883,17 @@
 
         if (r.status === "approved") {
           actions =
-            `<button class="btn-ok" data-action="share-grant" data-email="${esc(r.email)}" data-name="${esc(r.name)}" type="button">` +
-            `📤 Envoyer l’accès au tiers` +
-            `</button>`;
+            '<button class="btn-ok" data-action="share-grant" data-email="' + esc(r.email) + '" data-name="' + esc(r.name) + '" type="button">' +
+            "📤 Envoyer l’accès au tiers" +
+            "</button>";
         }
 
-        return `<div class="card ${cls}">
-          <strong>${esc(r.name)}</strong> <small>${esc(r.email)}</small>
-          <p>${esc(r.reason)}</p>
-          <small>Statut : ${esc(label)} • ${esc(r.processedDate || r.date || "")}</small>
-          ${actions ? `<div class="actions">${actions}</div>` : ""}
-        </div>`;
+        return '<div class="card ' + cls + '">' +
+          "<strong>" + esc(r.name) + "</strong> <small>" + esc(r.email) + "</small>" +
+          "<p>" + esc(r.reason) + "</p>" +
+          "<small>Statut : " + esc(label) + " • " + esc(r.processedDate || r.date || "") + "</small>" +
+          (actions ? '<div class="actions">' + actions + "</div>" : "") +
+          "</div>";
       }).join("");
     }
 
@@ -2421,25 +2907,26 @@
     var users = getUsers().filter(function (u) { return u.role !== "admin"; });
 
     if (!users.length) {
-      box.innerHTML = `<p class="empty-state">Aucun tiers.</p>`;
+      box.innerHTML = '<p class="empty-state">Aucun tiers.</p>';
       return;
     }
 
     box.innerHTML = users.map(function (u) {
       var action = u.status === "approved"
-        ? `<button class="btn-warn" data-action="revoke" data-email="${esc(u.email)}" data-name="${esc(u.name)}" type="button">Révoquer</button>`
-        : `<button class="btn-ok" data-action="restore" data-email="${esc(u.email)}" data-name="${esc(u.name)}" type="button">Rétablir</button>`;
+        ? '<button class="btn-warn" data-action="revoke" data-email="' + esc(u.email) + '" data-name="' + esc(u.name) + '" type="button">Révoquer</button>'
+        : '<button class="btn-ok" data-action="restore" data-email="' + esc(u.email) + '" data-name="' + esc(u.name) + '" type="button">Rétablir</button>';
 
-      return `<div class="card ${esc(u.status)}">
-        <strong>${esc(u.name)}</strong> <small>${esc(u.email)} • ${esc(u.status)}</small>
-        <div class="actions">${action}</div>
-      </div>`;
+      return '<div class="card ' + esc(u.status) + '">' +
+        "<strong>" + esc(u.name) + "</strong> <small>" + esc(u.email) + " • " + esc(u.status) + "</small>" +
+        '<div class="actions">' + action + "</div>" +
+        "</div>";
     }).join("");
   }
 
   function renderAdmin() {
     renderRequests();
     renderUsers();
+    renderAutoConfig();
     updateAdminStats();
   }
 
@@ -2470,33 +2957,33 @@
     var body = "";
     if (analysisData && analysisData.sections) {
       analysisData.sections.forEach(function (pair) {
-        body += `<h2>${pair[0]}</h2>${pair[1]}`;
+        body += "<h2>" + pair[0] + "</h2>" + pair[1];
       });
     }
 
-    return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8" />
-<title>Rapport Expert Auto</title>
-<style>
-body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
-h1 { text-align: center; }
-h2 { margin-top: 28px; border-bottom: 1px solid #999; padding-bottom: 6px; }
-.termes-juridiques { background: #eee; padding: 2px 6px; border-radius: 4px; font-style: italic; }
-.rappel-critical, .certainty-low { border-left: 4px solid #c00; background: #fff5f5; padding: 10px; margin: 10px 0; }
-.rappel-info, .certainty-medium, .verification-needed { border-left: 4px solid #06c; background: #f5fbff; padding: 10px; margin: 10px 0; }
-.certainty-high { border-left: 4px solid #090; background: #f5fff7; padding: 10px; margin: 10px 0; }
-</style>
-</head>
-<body>
-<h1>Rapport d’analyse expert auto</h1>
-<p><strong>Date :</strong> ${esc(analysisData.date || "")}</p>
-<p><strong>Véhicule :</strong> ${esc(vehicleData.marque || "")} ${esc(vehicleData.modele || "")} ${esc(vehicleData.annee || "")}</p>
-<p><strong>Kilométrage :</strong> ${esc(vehicleData.kilometrage || "")} km</p>
-${body}
-</body>
-</html>`;
+    return '<!DOCTYPE html>' +
+      '<html lang="fr">' +
+      '<head>' +
+      '<meta charset="UTF-8" />' +
+      '<title>Rapport Expert Auto</title>' +
+      '<style>' +
+      'body { font-family: Arial, sans-serif; padding: 24px; color: #111; }' +
+      'h1 { text-align: center; }' +
+      'h2 { margin-top: 28px; border-bottom: 1px solid #999; padding-bottom: 6px; }' +
+      '.termes-juridiques { background: #eee; padding: 2px 6px; border-radius: 4px; font-style: italic; }' +
+      '.rappel-critical, .certainty-low { border-left: 4px solid #c00; background: #fff5f5; padding: 10px; margin: 10px 0; }' +
+      '.rappel-info, .certainty-medium, .verification-needed { border-left: 4px solid #06c; background: #f5fbff; padding: 10px; margin: 10px 0; }' +
+      '.certainty-high { border-left: 4px solid #090; background: #f5fff7; padding: 10px; margin: 10px 0; }' +
+      '</style>' +
+      '</head>' +
+      '<body>' +
+      '<h1>Rapport d’analyse expert auto</h1>' +
+      '<p><strong>Date :</strong> ' + esc(analysisData.date || "") + '</p>' +
+      '<p><strong>Véhicule :</strong> ' + esc(vehicleData.marque || "") + ' ' + esc(vehicleData.modele || "") + ' ' + esc(vehicleData.annee || "") + '</p>' +
+      '<p><strong>Kilométrage :</strong> ' + esc(vehicleData.kilometrage || "") + ' km</p>' +
+      body +
+      '</body>' +
+      '</html>';
   }
 
   function downloadHtmlReport() {
@@ -2970,7 +3457,7 @@ ${body}
     var btn = q("#analyzeBtn");
     if (btn) {
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Analyse experte en cours...';
+      btn.innerHTML = '<span class="spinner"></span> Analyse experte + auto-diagnostic en cours...';
     }
 
     setTimeout(function () {
@@ -2984,7 +3471,7 @@ ${body}
       } finally {
         if (btn) {
           btn.disabled = false;
-          btn.innerHTML = "🔍 Lancer l’analyse croisée technique + juridique";
+          btn.innerHTML = "🔍 Lancer l’analyse croisée technique + juridique + auto-diagnostic";
         }
       }
     }, 700);
@@ -3203,6 +3690,15 @@ ${body}
     renderAdmin();
   });
 
+  on("#saveAutoCfgBtn", "click", function () {
+    saveAutoConfigFromUi();
+  });
+
+  on("#syncAutoBtn", "click", function () {
+    saveAutoConfigFromUi();
+    syncAutoDiagnostic(true);
+  });
+
   on("#forceUpdateBtn", "click", function () {
     fetchUpdate(true);
   });
@@ -3212,13 +3708,15 @@ ${body}
       exportedAt: new Date().toISOString(),
       users: getUsers(),
       requests: getRequests(),
-      defects: techUpdates
+      defects: techUpdates,
+      autoDefects: autoDb,
+      autoConfig: autoConfig
     };
 
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "aide-redactionnelle-expert-data.json";
+    a.download = "aide-redactionnelle-expert-data-v14.json";
     a.click();
     toast("Données exportées.", "success");
   });
@@ -3239,12 +3737,30 @@ ${body}
 
           if (data.users) saveUsers(data.users);
           if (data.requests) saveRequests(data.requests);
+          if (data.autoConfig) {
+            autoConfig = Object.assign({}, autoConfig, data.autoConfig);
+            save(KEYS.AUTO_CFG, autoConfig);
+          }
 
-          var incoming = Array.isArray(data) ? data : (data.defects || data.updates || []);
+          var incoming = [];
+          if (Array.isArray(data)) incoming = data;
+          else if (data.defects) incoming = data.defects;
+          else if (data.autoDefects) incoming = data.autoDefects;
+          else if (data.base) incoming = data.base;
+          else if (data.pannes) incoming = data.pannes;
+
           if (Array.isArray(incoming)) {
-            techUpdates = mergeDefects(techUpdates, incoming);
-            save(KEYS.TECH_UPDATES, techUpdates);
-            save(KEYS.LAST_UPDATE, Date.now());
+            var normalized = collectRecordsFromJson(incoming, "import-manuel", 0);
+            if (normalized.length) {
+              autoDb = mergeDefects(autoDb, normalized);
+              save(KEYS.AUTO_DB, autoDb);
+              autoLastSync = Date.now();
+              save(KEYS.AUTO_LAST_SYNC, autoLastSync);
+            } else {
+              techUpdates = mergeDefects(techUpdates, incoming);
+              save(KEYS.TECH_UPDATES, techUpdates);
+              save(KEYS.LAST_UPDATE, Date.now());
+            }
           }
 
           renderAdmin();
@@ -3395,6 +3911,17 @@ ${body}
       techUpdates = [];
     }
 
+    try {
+      autoDb = (load(KEYS.AUTO_DB, []) || [])
+        .map(normalizeDefect)
+        .filter(isValidDefect);
+    } catch (e) {
+      autoDb = [];
+    }
+
+    autoLastSync = load(KEYS.AUTO_LAST_SYNC, 0) || 0;
+    autoConfig = Object.assign({}, CONFIG.autoDiagnostic, load(KEYS.AUTO_CFG, {}) || {});
+
     updateAdminStats();
     updateDataStatus("Base locale ingénieur chargée");
     updateNotificationState();
@@ -3417,7 +3944,9 @@ ${body}
       showLogin();
     }
 
-    toast("Application prête. Base locale chargée.", "success");
+    syncAutoDiagnostic(false);
+
+    toast("Application prête. Base locale + auto-diagnostic chargés.", "success");
   }
 
   function boot() {
