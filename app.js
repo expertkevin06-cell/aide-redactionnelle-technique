@@ -2,19 +2,6 @@
   "use strict";
 
   /* =========================================================
-     POLYFILL MINIMAL
-     ========================================================= */
-  if (!String.prototype.padStart) {
-    String.prototype.padStart = function (maxLength, fillString) {
-      if (this.length >= maxLength) return String(this);
-      fillString = fillString || " ";
-      var fill = "";
-      while (fill.length + this.length < maxLength) fill += fillString;
-      return fill.substring(0, maxLength - this.length) + String(this);
-    };
-  }
-
-  /* =========================================================
      PROTECTION GLOBALE : AUCUNE ERREUR NE BLOQUE LE DEMARRAGE
      ========================================================= */
   window.addEventListener("error", function (event) {
@@ -27,7 +14,7 @@
   });
 
   /* =========================================================
-     HELPERS DOM / STOCKAGE / FORMATAGE
+     HELPERS
      ========================================================= */
   function q(sel) {
     try { return document.querySelector(sel); } catch (e) { return null; }
@@ -44,7 +31,9 @@
 
   function todayKey() {
     var d = new Date();
-    return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+    var m = d.getMonth() + 1;
+    var day = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" + m : m) + "-" + (day < 10 ? "0" + day : day);
   }
 
   function uid() {
@@ -96,6 +85,10 @@
     return s.trim();
   }
 
+  function normKey(str) {
+    return norm(str).replace(/[^a-z0-9]+/g, "");
+  }
+
   function containsAny(text, list) {
     var t = norm(text);
     for (var i = 0; i < list.length; i++) {
@@ -109,16 +102,47 @@
   }
 
   function parseYear(v) {
-    return parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10) || 0;
+    var n = parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10) || 0;
+    return (n >= 1980 && n <= 2035) ? n : 0;
   }
 
-  function checkYearRange(rangeStr, targetYear) {
-    if (!targetYear) return true;
-    var parts = String(rangeStr || "").split("-").map(function (s) { return parseInt(s.trim(), 10); });
-    if (parts.length === 2 && parts[0] && parts[1]) {
-      return targetYear >= parts[0] && targetYear <= parts[1];
-    }
-    return true;
+  function yearMatches(range, year) {
+    if (!year) return true;
+    var s = String(range || "").trim();
+    if (!s || s === "*" || s.toLowerCase().indexOf("tous") >= 0) return true;
+
+    var m = s.match(/(\d{4})\D*(\d{4})?/);
+    if (!m) return true;
+
+    var a = parseInt(m[1], 10);
+    var b = m[2] ? parseInt(m[2], 10) : a;
+    return year >= a && year <= b;
+  }
+
+  function brandMatch(a, b) {
+    var na = normKey(a);
+    var nb = normKey(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    if (na.length > 3 && nb.indexOf(na) >= 0) return true;
+    if (nb.length > 3 && na.indexOf(nb) >= 0) return true;
+    return false;
+  }
+
+  function nameMatch(a, b) {
+    var na = normKey(a);
+    var nb = normKey(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    if (na.length > 2 && nb.indexOf(na) >= 0) return true;
+    if (nb.length > 2 && na.indexOf(nb) >= 0) return true;
+    return false;
+  }
+
+  function modelListContains(list, model) {
+    return String(list || "").split("|").some(function (m) {
+      return nameMatch(m, model);
+    });
   }
 
   function stripTags(html) {
@@ -163,11 +187,12 @@
     if (!window.crypto || !crypto.subtle || typeof TextEncoder === "undefined") {
       return Promise.resolve(simpleHash(String(text || "")));
     }
+
     return crypto.subtle
       .digest("SHA-256", new TextEncoder().encode(String(text || "")))
       .then(function (buf) {
         return Array.prototype.map.call(new Uint8Array(buf), function (b) {
-          return b.toString(16).padStart(2, "0");
+          return ("0" + b.toString(16)).slice(-2);
         }).join("");
       })
       .catch(function () {
@@ -213,11 +238,8 @@
   }
 
   function resolveUrl(base, path) {
-    try {
-      return new URL(path, base).href;
-    } catch (e) {
-      return String(base || "") + String(path || "");
-    }
+    try { return new URL(path, base).href; }
+    catch (e) { return String(base || "") + String(path || ""); }
   }
 
   function valToString(v) {
@@ -234,81 +256,12 @@
     return "";
   }
 
-  function unique(values) {
-    var seen = {};
-    return values.filter(function (v) {
-      var k = norm(v);
-      if (!k || seen[k]) return false;
-      seen[k] = true;
-      return true;
-    });
-  }
-
-  /* =========================================================
-     CHARGEMENT DYNAMIQUE DES BIBLIOTHEQUES
-     ========================================================= */
-  var scriptCache = {};
-
-  function loadScript(src) {
-    if (scriptCache[src]) return scriptCache[src];
-
-    scriptCache[src] = new Promise(function (resolve, reject) {
-      var existing = document.querySelector('script[src="' + src + '"]');
-      if (existing) {
-        resolve();
-        return;
-      }
-
-      var s = document.createElement("script");
-      s.src = src;
-      s.async = true;
-      s.onload = function () { resolve(); };
-      s.onerror = function () {
-        delete scriptCache[src];
-        reject(new Error("Bibliothèque indisponible : " + src));
-      };
-      document.head.appendChild(s);
-    });
-
-    return scriptCache[src];
-  }
-
-  var pdfJsPromise = null;
-  function ensurePdfJs() {
-    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
-    if (pdfJsPromise) return pdfJsPromise;
-
-    pdfJsPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js")
-      .then(function () {
-        if (!window.pdfjsLib) throw new Error("PDF.js non chargé");
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-        return window.pdfjsLib;
-      })
-      .catch(function (err) {
-        pdfJsPromise = null;
-        throw err;
+  function fetchJson(url) {
+    return fetch(url, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
       });
-
-    return pdfJsPromise;
-  }
-
-  var jsPdfPromise = null;
-  function ensureJsPdf() {
-    if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
-    if (jsPdfPromise) return jsPdfPromise;
-
-    jsPdfPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js")
-      .then(function () {
-        if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("jsPDF non chargé");
-        return window.jspdf.jsPDF;
-      })
-      .catch(function (err) {
-        jsPdfPromise = null;
-        throw err;
-      });
-
-    return jsPdfPromise;
   }
 
   /* =========================================================
@@ -318,81 +271,87 @@
     adminPassword: "Kevin83600",
     maxDailyAnalyses: 10,
     updateIntervalDays: 30,
-    updateUrl: "./data/technical-updates.json",
-    engineCatalogUrl: "./data/engine-catalog.json",
     pollAdminMs: 5000,
-    autoDiagnostic: {
-      baseUrl: "https://expertkevin06-cell.github.io/auto-diagnostic/",
-      pageUrl: "index.html",
+    catalog: {
+      vehicleUrl: "./data/vehicle-catalog.json",
+      engineUrl: "./data/engine-catalog.json",
+      technicalUrl: "./data/technical-updates.json",
+      nhtsaEnabled: true,
+      autoBaseUrl: "https://expertkevin06-cell.github.io/auto-diagnostic/",
       endpoints: [
-        "data/base.json",
-        "data/pannes.json",
+        "data/vehicle-catalog.json",
+        "data/engine-catalog.json",
         "data/models.json",
         "data/motorisations.json",
-        "data/engine-catalog.json",
-        "data/dtc.json",
+        "data/base.json",
+        "data/pannes.json",
         "data/technical-updates.json",
         "db.json",
-        "database.json",
-        "data/db.json",
-        "assets/db.json",
-        "js/data.json"
-      ],
-      scriptUrls: [
-        "js/app.js",
-        "js/data.js",
-        "js/base.js",
-        "app.js",
-        "data.js"
+        "database.json"
       ]
     }
   };
 
   var KEYS = {
+    SESSION: "arex_session_v17",
+    USERS: "arex_users_v17",
+    REQUESTS: "arex_requests_v17",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v17",
+    TECH_UPDATES: "arex_tech_updates_v17",
+    LAST_UPDATE: "arex_last_update_v17",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v17",
+    CATALOG_CFG: "arex_catalog_cfg_v17",
+    IMPORTED_RAW: "arex_imported_raw_v17"
+  };
+
+  var OLD_KEYS = {
     SESSION: "arex_session_v16",
     USERS: "arex_users_v16",
     REQUESTS: "arex_requests_v16",
     ADMIN_PWD_HASH: "arex_admin_pwd_hash_v16",
     TECH_UPDATES: "arex_tech_updates_v16",
     LAST_UPDATE: "arex_last_update_v16",
-    AUTO_DB: "arex_auto_db_v16",
     AUTO_LAST_SYNC: "arex_auto_last_sync_v16",
-    AUTO_CFG: "arex_auto_cfg_v16",
-    ENGINE_EXTRA: "arex_engine_extra_v16"
+    CATALOG_CFG: "arex_auto_cfg_v16",
+    IMPORTED_RAW: "arex_imported_raw_v16"
   };
 
-  var OLD_KEYS = {
-    SESSION: "arex_session_v15",
-    USERS: "arex_users_v15",
-    REQUESTS: "arex_requests_v15",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v15",
-    TECH_UPDATES: "arex_tech_updates_v15",
-    LAST_UPDATE: "arex_last_update_v15",
-    AUTO_DB: "arex_auto_db_v15",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v15",
-    AUTO_CFG: "arex_auto_cfg_v15",
-    ENGINE_EXTRA: "arex_engine_extra_v15"
-  };
-
+  /* =========================================================
+     ETAT GLOBAL
+     ========================================================= */
   var currentUser = null;
   var vehicleData = {};
   var analysisData = {};
   var extractedText = "";
   var termesMobilises = new Set();
   var deferredPrompt = null;
-  var techUpdates = [];
-  var autoDb = [];
-  var autoLastSync = 0;
-  var autoConfig = Object.assign({}, CONFIG.autoDiagnostic);
-  var engineExtra = [];
-  var engineOptionMap = {};
-  var modelOptionMap = {};
-  var vehicleRefreshTimer = null;
   var swRegistration = null;
   var adminPollTimer = null;
   var lastPendingSignature = "";
   var lastSharedAccessRequest = null;
   var broadcast = null;
+  var autoLastSync = 0;
+  var modelLoadToken = 0;
+
+  var selection = {
+    brand: null,
+    model: null,
+    engine: null
+  };
+
+  var modelOptions = [];
+  var currentModelOptions = [];
+  var engineOptions = [];
+  var currentEngineOptions = [];
+
+  var catalog = {
+    brands: {},
+    models: [],
+    modelKeys: {},
+    engines: [],
+    engineKeys: {},
+    defects: []
+  };
 
   try {
     if ("BroadcastChannel" in window) {
@@ -421,9 +380,7 @@
       unsupported: "⚠️ Notifications non supportées par cet environnement"
     };
 
-    if (el) {
-      el.textContent = "État des notifications : " + (labels[state] || state);
-    }
+    if (el) el.textContent = "État des notifications : " + (labels[state] || state);
   }
 
   function askNotification() {
@@ -485,7 +442,7 @@
   }
 
   /* =========================================================
-     IDENTITÉ / UTILISATEURS / DEMANDES / ACCÈS TIERS
+     AUTH / USERS / REQUESTS
      ========================================================= */
   function normIdentity(value) {
     return norm(String(value == null ? "" : value)).replace(/\s+/g, " ").trim();
@@ -571,11 +528,9 @@
     var emailKey = userEmailKey(email);
     var users = getUsers();
 
-    return users.find(function (u) {
-      return u.key === key;
-    }) || users.find(function (u) {
-      return u.emailNorm === emailKey && u.role !== "admin";
-    }) || null;
+    return users.find(function (u) { return u.key === key; }) ||
+           users.find(function (u) { return u.emailNorm === emailKey && u.role !== "admin"; }) ||
+           null;
   }
 
   function findApprovedUser(name, email) {
@@ -599,11 +554,9 @@
     var key = session.key || userCompositeKey(session.name, session.email);
     var emailKey = userEmailKey(session.email);
 
-    return users.find(function (u) {
-      return u.key === key;
-    }) || users.find(function (u) {
-      return u.emailNorm === emailKey && u.role !== "admin";
-    }) || null;
+    return users.find(function (u) { return u.key === key; }) ||
+           users.find(function (u) { return u.emailNorm === emailKey && u.role !== "admin"; }) ||
+           null;
   }
 
   function upsertUser(user) {
@@ -616,11 +569,9 @@
 
     if (idx >= 0) {
       var merged = Object.assign({}, users[idx], next);
-
       merged.daily = users[idx].daily && users[idx].daily.date === todayKey()
         ? users[idx].daily
         : (next.daily || { date: todayKey(), count: 0 });
-
       users[idx] = merged;
       next = merged;
     } else {
@@ -681,8 +632,7 @@
 
     var users = getUsers();
     var idx = users.findIndex(function (u) {
-      return u.key === currentUser.key ||
-        (u.emailNorm === currentUser.emailNorm && u.role !== "admin");
+      return u.key === currentUser.key || (u.emailNorm === currentUser.emailNorm && u.role !== "admin");
     });
 
     if (idx < 0) return;
@@ -753,9 +703,7 @@
       var raw = getQueryParam("access_request");
       if (!raw) return false;
 
-      var decoded = b64UrlToUtf8(raw);
-      var req = JSON.parse(decoded);
-
+      var req = JSON.parse(b64UrlToUtf8(raw));
       if (!req || !req.name || !req.email) return false;
 
       req = migrateRequest({
@@ -822,13 +770,8 @@
     }
   }
 
-  /* =========================================================
-     DEMANDES / NOTIFICATION ADMIN / CLOCHE
-     ========================================================= */
   function pendingRequests() {
-    return getRequests().filter(function (r) {
-      return r.status === "pending";
-    });
+    return getRequests().filter(function (r) { return r.status === "pending"; });
   }
 
   function pendingSignature() {
@@ -872,14 +815,9 @@
     if (!currentUser || currentUser.role !== "admin") return;
     if (!req) return;
 
-    var title = "Nouvelle demande d’accès";
-    var body = (req.name || "Tiers") + " — " + (req.email || "");
-
-    notify(title, body, "access-" + (req.id || Date.now()));
-
+    notify("Nouvelle demande d’accès", (req.name || "Tiers") + " — " + (req.email || ""), "access-" + (req.id || Date.now()));
     updateNotificationBell();
     renderAdminIfOpen();
-
     toast("Nouvelle demande : " + (req.name || "Tiers"), "info");
   }
 
@@ -894,9 +832,7 @@
     }
 
     var oldIds = lastPendingSignature ? lastPendingSignature.split("|") : [];
-    var newIds = sig ? sig.split("|").filter(function (id) {
-      return id && oldIds.indexOf(id) < 0;
-    }) : [];
+    var newIds = sig ? sig.split("|").filter(function (id) { return id && oldIds.indexOf(id) < 0; }) : [];
 
     lastPendingSignature = sig;
     updateNotificationBell();
@@ -905,13 +841,8 @@
       var all = getRequests();
 
       newIds.forEach(function (id) {
-        var req = all.find(function (r) {
-          return r.id === id;
-        });
-
-        if (req) {
-          onAccessRequestReceived(req);
-        }
+        var req = all.find(function (r) { return r.id === id; });
+        if (req) onAccessRequestReceived(req);
       });
     }
 
@@ -929,9 +860,7 @@
     }, CONFIG.pollAdminMs || 5000);
 
     var count = pendingRequests().length;
-    if (count > 0) {
-      toast(count + " demande(s) d’accès en attente", "info");
-    }
+    if (count > 0) toast(count + " demande(s) d’accès en attente", "info");
   }
 
   function stopAdminPolling() {
@@ -946,17 +875,12 @@
 
     if (broadcast) {
       try {
-        broadcast.postMessage({
-          type: "access-request",
-          payload: req
-        });
+        broadcast.postMessage({ type: "access-request", payload: req });
       } catch (e) {}
     }
 
     try {
-      window.dispatchEvent(new CustomEvent("arex:access-request", {
-        detail: req
-      }));
+      window.dispatchEvent(new CustomEvent("arex:access-request", { detail: req }));
     } catch (e) {}
 
     updateNotificationBell();
@@ -976,77 +900,6 @@
       setSession(fresh);
       updateCounter();
     }
-  }
-
-  /* =========================================================
-     AFFICHAGE APPLICATION / CONNEXION
-     ========================================================= */
-  function showApp() {
-    var login = q("#loginScreen");
-    if (login) {
-      login.classList.add("hidden");
-      login.style.display = "none";
-    }
-
-    var app = q("#mainApp");
-    if (app) {
-      app.classList.remove("hidden");
-      app.style.display = "block";
-    }
-
-    var badge = q("#userBadge");
-    if (badge) {
-      badge.textContent = currentUser.role === "admin"
-        ? "👑 Admin"
-        : "👤 " + currentUser.name;
-    }
-
-    var adminBtn = q("#adminPanelBtn");
-    if (adminBtn) {
-      if (currentUser.role === "admin") {
-        adminBtn.classList.remove("hidden");
-      } else {
-        adminBtn.classList.add("hidden");
-      }
-    }
-
-    updateCounter();
-    updateNotificationBell();
-    updateNotificationState();
-    refreshModelOptions();
-
-    if (currentUser && currentUser.role === "admin") {
-      startAdminPolling();
-      askNotification();
-    } else {
-      stopAdminPolling();
-    }
-
-    window.scrollTo(0, 0);
-  }
-
-  function showLogin() {
-    var login = q("#loginScreen");
-    if (login) {
-      login.classList.remove("hidden");
-      login.style.display = "flex";
-    }
-
-    var app = q("#mainApp");
-    if (app) {
-      app.classList.add("hidden");
-      app.style.display = "none";
-    }
-
-    var admin = q("#adminPanel");
-    if (admin) {
-      admin.classList.add("hidden");
-    }
-
-    stopAdminPolling();
-    updateNotificationBell();
-    updateNotificationState();
-    refreshSavedPasswordButton();
   }
 
   function refreshSavedPasswordButton() {
@@ -1074,32 +927,167 @@
     });
   }
 
+  function showApp() {
+    var login = q("#loginScreen");
+    if (login) {
+      login.classList.add("hidden");
+      login.style.display = "none";
+    }
+
+    var app = q("#mainApp");
+    if (app) {
+      app.classList.remove("hidden");
+      app.style.display = "block";
+    }
+
+    var badge = q("#userBadge");
+    if (badge) {
+      badge.textContent = currentUser.role === "admin" ? "👑 Admin" : "👤 " + currentUser.name;
+    }
+
+    var adminBtn = q("#adminPanelBtn");
+    if (adminBtn) {
+      if (currentUser.role === "admin") adminBtn.classList.remove("hidden");
+      else adminBtn.classList.add("hidden");
+    }
+
+    updateCounter();
+    updateNotificationBell();
+    updateNotificationState();
+    updateSelectionSummary();
+
+    if (currentUser && currentUser.role === "admin") {
+      startAdminPolling();
+      askNotification();
+    } else {
+      stopAdminPolling();
+    }
+
+    window.scrollTo(0, 0);
+  }
+
+  function showLogin() {
+    var login = q("#loginScreen");
+    if (login) {
+      login.classList.remove("hidden");
+      login.style.display = "flex";
+    }
+
+    var app = q("#mainApp");
+    if (app) {
+      app.classList.add("hidden");
+      app.style.display = "none";
+    }
+
+    var admin = q("#adminPanel");
+    if (admin) admin.classList.add("hidden");
+
+    stopAdminPolling();
+    updateNotificationBell();
+    updateNotificationState();
+    refreshSavedPasswordButton();
+  }
+
   /* =========================================================
-     CATALOGUE MARQUES / MODÈLES / MOTORSATIONS
+     CATALOGUE : MARQUES / MODELES / MOTORSATIONS
      ========================================================= */
-  var BRAND_SEED = [
+  var BASE_BRANDS = [
     "Renault", "Dacia", "Peugeot", "Citroen", "DS", "Volkswagen", "Audi", "Skoda", "Seat", "Cupra",
-    "BMW", "Mini", "Mercedes-Benz", "Volvo", "Porsche", "Land Rover", "Range Rover", "Jaguar",
-    "Opel", "Fiat", "Alfa Romeo", "Ford", "Tesla", "Jeep", "Toyota", "Lexus", "Honda", "Nissan",
-    "Mazda", "Subaru", "Suzuki", "Mitsubishi", "Hyundai", "Kia", "Genesis", "MG", "BYD",
-    "Leapmotor", "XPeng", "NIO", "Aiways", "Ora", "Chery", "Omoda", "Jaecoo", "Geely", "Smart",
-    "Lotus", "Maxus", "GWM", "Chevrolet", "GMC", "Cadillac", "Ram", "Chrysler", "Dodge"
+    "BMW", "Mini", "Mercedes-Benz", "smart", "Volvo", "Porsche", "Land Rover", "Range Rover", "Jaguar",
+    "Opel", "Vauxhall", "Fiat", "Alfa Romeo", "Maserati", "Abarth", "Ford", "Tesla", "Jeep", "RAM",
+    "Chrysler", "Dodge", "Chevrolet", "GMC", "Cadillac", "Buick", "Lincoln", "Toyota", "Lexus",
+    "Honda", "Acura", "Nissan", "Infiniti", "Mazda", "Subaru", "Suzuki", "Mitsubishi", "Hyundai",
+    "Kia", "Genesis", "MG", "BYD", "Omoda", "Jaecoo", "Chery", "Geely", "Lynk & Co", "Polestar",
+    "Leapmotor", "XPeng", "NIO", "Aiways", "Ora", "GWM", "Maxus", "LDV", "Seres", "Dongfeng",
+    "Haval", "Tank", "Hongqi", "Beijing", "Foton", "JAC", "DFSK", "Wey", "VinFast", "Rivian",
+    "Lucid", "Fisker", "Lotus", "Aston Martin", "Bentley", "Rolls-Royce", "Lamborghini", "Ferrari",
+    "McLaren", "Bugatti", "Koenigsegg", "Pagani", "Maybach", "Alpina", "Morgan", "Caterham",
+    "Ariel", "KTM", "Aixam", "Ligier", "Microcar", "Chatenet", "Iveco", "MAN", "Scania"
   ];
 
-  var ENGINE_TYPES_ORDER = [
-    "Essence",
-    "Diesel",
-    "Hybride",
-    "Hybride rechargeable",
-    "Hybride léger 48V",
-    "Électrique",
-    "GPL",
-    "E85 / Bioéthanol",
-    "Non précisé / mixte"
-  ];
+  var BRAND_ALIASES = {
+    "volkswagen": ["vw", "vag", "volkswagen group"],
+    "mercedes-benz": ["mercedes", "benz", "mb"],
+    "citroen": ["citroën"],
+    "land rover": ["landrover", "lr"],
+    "range rover": ["land rover", "range"],
+    "alfa romeo": ["alfa"],
+    "maserati": ["masa"],
+    "chevrolet": ["chevy"],
+    "bmw": ["bayerische motoren werke"],
+    "mini": ["mini cooper"],
+    "tesla": ["tesla motors"],
+    "byd": ["build your dreams"],
+    "mg": ["morris garages"],
+    "xpeng": ["x-peng"],
+    "nio": ["next ev"],
+    "gwm": ["great wall motor"],
+    "ldv": ["maxus"],
+    "jac": ["jianghuai automobile"],
+    "dfsk": ["dongfeng small truck"],
+    "iveco": ["iveco bus"],
+    "man": ["man truck"],
+    "scania": ["scania truck"]
+  };
 
-  function inferEngineType(engine, tags, symptoms, note) {
-    var t = norm(engine + " " + tags + " " + symptoms + " " + note);
+  function addBrand(name, aliases, source) {
+    name = String(name || "").trim();
+    if (!name) return;
+
+    var k = normKey(name);
+    if (!catalog.brands[k]) {
+      catalog.brands[k] = {
+        name: name,
+        aliases: [],
+        aliasKeys: {},
+        source: source || "local"
+      };
+    }
+
+    var brand = catalog.brands[k];
+
+    function pushAlias(a) {
+      a = String(a || "").trim();
+      if (!a) return;
+      var ak = normKey(a);
+      if (!brand.aliasKeys[ak]) {
+        brand.aliasKeys[ak] = true;
+        brand.aliases.push(a);
+      }
+    }
+
+    pushAlias(name);
+
+    if (aliases && aliases.length) {
+      aliases.forEach(pushAlias);
+    }
+
+    if (BRAND_ALIASES[k]) {
+      BRAND_ALIASES[k].forEach(pushAlias);
+    }
+  }
+
+  function addModel(brand, name, years, source) {
+    brand = String(brand || "").trim();
+    name = String(name || "").trim();
+    if (!brand || !name || name === "*") return;
+
+    addBrand(brand, null, source);
+
+    var k = normKey(brand) + "|" + normKey(name);
+    if (catalog.modelKeys[k]) return;
+
+    catalog.modelKeys[k] = true;
+    catalog.models.push({
+      brand: brand,
+      name: name,
+      years: years || "",
+      source: source || "local"
+    });
+  }
+
+  function inferFuel(text) {
+    var t = norm(text || "");
 
     if (containsAny(t, [
       "hybride rechargeable", "plug-in", "phev", "e-tense", "4xe", "prime",
@@ -1109,12 +1097,13 @@
 
     if (containsAny(t, [
       "48v", "mild hybrid", "micro-hybridation", "eq boost", "boosterjet",
-      "firefly hybrid", "hybrid 48"
+      "firefly hybrid", "hybrid 48", "e-torque", "etrone", "egmp"
     ])) return "Hybride léger 48V";
 
     var hy = containsAny(t, [
       "hybride", "hybrid", "ths", "i-mmd", "e-power", "self-charging",
-      "prius", "yaris hybrid", "corolla hybrid", "c-hr hybrid", "rav4 hybrid"
+      "prius", "yaris hybrid", "corolla hybrid", "c-hr hybrid", "rav4 hybrid",
+      "e:hev", "full hybrid"
     ]);
 
     var el = containsAny(t, [
@@ -1123,7 +1112,8 @@
       "model y", "e-tron", "e-cmp", "megane e-tech", "scenic e-tech",
       "austral e-tech", "captur e-tech", "spring", "500e", "e-corsa",
       "e-208", "e-2008", "enyaq", "born", "taycan", "mach-e", "i-pace",
-      "ariya", "leaf", "mx-30", "eqs", "eqe", "eqb", "eqa", "q4 e-tron"
+      "ariya", "leaf", "mx-30", "eqs", "eqe", "eqb", "eqa", "q4 e-tron",
+      "ev6", "ev9", "mg4", "seal", "dolphin", "bolt"
     ]);
 
     if (hy && el) return "Hybride / électrique";
@@ -1133,7 +1123,7 @@
     if (containsAny(t, [
       "diesel", "dci", "tdi", "hdi", "bluehdi", "bluemotion", "cdti",
       "ddis", "crdi", "k9k", "dv6", "om654", "b47", "ea288", "d-4d",
-      "gasoil"
+      "gasoil", "multijet", "ecoblue", "bluedci"
     ])) return "Diesel";
 
     if (containsAny(t, [
@@ -1143,2137 +1133,201 @@
       "1.0 tce", "1.3 tce", "1.2 puretech", "1.5 tsi", "2.0 tsi", "2.3 ecoboost"
     ]) && !containsAny(t, ["diesel", "electrique", "hybride"])) return "Essence";
 
-    if (containsAny(t, ["gpl", "lp/g", "liquefied petroleum"])) return "GPL";
+    if (containsAny(t, ["gpl", "lp/g", "liquefied petroleum", "eco-g"])) return "GPL";
     if (containsAny(t, ["e85", "bioethanol", "superethanol"])) return "E85 / Bioéthanol";
 
     return "Non précisé / mixte";
   }
 
-  function isMotorisationType(type) {
-    return type && type !== "Non précisé / mixte" && type !== "Hybride / électrique";
-  }
-
-  function isElectricLike(type) {
-    var t = norm(type);
+  function isElectricLike(fuel) {
+    var t = norm(fuel || "");
     return t.indexOf("electrique") >= 0 ||
            t.indexOf("hybride") >= 0 ||
            t.indexOf("48v") >= 0;
   }
 
-  function engineTypeRank(type) {
-    var idx = ENGINE_TYPES_ORDER.indexOf(type);
-    return idx >= 0 ? idx : 999;
-  }
+  function addEngine(o) {
+    if (!o) return;
 
-  var MODEL_CATALOG = [
-    { b: "Renault", m: "Clio V", y: "2019-2026", engines: [
-      { e: "1.0 TCe", p: "65ch|90ch", t: "Essence" },
-      { e: "1.3 TCe", p: "100ch|130ch|140ch", t: "Essence" },
-      { e: "1.5 dCi", p: "75ch|100ch|115ch", t: "Diesel" },
-      { e: "E-Tech Hybrid", p: "140ch|145ch", t: "Hybride" },
-      { e: "E-Tech Plug-in Hybrid", p: "160ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Renault", m: "Captur II", y: "2020-2026", engines: [
-      { e: "1.0 TCe", p: "90ch|100ch", t: "Essence" },
-      { e: "1.3 TCe", p: "130ch|155ch", t: "Essence" },
-      { e: "1.5 Blue dCi", p: "100ch", t: "Diesel" },
-      { e: "E-Tech Hybrid", p: "140ch|160ch", t: "Hybride" },
-      { e: "E-Tech Plug-in Hybrid", p: "165ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Renault", m: "Megane IV", y: "2016-2024", engines: [
-      { e: "1.3 TCe", p: "100ch|140ch|160ch", t: "Essence" },
-      { e: "1.5 dCi", p: "90ch|115ch", t: "Diesel" },
-      { e: "1.6 dCi", p: "130ch", t: "Diesel" },
-      { e: "E-Tech Hybrid", p: "160ch|205ch", t: "Hybride" }
-    ]},
-    { b: "Renault", m: "Scenic IV", y: "2016-2024", engines: [
-      { e: "1.3 TCe", p: "115ch|140ch|160ch", t: "Essence" },
-      { e: "1.5 dCi", p: "95ch|115ch", t: "Diesel" },
-      { e: "1.6 dCi", p: "130ch|160ch", t: "Diesel" },
-      { e: "E-Tech Hybrid", p: "160ch", t: "Hybride" }
-    ]},
-    { b: "Renault", m: "Austral", y: "2022-2026", engines: [
-      { e: "1.2 TCe 130", p: "130ch", t: "Essence" },
-      { e: "1.2 TCe 160", p: "160ch", t: "Essence" },
-      { e: "E-Tech Hybrid 160", p: "160ch", t: "Hybride" },
-      { e: "E-Tech Hybrid 200", p: "200ch", t: "Hybride" },
-      { e: "E-Tech Plug-in Hybrid 200", p: "200ch", t: "Hybride rechargeable" },
-      { e: "E-Tech Plug-in Hybrid 260", p: "260ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Renault", m: "Arkana", y: "2021-2026", engines: [
-      { e: "1.3 TCe", p: "140ch|160ch", t: "Essence" },
-      { e: "E-Tech Hybrid", p: "145ch|160ch", t: "Hybride" },
-      { e: "E-Tech Plug-in Hybrid", p: "200ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Renault", m: "Kangoo III", y: "2021-2026", engines: [
-      { e: "1.3 TCe", p: "100ch|130ch", t: "Essence" },
-      { e: "1.5 Blue dCi", p: "85ch|100ch|115ch", t: "Diesel" },
-      { e: "E-Tech Electric", p: "N/A", t: "Électrique" }
-    ]},
-    { b: "Renault", m: "Trafic III", y: "2014-2026", engines: [
-      { e: "2.0 dCi", p: "120ch|150ch|170ch", t: "Diesel" },
-      { e: "E-Tech Electric", p: "N/A", t: "Électrique" }
-    ]},
-    { b: "Renault", m: "Master III", y: "2010-2026", engines: [
-      { e: "2.3 dCi", p: "100ch|130ch|150ch|170ch", t: "Diesel" },
-      { e: "2.0 dCi", p: "136ch|160ch|180ch", t: "Diesel" },
-      { e: "E-Tech Electric", p: "N/A", t: "Électrique" }
-    ]},
-    { b: "Renault", m: "Zoe II", y: "2019-2024", engines: [
-      { e: "R135", p: "135ch", t: "Électrique" },
-      { e: "R110", p: "110ch", t: "Électrique" },
-      { e: "R80", p: "80ch", t: "Électrique" }
-    ]},
-    { b: "Renault", m: "Megane E-Tech", y: "2022-2026", engines: [
-      { e: "Evolution 60 kWh", p: "130ch|220ch", t: "Électrique" },
-      { e: "Techno 60 kWh", p: "130ch|220ch", t: "Électrique" },
-      { e: "Iconic 60 kWh", p: "220ch", t: "Électrique" }
-    ]},
-    { b: "Renault", m: "Scenic E-Tech", y: "2024-2026", engines: [
-      { e: "60 kWh", p: "170ch|210ch", t: "Électrique" },
-      { e: "87 kWh", p: "210ch", t: "Électrique" }
-    ]},
+    var brand = valToString(firstVal(o, ["b", "brand", "marque", "constructeur"]));
+    var model = valToString(firstVal(o, ["m", "model", "modele", "modèle"]));
+    var engine = valToString(firstVal(o, ["e", "engine", "motorisation", "moteur", "name"]));
+    var power = valToString(firstVal(o, ["p", "power", "puissance", "ch", "kw"]));
+    var fuel = valToString(firstVal(o, ["t", "type", "fuel", "energie", "énergie", "engineType"]));
+    var trans = valToString(firstVal(o, ["tr", "transmission", "boite", "boîte", "gearbox"]));
+    var years = valToString(firstVal(o, ["y", "years", "annee", "année", "period"]));
+    var source = valToString(firstVal(o, ["source", "src"])) || "catalogue";
+    var sourceUrl = valToString(firstVal(o, ["sourceUrl", "url", "lien", "link"]));
 
-    { b: "Dacia", m: "Sandero III", y: "2020-2026", engines: [
-      { e: "1.0 SCe", p: "65ch|75ch", t: "Essence" },
-      { e: "1.0 TCe", p: "90ch|100ch", t: "Essence" },
-      { e: "1.0 ECO-G 100", p: "100ch", t: "GPL" },
-      { e: "1.5 Blue dCi", p: "100ch", t: "Diesel" },
-      { e: "Hybrid 140", p: "140ch", t: "Hybride" }
-    ]},
-    { b: "Dacia", m: "Duster III", y: "2024-2026", engines: [
-      { e: "1.0 TCe", p: "100ch", t: "Essence" },
-      { e: "1.2 TCe", p: "130ch|140ch", t: "Essence" },
-      { e: "1.5 Blue dCi", p: "100ch|115ch", t: "Diesel" },
-      { e: "Hybrid 140", p: "140ch", t: "Hybride" },
-      { e: "Hybrid 155 4x4", p: "155ch", t: "Hybride" }
-    ]},
-    { b: "Dacia", m: "Logan MCV", y: "2020-2026", engines: [
-      { e: "1.0 SCe", p: "75ch", t: "Essence" },
-      { e: "1.0 TCe", p: "90ch", t: "Essence" },
-      { e: "1.0 ECO-G", p: "100ch", t: "GPL" },
-      { e: "1.5 Blue dCi", p: "95ch|115ch", t: "Diesel" }
-    ]},
-    { b: "Dacia", m: "Jogger", y: "2021-2026", engines: [
-      { e: "1.0 TCe", p: "100ch|110ch", t: "Essence" },
-      { e: "1.0 ECO-G", p: "100ch", t: "GPL" },
-      { e: "1.5 Blue dCi", p: "100ch", t: "Diesel" },
-      { e: "Hybrid 140", p: "140ch", t: "Hybride" }
-    ]},
-    { b: "Dacia", m: "Spring", y: "2021-2026", engines: [
-      { e: "45 ch", p: "45ch", t: "Électrique" },
-      { e: "65 ch", p: "65ch", t: "Électrique" }
-    ]},
-
-    { b: "Peugeot", m: "208 II", y: "2019-2026", engines: [
-      { e: "1.2 PureTech 75", p: "75ch", t: "Essence" },
-      { e: "1.2 PureTech 100", p: "100ch", t: "Essence" },
-      { e: "1.2 PureTech 130", p: "130ch", t: "Essence" },
-      { e: "1.5 BlueHDi 100", p: "100ch", t: "Diesel" },
-      { e: "e-208", p: "100kW|115kW|156ch", t: "Électrique" }
-    ]},
-    { b: "Peugeot", m: "2008 II", y: "2019-2026", engines: [
-      { e: "1.2 PureTech 100", p: "100ch", t: "Essence" },
-      { e: "1.2 PureTech 130", p: "130ch", t: "Essence" },
-      { e: "1.5 BlueHDi 100|130", p: "100ch|130ch", t: "Diesel" },
-      { e: "e-2008", p: "100kW|115kW|156ch", t: "Électrique" }
-    ]},
-    { b: "Peugeot", m: "308 III", y: "2021-2026", engines: [
-      { e: "1.2 PureTech 110", p: "110ch", t: "Essence" },
-      { e: "1.2 PureTech 130", p: "130ch", t: "Essence" },
-      { e: "1.5 BlueHDi 130", p: "130ch", t: "Diesel" },
-      { e: "Hybrid 180", p: "180ch", t: "Hybride rechargeable" },
-      { e: "Hybrid 225", p: "225ch", t: "Hybride rechargeable" },
-      { e: "e-308", p: "115kW|150kW", t: "Électrique" }
-    ]},
-    { b: "Peugeot", m: "3008 III", y: "2024-2026", engines: [
-      { e: "1.6 Hybrid 130", p: "130ch", t: "Hybride" },
-      { e: "1.6 Hybrid 180", p: "180ch", t: "Hybride" },
-      { e: "1.6 Hybrid 225", p: "225ch", t: "Hybride rechargeable" },
-      { e: "1.6 Hybrid 320 4x4", p: "320ch", t: "Hybride rechargeable" },
-      { e: "e-3008", p: "210ch", t: "Électrique" }
-    ]},
-    { b: "Peugeot", m: "5008 III", y: "2024-2026", engines: [
-      { e: "1.6 Hybrid 130", p: "130ch", t: "Hybride" },
-      { e: "1.6 Hybrid 180", p: "180ch", t: "Hybride" },
-      { e: "1.6 Hybrid 225", p: "225ch", t: "Hybride rechargeable" },
-      { e: "1.6 Hybrid 320 4x4", p: "320ch", t: "Hybride rechargeable" },
-      { e: "e-5008", p: "210ch", t: "Électrique" }
-    ]},
-    { b: "Peugeot", m: "Partner III", y: "2018-2026", engines: [
-      { e: "1.2 PureTech", p: "100ch|110ch|130ch", t: "Essence" },
-      { e: "1.5 BlueHDi", p: "100ch|130ch", t: "Diesel" },
-      { e: "e-Partner", p: "N/A", t: "Électrique" }
-    ]},
-    { b: "Peugeot", m: "Rifter", y: "2018-2026", engines: [
-      { e: "1.2 PureTech", p: "100ch|110ch|130ch", t: "Essence" },
-      { e: "1.5 BlueHDi", p: "100ch|130ch", t: "Diesel" },
-      { e: "e-Rifter", p: "N/A", t: "Électrique" }
-    ]},
-    { b: "Peugeot", m: "Boxer", y: "2014-2026", engines: [
-      { e: "2.2 BlueHDi", p: "120ch|140ch|165ch", t: "Diesel" },
-      { e: "3.0 BlueHDi", p: "160ch|180ch", t: "Diesel" },
-      { e: "e-Boxer", p: "N/A", t: "Électrique" }
-    ]},
-
-    { b: "Citroen", m: "C3 III", y: "2016-2026", engines: [
-      { e: "1.2 PureTech", p: "82ch|100ch|110ch|130ch", t: "Essence" },
-      { e: "1.5 BlueHDi", p: "100ch", t: "Diesel" },
-      { e: "ë-C3", p: "N/A", t: "Électrique" }
-    ]},
-    { b: "Citroen", m: "C3 Aircross", y: "2017-2026", engines: [
-      { e: "1.2 PureTech", p: "100ch|110ch|130ch", t: "Essence" },
-      { e: "1.5 BlueHDi", p: "100ch|130ch", t: "Diesel" }
-    ]},
-    { b: "Citroen", m: "C4", y: "2020-2026", engines: [
-      { e: "1.2 PureTech", p: "100ch|130ch", t: "Essence" },
-      { e: "1.5 BlueHDi", p: "130ch", t: "Diesel" },
-      { e: "ë-C4", p: "100kW|115kW|156ch", t: "Électrique" }
-    ]},
-    { b: "Citroen", m: "C4 Cactus", y: "2014-2024", engines: [
-      { e: "1.2 PureTech", p: "82ch|100ch|110ch|130ch", t: "Essence" },
-      { e: "1.6 BlueHDi", p: "100ch|120ch", t: "Diesel" }
-    ]},
-    { b: "Citroen", m: "C5 Aircross", y: "2018-2026", engines: [
-      { e: "1.2 PureTech", p: "130ch|180ch", t: "Essence" },
-      { e: "1.5 BlueHDi", p: "130ch", t: "Diesel" },
-      { e: "2.0 BlueHDi", p: "160ch|180ch", t: "Diesel" },
-      { e: "Hybrid 225", p: "225ch", t: "Hybride rechargeable" },
-      { e: "Hybrid4 300", p: "300ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Citroen", m: "Berlingo", y: "2018-2026", engines: [
-      { e: "1.2 PureTech", p: "100ch|110ch|130ch", t: "Essence" },
-      { e: "1.5 BlueHDi", p: "100ch|130ch", t: "Diesel" },
-      { e: "ë-Berlingo", p: "N/A", t: "Électrique" }
-    ]},
-    { b: "Citroen", m: "Jumper", y: "2014-2026", engines: [
-      { e: "2.2 BlueHDi", p: "120ch|140ch|165ch", t: "Diesel" },
-      { e: "3.0 BlueHDi", p: "160ch|180ch", t: "Diesel" },
-      { e: "ë-Jumper", p: "N/A", t: "Électrique" }
-    ]},
-
-    { b: "DS", m: "DS 3 Crossback", y: "2018-2026", engines: [
-      { e: "1.2 PureTech", p: "100ch|130ch|155ch", t: "Essence" },
-      { e: "1.5 BlueHDi", p: "130ch", t: "Diesel" },
-      { e: "E-Tense", p: "136ch", t: "Électrique" }
-    ]},
-    { b: "DS", m: "DS 4", y: "2021-2026", engines: [
-      { e: "1.2 PureTech", p: "130ch", t: "Essence" },
-      { e: "1.5 BlueHDi", p: "130ch", t: "Diesel" },
-      { e: "E-Tense 225", p: "225ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "DS", m: "DS 7 Crossback", y: "2018-2026", engines: [
-      { e: "1.6 PureTech", p: "180ch|225ch", t: "Essence" },
-      { e: "2.0 BlueHDi", p: "130ch|180ch", t: "Diesel" },
-      { e: "E-Tense 4x4 300", p: "300ch", t: "Hybride rechargeable" },
-      { e: "E-Tense 4x4 360", p: "360ch", t: "Hybride rechargeable" }
-    ]},
-
-    { b: "Volkswagen", m: "Polo VI", y: "2017-2026", engines: [
-      { e: "1.0 MPI", p: "65ch|75ch", t: "Essence" },
-      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
-      { e: "1.5 TSI", p: "150ch", t: "Essence" },
-      { e: "1.6 TDI", p: "80ch", t: "Diesel" },
-      { e: "2.0 TDI", p: "95ch|115ch|150ch", t: "Diesel" }
-    ]},
-    { b: "Volkswagen", m: "Golf VII", y: "2012-2020", engines: [
-      { e: "1.0 TSI", p: "85ch|110ch|125ch", t: "Essence" },
-      { e: "1.4 TSI", p: "125ch|150ch", t: "Essence" },
-      { e: "1.5 TSI", p: "130ch|150ch|180ch", t: "Essence" },
-      { e: "2.0 TSI", p: "230ch|310ch", t: "Essence" },
-      { e: "1.6 TDI", p: "90ch|110ch|115ch", t: "Diesel" },
-      { e: "2.0 TDI", p: "110ch|150ch|184ch", t: "Diesel" },
-      { e: "GTE", p: "204ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Volkswagen", m: "Golf VIII", y: "2020-2026", engines: [
-      { e: "1.0 eTSI", p: "110ch", t: "Hybride léger 48V" },
-      { e: "1.5 eTSI", p: "130ch|150ch", t: "Hybride léger 48V" },
-      { e: "2.0 TSI", p: "245ch|320ch", t: "Essence" },
-      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" },
-      { e: "eHybrid", p: "204ch|245ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Volkswagen", m: "T-Cross", y: "2019-2026", engines: [
-      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
-      { e: "1.5 TSI", p: "150ch", t: "Essence" },
-      { e: "1.6 TDI", p: "95ch", t: "Diesel" },
-      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" }
-    ]},
-    { b: "Volkswagen", m: "Taigo", y: "2021-2026", engines: [
-      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
-      { e: "1.5 TSI", p: "150ch", t: "Essence" }
-    ]},
-    { b: "Volkswagen", m: "T-Roc", y: "2017-2026", engines: [
-      { e: "1.0 TSI", p: "110ch|150ch", t: "Essence" },
-      { e: "1.5 TSI", p: "150ch", t: "Essence" },
-      { e: "2.0 TSI", p: "190ch|300ch", t: "Essence" },
-      { e: "2.0 TDI", p: "150ch|190ch", t: "Diesel" }
-    ]},
-    { b: "Volkswagen", m: "Tiguan II", y: "2016-2026", engines: [
-      { e: "1.5 TSI", p: "130ch|150ch", t: "Essence" },
-      { e: "2.0 TSI", p: "190ch|245ch|320ch", t: "Essence" },
-      { e: "2.0 TDI", p: "150ch|190ch|200ch", t: "Diesel" },
-      { e: "eHybrid", p: "245ch|300ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Volkswagen", m: "Touran", y: "2015-2026", engines: [
-      { e: "1.5 TSI", p: "130ch|150ch", t: "Essence" },
-      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" }
-    ]},
-    { b: "Volkswagen", m: "Caddy V", y: "2020-2026", engines: [
-      { e: "1.5 TSI", p: "114ch", t: "Essence" },
-      { e: "2.0 TDI", p: "102ch|122ch", t: "Diesel" },
-      { e: "e-Caddy", p: "N/A", t: "Électrique" }
-    ]},
-    { b: "Volkswagen", m: "ID.3", y: "2020-2026", engines: [
-      { e: "Pure Performance", p: "145ch|174ch|204ch", t: "Électrique" },
-      { e: "Pro", p: "204ch", t: "Électrique" },
-      { e: "Pro S", p: "204ch", t: "Électrique" },
-      { e: "GTX", p: "204ch", t: "Électrique" }
-    ]},
-    { b: "Volkswagen", m: "ID.4", y: "2021-2026", engines: [
-      { e: "Pure", p: "174ch", t: "Électrique" },
-      { e: "Pro", p: "204ch", t: "Électrique" },
-      { e: "Pro Performance", p: "204ch", t: "Électrique" },
-      { e: "GTX", p: "299ch", t: "Électrique" }
-    ]},
-    { b: "Volkswagen", m: "ID.5", y: "2022-2026", engines: [
-      { e: "Pro", p: "204ch", t: "Électrique" },
-      { e: "GTX", p: "299ch", t: "Électrique" }
-    ]},
-    { b: "Volkswagen", m: "ID.7", y: "2024-2026", engines: [
-      { e: "Pro", p: "286ch", t: "Électrique" },
-      { e: "GTX", p: "340ch", t: "Électrique" }
-    ]},
-
-    { b: "Audi", m: "A1", y: "2018-2026", engines: [
-      { e: "25 TFSI", p: "95ch", t: "Essence" },
-      { e: "30 TFSI", p: "110ch", t: "Essence" },
-      { e: "35 TFSI", p: "150ch", t: "Essence" },
-      { e: "30 TDI", p: "116ch", t: "Diesel" },
-      { e: "35 TDI", p: "150ch", t: "Diesel" }
-    ]},
-    { b: "Audi", m: "A3", y: "2020-2026", engines: [
-      { e: "30 TFSI", p: "110ch", t: "Essence" },
-      { e: "35 TFSI", p: "150ch", t: "Essence" },
-      { e: "40 TFSI", p: "204ch", t: "Essence" },
-      { e: "35 TDI", p: "150ch", t: "Diesel" },
-      { e: "40 TDI", p: "204ch", t: "Diesel" },
-      { e: "Sportback 45 TFSI e", p: "245ch|310ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Audi", m: "A4", y: "2015-2024", engines: [
-      { e: "35 TFSI", p: "150ch", t: "Essence" },
-      { e: "40 TFSI", p: "190ch|245ch", t: "Essence" },
-      { e: "35 TDI", p: "163ch", t: "Diesel" },
-      { e: "40 TDI", p: "190ch|204ch", t: "Diesel" },
-      { e: "50 TDI", p: "286ch", t: "Diesel" }
-    ]},
-    { b: "Audi", m: "Q2", y: "2016-2026", engines: [
-      { e: "30 TFSI", p: "110ch", t: "Essence" },
-      { e: "35 TFSI", p: "150ch", t: "Essence" },
-      { e: "40 TFSI", p: "190ch", t: "Essence" },
-      { e: "30 TDI", p: "116ch", t: "Diesel" },
-      { e: "35 TDI", p: "150ch", t: "Diesel" }
-    ]},
-    { b: "Audi", m: "Q3", y: "2018-2026", engines: [
-      { e: "30 TFSI", p: "110ch|150ch", t: "Essence" },
-      { e: "40 TFSI", p: "190ch|204ch", t: "Essence" },
-      { e: "35 TDI", p: "150ch", t: "Diesel" },
-      { e: "40 TDI", p: "190ch", t: "Diesel" },
-      { e: "45 TFSI e", p: "245ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Audi", m: "Q5", y: "2017-2026", engines: [
-      { e: "40 TFSI", p: "204ch|245ch", t: "Essence" },
-      { e: "45 TFSI", p: "265ch", t: "Essence" },
-      { e: "40 TDI", p: "204ch", t: "Diesel" },
-      { e: "50 TDI", p: "286ch", t: "Diesel" },
-      { e: "55 TFSI e", p: "367ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Audi", m: "Q4 e-tron", y: "2021-2026", engines: [
-      { e: "35 e-tron", p: "170ch", t: "Électrique" },
-      { e: "40 e-tron", p: "204ch", t: "Électrique" },
-      { e: "50 e-tron quattro", p: "299ch", t: "Électrique" }
-    ]},
-    { b: "Audi", m: "e-tron GT", y: "2021-2026", engines: [
-      { e: "e-tron GT quattro", p: "476ch|530ch", t: "Électrique" },
-      { e: "RS e-tron GT", p: "598ch|646ch", t: "Électrique" }
-    ]},
-
-    { b: "Skoda", m: "Fabia IV", y: "2021-2026", engines: [
-      { e: "1.0 MPI", p: "65ch|80ch", t: "Essence" },
-      { e: "1.0 TSI", p: "95ch|110ch", t: "Essence" },
-      { e: "1.5 TSI", p: "150ch", t: "Essence" }
-    ]},
-    { b: "Skoda", m: "Octavia IV", y: "2020-2026", engines: [
-      { e: "1.5 TSI", p: "110ch|150ch", t: "Essence" },
-      { e: "2.0 TSI", p: "190ch|265ch", t: "Essence" },
-      { e: "2.0 TDI", p: "115ch|150ch|200ch", t: "Diesel" },
-      { e: "iV", p: "204ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Skoda", m: "Superb III", y: "2015-2024", engines: [
-      { e: "1.5 TSI", p: "150ch", t: "Essence" },
-      { e: "2.0 TSI", p: "190ch|272ch|280ch", t: "Essence" },
-      { e: "2.0 TDI", p: "150ch|190ch|200ch", t: "Diesel" },
-      { e: "iV", p: "218ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Skoda", m: "Karoq", y: "2017-2026", engines: [
-      { e: "1.5 TSI", p: "150ch", t: "Essence" },
-      { e: "2.0 TSI", p: "190ch", t: "Essence" },
-      { e: "2.0 TDI", p: "150ch|190ch", t: "Diesel" }
-    ]},
-    { b: "Skoda", m: "Kodiaq", y: "2017-2026", engines: [
-      { e: "1.5 TSI", p: "150ch", t: "Essence" },
-      { e: "2.0 TSI", p: "190ch", t: "Essence" },
-      { e: "2.0 TDI", p: "150ch|200ch", t: "Diesel" },
-      { e: "iV", p: "245ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Skoda", m: "Enyaq", y: "2021-2026", engines: [
-      { e: "60", p: "180ch|204ch", t: "Électrique" },
-      { e: "80", p: "204ch", t: "Électrique" },
-      { e: "80x", p: "265ch", t: "Électrique" },
-      { e: "vRS", p: "340ch", t: "Électrique" }
-    ]},
-
-    { b: "Seat", m: "Ibiza IV", y: "2017-2026", engines: [
-      { e: "1.0 MPI", p: "75ch|80ch", t: "Essence" },
-      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
-      { e: "1.5 TSI", p: "150ch", t: "Essence" },
-      { e: "FR 2.0 TSI", p: "190ch", t: "Essence" }
-    ]},
-    { b: "Seat", m: "Leon IV", y: "2020-2026", engines: [
-      { e: "1.0 TSI", p: "110ch", t: "Essence" },
-      { e: "1.5 TSI", p: "130ch|150ch", t: "Essence" },
-      { e: "2.0 TSI", p: "190ch|310ch", t: "Essence" },
-      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" },
-      { e: "e-HYBRID", p: "204ch|245ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Seat", m: "Ateca", y: "2016-2026", engines: [
-      { e: "1.0 TSI", p: "110ch|150ch", t: "Essence" },
-      { e: "1.5 TSI", p: "150ch", t: "Essence" },
-      { e: "2.0 TSI", p: "190ch", t: "Essence" },
-      { e: "2.0 TDI", p: "150ch|190ch", t: "Diesel" }
-    ]},
-    { b: "Seat", m: "Arona", y: "2017-2026", engines: [
-      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
-      { e: "1.5 TSI", p: "150ch", t: "Essence" },
-      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" }
-    ]},
-    { b: "Seat", m: "Born", y: "2021-2026", engines: [
-      { e: "Pure", p: "150ch|170ch", t: "Électrique" },
-      { e: "Elite", p: "204ch", t: "Électrique" },
-      { e: "vZ", p: "231ch", t: "Électrique" }
-    ]},
-    { b: "Seat", m: "Tavascan", y: "2024-2026", engines: [
-      { e: "Endurance", p: "210ch", t: "Électrique" },
-      { e: "vZ", p: "340ch", t: "Électrique" }
-    ]},
-
-    { b: "Cupra", m: "Leon", y: "2021-2026", engines: [
-      { e: "2.0 TSI", p: "310ch", t: "Essence" },
-      { e: "e-HYBRID", p: "340ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Cupra", m: "Ateca", y: "2018-2026", engines: [
-      { e: "2.0 TSI", p: "300ch", t: "Essence" }
-    ]},
-    { b: "Cupra", m: "Formentor", y: "2020-2026", engines: [
-      { e: "2.0 TSI", p: "310ch", t: "Essence" },
-      { e: "e-HYBRID", p: "245ch|340ch", t: "Hybride rechargeable" },
-      { e: "VZ", p: "333ch", t: "Électrique" }
-    ]},
-    { b: "Cupra", m: "Born", y: "2021-2026", engines: [
-      { e: "Pure", p: "150ch|170ch", t: "Électrique" },
-      { e: "Elite", p: "204ch", t: "Électrique" },
-      { e: "vZ", p: "231ch", t: "Électrique" }
-    ]},
-    { b: "Cupra", m: "Tavascan", y: "2024-2026", engines: [
-      { e: "Endurance", p: "210ch", t: "Électrique" },
-      { e: "VZ", p: "340ch", t: "Électrique" }
-    ]},
-
-    { b: "BMW", m: "Serie 1", y: "2019-2026", engines: [
-      { e: "116i", p: "109ch", t: "Essence" },
-      { e: "118i", p: "136ch|156ch", t: "Essence" },
-      { e: "120i", p: "170ch|218ch", t: "Essence" },
-      { e: "125i", p: "245ch", t: "Essence" },
-      { e: "116d", p: "116ch", t: "Diesel" },
-      { e: "118d", p: "150ch", t: "Diesel" },
-      { e: "120d", p: "163ch|190ch", t: "Diesel" }
-    ]},
-    { b: "BMW", m: "Serie 3", y: "2019-2026", engines: [
-      { e: "320i", p: "170ch|184ch", t: "Essence" },
-      { e: "330i", p: "245ch|258ch", t: "Essence" },
-      { e: "M340i", p: "374ch", t: "Essence" },
-      { e: "318d", p: "150ch", t: "Diesel" },
-      { e: "320d", p: "163ch|190ch", t: "Diesel" },
-      { e: "330d", p: "286ch|292ch", t: "Diesel" },
-      { e: "330e", p: "292ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "BMW", m: "X1", y: "2015-2026", engines: [
-      { e: "sDrive18i", p: "136ch|170ch", t: "Essence" },
-      { e: "sDrive20i", p: "178ch|204ch", t: "Essence" },
-      { e: "xDrive25i", p: "231ch|245ch", t: "Essence" },
-      { e: "sDrive16d", p: "116ch", t: "Diesel" },
-      { e: "sDrive18d", p: "150ch", t: "Diesel" },
-      { e: "sDrive20d", p: "190ch", t: "Diesel" },
-      { e: "xDrive25e", p: "245ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "BMW", m: "X3", y: "2018-2026", engines: [
-      { e: "xDrive20i", p: "184ch", t: "Essence" },
-      { e: "xDrive30i", p: "245ch|252ch", t: "Essence" },
-      { e: "M40i", p: "340ch|374ch", t: "Essence" },
-      { e: "xDrive20d", p: "190ch", t: "Diesel" },
-      { e: "xDrive30d", p: "286ch|292ch", t: "Diesel" },
-      { e: "xDrive30e", p: "292ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "BMW", m: "X5", y: "2019-2026", engines: [
-      { e: "xDrive40i", p: "340ch", t: "Essence" },
-      { e: "xDrive50i", p: "462ch", t: "Essence" },
-      { e: "xDrive30d", p: "286ch", t: "Diesel" },
-      { e: "xDrive40d", p: "340ch", t: "Diesel" },
-      { e: "xDrive45e", p: "394ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "BMW", m: "i4", y: "2021-2026", engines: [
-      { e: "eDrive35", p: "286ch", t: "Électrique" },
-      { e: "eDrive40", p: "340ch", t: "Électrique" },
-      { e: "M50", p: "544ch", t: "Électrique" }
-    ]},
-    { b: "BMW", m: "iX", y: "2021-2026", engines: [
-      { e: "xDrive40", p: "326ch", t: "Électrique" },
-      { e: "xDrive50", p: "523ch", t: "Électrique" },
-      { e: "M60", p: "619ch", t: "Électrique" }
-    ]},
-    { b: "BMW", m: "iX1", y: "2022-2026", engines: [
-      { e: "eDrive20", p: "184ch", t: "Électrique" },
-      { e: "eDrive30", p: "272ch", t: "Électrique" },
-      { e: "xDrive30", p: "313ch", t: "Électrique" }
-    ]},
-
-    { b: "Mini", m: "Cooper", y: "2021-2026", engines: [
-      { e: "Cooper", p: "136ch|156ch", t: "Essence" },
-      { e: "Cooper S", p: "178ch|204ch", t: "Essence" },
-      { e: "John Cooper Works", p: "231ch|300ch", t: "Essence" },
-      { e: "Cooper SE", p: "224ch", t: "Hybride rechargeable" },
-      { e: "Cooper E", p: "184ch|218ch", t: "Électrique" }
-    ]},
-    { b: "Mini", m: "Countryman", y: "2017-2026", engines: [
-      { e: "Cooper", p: "136ch|156ch", t: "Essence" },
-      { e: "Cooper S", p: "178ch|204ch", t: "Essence" },
-      { e: "One D", p: "116ch", t: "Diesel" },
-      { e: "Cooper SD", p: "190ch", t: "Diesel" },
-      { e: "Cooper SE ALL4", p: "224ch", t: "Hybride rechargeable" },
-      { e: "Countryman E", p: "313ch", t: "Électrique" }
-    ]},
-
-    { b: "Mercedes-Benz", m: "Classe A", y: "2018-2026", engines: [
-      { e: "A180", p: "120ch|136ch", t: "Essence" },
-      { e: "A200", p: "163ch|190ch", t: "Essence" },
-      { e: "A250", p: "224ch", t: "Essence" },
-      { e: "AMG A35", p: "306ch", t: "Essence" },
-      { e: "A180d", p: "116ch", t: "Diesel" },
-      { e: "A200d", p: "150ch", t: "Diesel" },
-      { e: "A250e", p: "218ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Mercedes-Benz", m: "Classe C", y: "2021-2026", engines: [
-      { e: "C180", p: "170ch", t: "Essence" },
-      { e: "C200", p: "204ch", t: "Essence" },
-      { e: "C300", p: "258ch", t: "Essence" },
-      { e: "C220d", p: "200ch", t: "Diesel" },
-      { e: "C300de", p: "313ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Mercedes-Benz", m: "GLA", y: "2020-2026", engines: [
-      { e: "GLA180", p: "120ch|136ch", t: "Essence" },
-      { e: "GLA200", p: "163ch|190ch", t: "Essence" },
-      { e: "GLA250", p: "224ch", t: "Essence" },
-      { e: "GLA200d", p: "150ch", t: "Diesel" },
-      { e: "GLA250e", p: "218ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Mercedes-Benz", m: "GLC", y: "2019-2026", engines: [
-      { e: "GLC200", p: "197ch", t: "Essence" },
-      { e: "GLC300", p: "258ch", t: "Essence" },
-      { e: "GLC220d", p: "197ch|200ch", t: "Diesel" },
-      { e: "GLC300d", p: "245ch|272ch", t: "Diesel" },
-      { e: "GLC300e", p: "313ch", t: "Hybride rechargeable" },
-      { e: "GLC400e", p: "381ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Mercedes-Benz", m: "EQA", y: "2021-2026", engines: [
-      { e: "EQA 250", p: "190ch", t: "Électrique" },
-      { e: "EQA 350 4MATIC", p: "292ch", t: "Électrique" }
-    ]},
-    { b: "Mercedes-Benz", m: "EQB", y: "2021-2026", engines: [
-      { e: "EQB 250", p: "190ch", t: "Électrique" },
-      { e: "EQB 350 4MATIC", p: "292ch", t: "Électrique" }
-    ]},
-    { b: "Mercedes-Benz", m: "EQE", y: "2022-2026", engines: [
-      { e: "EQE 350", p: "292ch", t: "Électrique" },
-      { e: "EQE 43 4MATIC", p: "476ch", t: "Électrique" },
-      { e: "EQE 53 4MATIC+", p: "626ch", t: "Électrique" }
-    ]},
-    { b: "Mercedes-Benz", m: "EQS", y: "2021-2026", engines: [
-      { e: "EQS 450+", p: "333ch", t: "Électrique" },
-      { e: "EQS 580 4MATIC", p: "544ch", t: "Électrique" },
-      { e: "AMG EQS 53", p: "658ch|761ch", t: "Électrique" }
-    ]},
-
-    { b: "Volvo", m: "XC40", y: "2018-2026", engines: [
-      { e: "B3", p: "163ch", t: "Hybride léger 48V" },
-      { e: "B4", p: "197ch", t: "Hybride léger 48V" },
-      { e: "T2", p: "130ch", t: "Essence" },
-      { e: "T3", p: "163ch", t: "Essence" },
-      { e: "T4", p: "197ch", t: "Essence" },
-      { e: "T5", p: "249ch", t: "Essence" },
-      { e: "Recharge T5", p: "262ch", t: "Hybride rechargeable" },
-      { e: "Recharge T8", p: "390ch|405ch", t: "Hybride rechargeable" },
-      { e: "Pure Electric", p: "231ch|408ch", t: "Électrique" }
-    ]},
-    { b: "Volvo", m: "XC60", y: "2018-2026", engines: [
-      { e: "B4", p: "197ch", t: "Hybride léger 48V" },
-      { e: "B5", p: "250ch", t: "Hybride léger 48V" },
-      { e: "T5", p: "250ch", t: "Essence" },
-      { e: "T6", p: "300ch", t: "Essence" },
-      { e: "Recharge T6", p: "340ch", t: "Hybride rechargeable" },
-      { e: "Recharge T8", p: "455ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Volvo", m: "EX30", y: "2024-2026", engines: [
-      { e: "Single Motor", p: "272ch", t: "Électrique" },
-      { e: "Twin Motor", p: "428ch", t: "Électrique" }
-    ]},
-
-    { b: "Porsche", m: "Macan", y: "2014-2026", engines: [
-      { e: "Macan", p: "252ch|265ch", t: "Essence" },
-      { e: "Macan S", p: "354ch|380ch", t: "Essence" },
-      { e: "Macan GTS", p: "440ch", t: "Essence" },
-      { e: "Macan Turbo", p: "400ch|440ch", t: "Essence" },
-      { e: "Macan Electric", p: "340ch|639ch", t: "Électrique" }
-    ]},
-    { b: "Porsche", m: "Cayenne", y: "2018-2026", engines: [
-      { e: "Cayenne", p: "340ch", t: "Essence" },
-      { e: "Cayenne S", p: "440ch|474ch", t: "Essence" },
-      { e: "Cayenne Turbo", p: "550ch|649ch", t: "Essence" },
-      { e: "Cayenne E-Hybrid", p: "462ch", t: "Hybride rechargeable" },
-      { e: "Cayenne Turbo E-Hybrid", p: "739ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Porsche", m: "Taycan", y: "2020-2026", engines: [
-      { e: "Taycan", p: "326ch|408ch", t: "Électrique" },
-      { e: "4S", p: "530ch|571ch", t: "Électrique" },
-      { e: "Turbo", p: "680ch|761ch", t: "Électrique" },
-      { e: "Turbo S", p: "761ch|800ch", t: "Électrique" }
-    ]},
-
-    { b: "Land Rover", m: "Defender", y: "2020-2026", engines: [
-      { e: "D200", p: "200ch", t: "Diesel" },
-      { e: "D240", p: "240ch", t: "Diesel" },
-      { e: "D300", p: "300ch", t: "Diesel" },
-      { e: "P300", p: "300ch", t: "Essence" },
-      { e: "P400", p: "400ch", t: "Essence" },
-      { e: "P525", p: "525ch", t: "Essence" },
-      { e: "PHEV P400e", p: "404ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Land Rover", m: "Range Rover", y: "2022-2026", engines: [
-      { e: "D250", p: "249ch", t: "Diesel" },
-      { e: "D300", p: "299ch", t: "Diesel" },
-      { e: "P360", p: "360ch", t: "Essence" },
-      { e: "P400", p: "400ch", t: "Essence" },
-      { e: "P510e", p: "510ch", t: "Hybride rechargeable" },
-      { e: "SV P615e", p: "615ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Land Rover", m: "Range Rover Evoque", y: "2019-2026", engines: [
-      { e: "D150", p: "150ch", t: "Diesel" },
-      { e: "D180", p: "180ch", t: "Diesel" },
-      { e: "P200", p: "200ch", t: "Essence" },
-      { e: "P250", p: "249ch", t: "Essence" },
-      { e: "P300e", p: "309ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Land Rover", m: "Discovery Sport", y: "2020-2026", engines: [
-      { e: "D165", p: "163ch", t: "Diesel" },
-      { e: "D180", p: "180ch", t: "Diesel" },
-      { e: "P200", p: "200ch", t: "Essence" },
-      { e: "P250", p: "249ch", t: "Essence" },
-      { e: "P300e", p: "309ch", t: "Hybride rechargeable" }
-    ]},
-
-    { b: "Jaguar", m: "I-Pace", y: "2018-2026", engines: [
-      { e: "S", p: "400ch", t: "Électrique" },
-      { e: "SE", p: "400ch", t: "Électrique" },
-      { e: "HSE", p: "400ch", t: "Électrique" }
-    ]},
-    { b: "Jaguar", m: "F-Pace", y: "2016-2026", engines: [
-      { e: "D165", p: "163ch", t: "Diesel" },
-      { e: "D200", p: "204ch", t: "Diesel" },
-      { e: "D250", p: "249ch", t: "Diesel" },
-      { e: "D300", p: "299ch", t: "Diesel" },
-      { e: "P250", p: "247ch", t: "Essence" },
-      { e: "P340", p: "340ch", t: "Essence" },
-      { e: "P400e", p: "404ch", t: "Hybride rechargeable" }
-    ]},
-
-    { b: "Opel", m: "Corsa F", y: "2019-2026", engines: [
-      { e: "1.2", p: "75ch|100ch|130ch", t: "Essence" },
-      { e: "1.2 Turbo", p: "100ch|130ch", t: "Essence" },
-      { e: "1.5 Diesel", p: "100ch|130ch", t: "Diesel" },
-      { e: "Corsa Electric", p: "136ch", t: "Électrique" }
-    ]},
-    { b: "Opel", m: "Astra", y: "2021-2026", engines: [
-      { e: "1.2 Turbo", p: "110ch|130ch", t: "Essence" },
-      { e: "1.2 Turbo Hybrid", p: "130ch", t: "Hybride léger 48V" },
-      { e: "1.5 Diesel", p: "130ch", t: "Diesel" },
-      { e: "Hybrid", p: "180ch", t: "Hybride rechargeable" },
-      { e: "Hybrid4", p: "225ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Opel", m: "Mokka", y: "2020-2026", engines: [
-      { e: "1.2 Turbo", p: "100ch|130ch|145ch", t: "Essence" },
-      { e: "1.5 Diesel", p: "110ch|130ch", t: "Diesel" },
-      { e: "Mokka Electric", p: "136ch", t: "Électrique" }
-    ]},
-    { b: "Opel", m: "Grandland", y: "2022-2026", engines: [
-      { e: "1.2 Turbo", p: "130ch", t: "Essence" },
-      { e: "1.6 Turbo", p: "180ch|225ch", t: "Essence" },
-      { e: "Hybrid4", p: "300ch", t: "Hybride rechargeable" },
-      { e: "Electric", p: "210ch", t: "Électrique" }
-    ]},
-
-    { b: "Fiat", m: "500", y: "2007-2026", engines: [
-      { e: "1.0 Hybrid", p: "70ch", t: "Hybride léger 48V" },
-      { e: "1.2", p: "69ch", t: "Essence" },
-      { e: "0.9 TwinAir", p: "85ch|105ch", t: "Essence" },
-      { e: "1.4", p: "95ch", t: "Essence" },
-      { e: "1.3 MultiJet", p: "95ch", t: "Diesel" }
-    ]},
-    { b: "Fiat", m: "500e", y: "2020-2026", engines: [
-      { e: "42 kWh", p: "87kW|118ch", t: "Électrique" },
-      { e: "24 kWh", p: "63kW|87ch", t: "Électrique" }
-    ]},
-    { b: "Fiat", m: "Panda", y: "2012-2026", engines: [
-      { e: "1.0 Hybrid", p: "70ch", t: "Hybride léger 48V" },
-      { e: "0.9 TwinAir", p: "85ch|105ch", t: "Essence" },
-      { e: "1.2", p: "69ch", t: "Essence" },
-      { e: "1.3 MultiJet", p: "95ch", t: "Diesel" }
-    ]},
-    { b: "Fiat", m: "Tipo", y: "2016-2026", engines: [
-      { e: "1.0 Hybrid", p: "100ch", t: "Hybride léger 48V" },
-      { e: "1.4", p: "95ch", t: "Essence" },
-      { e: "1.6 E-Torq", p: "110ch", t: "Essence" },
-      { e: "1.3 MultiJet", p: "95ch", t: "Diesel" },
-      { e: "1.6 MultiJet", p: "120ch|130ch", t: "Diesel" }
-    ]},
-    { b: "Fiat", m: "Tonale", y: "2022-2026", engines: [
-      { e: "1.5 Hybrid", p: "130ch", t: "Hybride léger 48V" },
-      { e: "1.3 Plug-in Hybrid", p: "190ch", t: "Hybride rechargeable" },
-      { e: "1.3 Plug-in Hybrid", p: "280ch", t: "Hybride rechargeable" }
-    ]},
-
-    { b: "Alfa Romeo", m: "Giulia", y: "2016-2026", engines: [
-      { e: "2.0 Turbo", p: "200ch|280ch", t: "Essence" },
-      { e: "2.2 Diesel", p: "160ch|210ch", t: "Diesel" },
-      { e: "Quadrifoglio", p: "510ch", t: "Essence" }
-    ]},
-    { b: "Alfa Romeo", m: "Stelvio", y: "2017-2026", engines: [
-      { e: "2.0 Turbo", p: "200ch|280ch", t: "Essence" },
-      { e: "2.2 Diesel", p: "160ch|210ch", t: "Diesel" },
-      { e: "Quadrifoglio", p: "510ch", t: "Essence" }
-    ]},
-    { b: "Alfa Romeo", m: "Tonale", y: "2022-2026", engines: [
-      { e: "1.5 Hybrid", p: "130ch", t: "Hybride léger 48V" },
-      { e: "1.3 Plug-in Hybrid", p: "190ch", t: "Hybride rechargeable" },
-      { e: "1.3 Plug-in Hybrid", p: "280ch", t: "Hybride rechargeable" }
-    ]},
-
-    { b: "Ford", m: "Fiesta", y: "2017-2023", engines: [
-      { e: "1.0 EcoBoost", p: "100ch|125ch|140ch|155ch", t: "Essence" },
-      { e: "1.1", p: "70ch|85ch|100ch", t: "Essence" },
-      { e: "1.5 EcoBoost ST", p: "200ch", t: "Essence" },
-      { e: "1.5 TDCi", p: "95ch|120ch", t: "Diesel" }
-    ]},
-    { b: "Ford", m: "Focus", y: "2018-2025", engines: [
-      { e: "1.0 EcoBoost", p: "100ch|125ch|155ch", t: "Essence" },
-      { e: "1.5 EcoBoost", p: "150ch|182ch", t: "Essence" },
-      { e: "2.3 EcoBoost ST", p: "280ch", t: "Essence" },
-      { e: "1.5 EcoBlue", p: "95ch|120ch", t: "Diesel" },
-      { e: "2.0 EcoBlue", p: "150ch|190ch", t: "Diesel" }
-    ]},
-    { b: "Ford", m: "Puma", y: "2019-2026", engines: [
-      { e: "1.0 EcoBoost Hybrid", p: "125ch|155ch", t: "Hybride léger 48V" },
-      { e: "1.0 EcoBoost", p: "100ch|125ch", t: "Essence" },
-      { e: "1.5 EcoBlue", p: "120ch", t: "Diesel" },
-      { e: "ST", p: "190ch", t: "Essence" }
-    ]},
-    { b: "Ford", m: "Kuga", y: "2020-2026", engines: [
-      { e: "1.5 EcoBoost", p: "120ch|150ch", t: "Essence" },
-      { e: "2.5 Plug-in Hybrid", p: "225ch", t: "Hybride rechargeable" },
-      { e: "2.5 Full Hybrid", p: "190ch", t: "Hybride" },
-      { e: "2.0 EcoBlue", p: "120ch|150ch|190ch", t: "Diesel" }
-    ]},
-    { b: "Ford", m: "Mustang Mach-E", y: "2021-2026", engines: [
-      { e: "Standard Range RWD", p: "269ch|294ch", t: "Électrique" },
-      { e: "Extended Range RWD", p: "294ch|351ch", t: "Électrique" },
-      { e: "GT", p: "487ch", t: "Électrique" }
-    ]},
-    { b: "Ford", m: "Transit", y: "2014-2026", engines: [
-      { e: "2.0 EcoBlue", p: "105ch|125ch|165ch|170ch", t: "Diesel" },
-      { e: "E-Transit", p: "N/A", t: "Électrique" }
-    ]},
-
-    { b: "Tesla", m: "Model 3", y: "2017-2026", engines: [
-      { e: "Standard Range Plus", p: "283ch", t: "Électrique" },
-      { e: "Long Range", p: "351ch|442ch", t: "Électrique" },
-      { e: "Performance", p: "513ch|534ch", t: "Électrique" }
-    ]},
-    { b: "Tesla", m: "Model Y", y: "2020-2026", engines: [
-      { e: "Standard Range", p: "299ch", t: "Électrique" },
-      { e: "Long Range", p: "442ch|534ch", t: "Électrique" },
-      { e: "Performance", p: "534ch|615ch", t: "Électrique" }
-    ]},
-    { b: "Tesla", m: "Model S", y: "2012-2026", engines: [
-      { e: "Long Range", p: "670ch", t: "Électrique" },
-      { e: "Plaid", p: "1020ch", t: "Électrique" }
-    ]},
-    { b: "Tesla", m: "Model X", y: "2015-2026", engines: [
-      { e: "Long Range", p: "670ch", t: "Électrique" },
-      { e: "Plaid", p: "1020ch", t: "Électrique" }
-    ]},
-
-    { b: "Jeep", m: "Renegade", y: "2014-2026", engines: [
-      { e: "1.0 T3", p: "120ch", t: "Essence" },
-      { e: "1.3 T4", p: "150ch", t: "Essence" },
-      { e: "1.6 E-Torque", p: "130ch", t: "Hybride léger 48V" },
-      { e: "1.6 Multijet", p: "120ch|130ch", t: "Diesel" },
-      { e: "4xe", p: "190ch|240ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Jeep", m: "Compass", y: "2017-2026", engines: [
-      { e: "1.3 T4", p: "150ch", t: "Essence" },
-      { e: "1.6 E-Torque", p: "130ch", t: "Hybride léger 48V" },
-      { e: "2.0 Multijet", p: "140ch|170ch", t: "Diesel" },
-      { e: "4xe", p: "240ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Jeep", m: "Grand Cherokee", y: "2021-2026", engines: [
-      { e: "3.6 V6", p: "286ch", t: "Essence" },
-      { e: "4xe", p: "380ch", t: "Hybride rechargeable" }
-    ]},
-
-    { b: "Toyota", m: "Yaris", y: "2020-2026", engines: [
-      { e: "1.5 Hybrid", p: "116ch", t: "Hybride" },
-      { e: "1.5 Hybrid", p: "130ch", t: "Hybride" },
-      { e: "1.0", p: "72ch", t: "Essence" },
-      { e: "GR Yaris", p: "261ch|280ch", t: "Essence" }
-    ]},
-    { b: "Toyota", m: "Corolla", y: "2019-2026", engines: [
-      { e: "1.8 Hybrid", p: "122ch|140ch", t: "Hybride" },
-      { e: "2.0 Hybrid", p: "184ch|196ch", t: "Hybride" },
-      { e: "1.2 Turbo", p: "116ch", t: "Essence" },
-      { e: "2.0 Plug-in Hybrid", p: "223ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Toyota", m: "RAV4", y: "2018-2026", engines: [
-      { e: "2.5 Hybrid", p: "218ch|222ch", t: "Hybride" },
-      { e: "2.5 Plug-in Hybrid", p: "306ch|320ch", t: "Hybride rechargeable" },
-      { e: "2.0", p: "171ch", t: "Essence" },
-      { e: "2.5 D-4D", p: "150ch|200ch", t: "Diesel" }
-    ]},
-    { b: "Toyota", m: "C-HR", y: "2018-2026", engines: [
-      { e: "1.8 Hybrid", p: "122ch|140ch", t: "Hybride" },
-      { e: "2.0 Hybrid", p: "184ch|197ch", t: "Hybride" },
-      { e: "1.2 Turbo", p: "116ch", t: "Essence" }
-    ]},
-    { b: "Toyota", m: "Prius", y: "2016-2026", engines: [
-      { e: "1.8 Hybrid", p: "122ch", t: "Hybride" },
-      { e: "2.0 Hybrid", p: "197ch", t: "Hybride" },
-      { e: "2.0 Plug-in Hybrid", p: "223ch", t: "Hybride rechargeable" }
-    ]},
-
-    { b: "Lexus", m: "UX", y: "2018-2026", engines: [
-      { e: "250h", p: "178ch", t: "Hybride" },
-      { e: "300h", p: "197ch", t: "Hybride" },
-      { e: "300e", p: "300ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Lexus", m: "NX", y: "2022-2026", engines: [
-      { e: "350h", p: "244ch", t: "Hybride" },
-      { e: "450h+", p: "309ch", t: "Hybride rechargeable" },
-      { e: "350", p: "279ch", t: "Essence" }
-    ]},
-    { b: "Lexus", m: "RX", y: "2023-2026", engines: [
-      { e: "350h", p: "246ch", t: "Hybride" },
-      { e: "500h", p: "371ch", t: "Hybride" },
-      { e: "450h+", p: "309ch", t: "Hybride rechargeable" }
-    ]},
-
-    { b: "Honda", m: "Jazz", y: "2020-2026", engines: [
-      { e: "e:HEV", p: "109ch", t: "Hybride" },
-      { e: "1.5 i-VTEC", p: "130ch", t: "Essence" }
-    ]},
-    { b: "Honda", m: "CR-V", y: "2018-2026", engines: [
-      { e: "2.0 e:HEV", p: "184ch", t: "Hybride" },
-      { e: "1.5 Turbo", p: "173ch|193ch", t: "Essence" },
-      { e: "1.6 i-DTEC", p: "120ch|160ch", t: "Diesel" },
-      { e: "2.0 i-DTEC", p: "184ch", t: "Diesel" }
-    ]},
-    { b: "Honda", m: "e:Ny1", y: "2023-2026", engines: [
-      { e: "e:Ny1", p: "204ch", t: "Électrique" }
-    ]},
-
-    { b: "Nissan", m: "Qashqai", y: "2021-2026", engines: [
-      { e: "1.3 DIG-T", p: "140ch|158ch|160ch", t: "Essence" },
-      { e: "1.3 DIG-T Mild Hybrid", p: "140ch|158ch", t: "Hybride léger 48V" },
-      { e: "e-POWER", p: "190ch", t: "Hybride" },
-      { e: "1.5 dCi", p: "100ch", t: "Diesel" },
-      { e: "1.7 dCi", p: "150ch", t: "Diesel" }
-    ]},
-    { b: "Nissan", m: "X-Trail", y: "2022-2026", engines: [
-      { e: "1.5 e-POWER", p: "163ch|204ch", t: "Hybride" },
-      { e: "1.5 dCi", p: "163ch", t: "Diesel" }
-    ]},
-    { b: "Nissan", m: "Ariya", y: "2022-2026", engines: [
-      { e: "Evolve", p: "214ch|306ch", t: "Électrique" },
-      { e: "e-4ORCE", p: "306ch|389ch", t: "Électrique" }
-    ]},
-    { b: "Nissan", m: "Leaf", y: "2017-2026", engines: [
-      { e: "40 kWh", p: "150ch", t: "Électrique" },
-      { e: "62 kWh e+", p: "217ch", t: "Électrique" }
-    ]},
-
-    { b: "Mazda", m: "3", y: "2019-2026", engines: [
-      { e: "1.5 Skyactiv-G", p: "100ch|120ch", t: "Essence" },
-      { e: "2.0 Skyactiv-G", p: "122ch|150ch|165ch", t: "Essence" },
-      { e: "2.0 Skyactiv-X", p: "180ch|190ch", t: "Essence" },
-      { e: "1.8 Skyactiv-D", p: "116ch", t: "Diesel" },
-      { e: "2.2 Skyactiv-D", p: "150ch|180ch", t: "Diesel" }
-    ]},
-    { b: "Mazda", m: "CX-5", y: "2017-2026", engines: [
-      { e: "2.0 Skyactiv-G", p: "160ch|165ch", t: "Essence" },
-      { e: "2.5 Skyactiv-G", p: "194ch", t: "Essence" },
-      { e: "2.2 Skyactiv-D", p: "150ch|184ch", t: "Diesel" }
-    ]},
-    { b: "Mazda", m: "MX-30", y: "2020-2026", engines: [
-      { e: "Electrique", p: "145ch", t: "Électrique" },
-      { e: "Range Extender", p: "145ch", t: "Électrique" },
-      { e: "e-Skyactiv", p: "125ch", t: "Électrique" }
-    ]},
-
-    { b: "Subaru", m: "XV", y: "2017-2026", engines: [
-      { e: "1.6 i", p: "114ch", t: "Essence" },
-      { e: "2.0 i", p: "150ch|156ch", t: "Essence" },
-      { e: "2.0 e-BOXER", p: "150ch", t: "Hybride léger 48V" }
-    ]},
-    { b: "Subaru", m: "Forester", y: "2018-2026", engines: [
-      { e: "2.0 i", p: "150ch", t: "Essence" },
-      { e: "2.0 e-BOXER", p: "150ch", t: "Hybride léger 48V" },
-      { e: "2.0D", p: "147ch|150ch", t: "Diesel" }
-    ]},
-
-    { b: "Suzuki", m: "Swift", y: "2017-2026", engines: [
-      { e: "1.2 Dualjet", p: "83ch|90ch", t: "Essence" },
-      { e: "1.0 Boosterjet", p: "111ch|112ch", t: "Essence" },
-      { e: "1.2 Dualjet Hybrid", p: "82ch|90ch", t: "Hybride léger 48V" },
-      { e: "1.4 Boosterjet Sport", p: "140ch", t: "Essence" }
-    ]},
-    { b: "Suzuki", m: "Vitara", y: "2015-2026", engines: [
-      { e: "1.4 Boosterjet", p: "125ch|150ch", t: "Essence" },
-      { e: "1.6 DDiS", p: "120ch", t: "Diesel" },
-      { e: "1.4 Boosterjet Hybrid", p: "129ch", t: "Hybride léger 48V" }
-    ]},
-    { b: "Suzuki", m: "S-Cross", y: "2022-2026", engines: [
-      { e: "1.4 Boosterjet Hybrid", p: "129ch", t: "Hybride léger 48V" },
-      { e: "1.5 DDiS", p: "105ch", t: "Diesel" }
-    ]},
-
-    { b: "Mitsubishi", m: "ASX", y: "2023-2026", engines: [
-      { e: "1.3 Turbo", p: "136ch|158ch", t: "Essence" },
-      { e: "PHEV", p: "N/A", t: "Hybride rechargeable" }
-    ]},
-    { b: "Mitsubishi", m: "Outlander", y: "2021-2026", engines: [
-      { e: "PHEV", p: "224ch", t: "Hybride rechargeable" },
-      { e: "2.0 MIVEC", p: "150ch|167ch", t: "Essence" },
-      { e: "2.2 DI-D", p: "150ch|180ch", t: "Diesel" }
-    ]},
-
-    { b: "Hyundai", m: "Tucson", y: "2021-2026", engines: [
-      { e: "1.6 TGDI", p: "150ch|177ch", t: "Essence" },
-      { e: "1.6 TGDI 48V", p: "150ch|177ch", t: "Hybride léger 48V" },
-      { e: "1.6 CRDi 48V", p: "115ch|136ch", t: "Diesel" },
-      { e: "1.6 Hybrid", p: "215ch|230ch", t: "Hybride" },
-      { e: "1.6 Plug-in Hybrid", p: "253ch|265ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Hyundai", m: "Kona", y: "2018-2026", engines: [
-      { e: "1.0 T-GDI", p: "120ch", t: "Essence" },
-      { e: "1.6 T-GDI", p: "198ch", t: "Essence" },
-      { e: "1.6 CRDi", p: "115ch|136ch", t: "Diesel" },
-      { e: "Electric", p: "136ch|204ch|218ch|325ch", t: "Électrique" },
-      { e: "Hybrid", p: "141ch", t: "Hybride" },
-      { e: "Plug-in Hybrid", p: "178ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Hyundai", m: "IONIQ 5", y: "2021-2026", engines: [
-      { e: "Light", p: "170ch", t: "Électrique" },
-      { e: "Exclusive", p: "170ch|218ch", t: "Électrique" },
-      { e: "Calligraphy", p: "218ch|325ch", t: "Électrique" },
-      { e: "N Line", p: "325ch", t: "Électrique" }
-    ]},
-    { b: "Hyundai", m: "IONIQ 6", y: "2022-2026", engines: [
-      { e: "E-Light", p: "151ch", t: "Électrique" },
-      { e: "E-Standard", p: "151ch|228ch", t: "Électrique" },
-      { e: "E-Unlimited", p: "228ch|325ch", t: "Électrique" }
-    ]},
-
-    { b: "Kia", m: "Ceed", y: "2018-2026", engines: [
-      { e: "1.0 T-GDI", p: "120ch|140ch", t: "Essence" },
-      { e: "1.4 T-GDI", p: "140ch", t: "Essence" },
-      { e: "1.5 T-GDI", p: "160ch", t: "Essence" },
-      { e: "1.6 CRDi", p: "115ch|136ch", t: "Diesel" },
-      { e: "1.6 GDi Hybrid", p: "141ch", t: "Hybride" },
-      { e: "1.6 T-GDI PHEV", p: "141ch|178ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Kia", m: "Sportage", y: "2022-2026", engines: [
-      { e: "1.6 T-GDI", p: "150ch|180ch", t: "Essence" },
-      { e: "1.6 CRDi", p: "115ch|136ch", t: "Diesel" },
-      { e: "1.6 Hybrid", p: "215ch|230ch", t: "Hybride" },
-      { e: "1.6 Plug-in Hybrid", p: "253ch|265ch", t: "Hybride rechargeable" }
-    ]},
-    { b: "Kia", m: "Niro", y: "2022-2026", engines: [
-      { e: "Hybrid", p: "141ch", t: "Hybride" },
-      { e: "Plug-in Hybrid", p: "183ch", t: "Hybride rechargeable" },
-      { e: "Electric", p: "150ch|204ch", t: "Électrique" }
-    ]},
-    { b: "Kia", m: "EV6", y: "2021-2026", engines: [
-      { e: "Light", p: "151ch", t: "Électrique" },
-      { e: "Standard", p: "151ch|228ch", t: "Électrique" },
-      { e: "Long Range", p: "228ch|325ch", t: "Électrique" },
-      { e: "GT", p: "430ch|585ch", t: "Électrique" }
-    ]},
-    { b: "Kia", m: "EV9", y: "2024-2026", engines: [
-      { e: "Long Range", p: "204ch|379ch", t: "Électrique" },
-      { e: "GT-Line", p: "379ch|455ch", t: "Électrique" }
-    ]},
-
-    { b: "MG", m: "MG4", y: "2022-2026", engines: [
-      { e: "Standard Range", p: "170ch", t: "Électrique" },
-      { e: "Long Range", p: "170ch|204ch", t: "Électrique" },
-      { e: "XPOWER", p: "435ch", t: "Électrique" }
-    ]},
-    { b: "MG", m: "MG ZS EV", y: "2019-2026", engines: [
-      { e: "44 kWh", p: "145ch", t: "Électrique" },
-      { e: "51 kWh", p: "177ch", t: "Électrique" }
-    ]},
-    { b: "MG", m: "MG5", y: "2021-2026", engines: [
-      { e: "180", p: "156ch", t: "Électrique" },
-      { e: "EV", p: "156ch", t: "Électrique" }
-    ]},
-    { b: "MG", m: "Marvel R", y: "2021-2026", engines: [
-      { e: "Standard Range", p: "154ch", t: "Électrique" },
-      { e: "Long Range", p: "154ch|270ch", t: "Électrique" },
-      { e: "Twin Motor", p: "270ch", t: "Électrique" }
-    ]},
-
-    { b: "BYD", m: "Atto 3", y: "2022-2026", engines: [
-      { e: "Comfort", p: "204ch", t: "Électrique" },
-      { e: "Design", p: "204ch", t: "Électrique" }
-    ]},
-    { b: "BYD", m: "Dolphin", y: "2023-2026", engines: [
-      { e: "Comfort", p: "95ch", t: "Électrique" },
-      { e: "Design", p: "204ch", t: "Électrique" }
-    ]},
-    { b: "BYD", m: "Seal", y: "2023-2026", engines: [
-      { e: "Comfort", p: "204ch", t: "Électrique" },
-      { e: "Design", p: "313ch", t: "Électrique" },
-      { e: "AWD Performance", p: "530ch", t: "Électrique" }
-    ]},
-
-    { b: "Chevrolet", m: "Bolt EV", y: "2017-2026", engines: [
-      { e: "Bolt EV", p: "204ch", t: "Électrique" }
-    ]},
-    { b: "Chevrolet", m: "Bolt EUV", y: "2021-2026", engines: [
-      { e: "Bolt EUV", p: "204ch", t: "Électrique" }
-    ]},
-    { b: "Chevrolet", m: "Equinox EV", y: "2024-2026", engines: [
-      { e: "Equinox EV", p: "213ch|290ch", t: "Électrique" }
-    ]},
-
-    { b: "Ram", m: "1500", y: "2019-2026", engines: [
-      { e: "3.6 V6", p: "305ch", t: "Essence" },
-      { e: "5.7 V8", p: "395ch", t: "Essence" },
-      { e: "Hurricane Inline-6", p: "420ch|540ch", t: "Essence" },
-      { e: "eTorque", p: "N/A", t: "Hybride léger 48V" }
-    ]},
-
-    { b: "Chrysler", m: "Pacifica", y: "2017-2026", engines: [
-      { e: "3.6 V6", p: "287ch", t: "Essence" },
-      { e: "Hybrid", p: "260ch", t: "Hybride rechargeable" }
-    ]}
-  ];
-
-  function getUniqueBrands() {
-    var brands = BRAND_SEED.slice();
-
-    MODEL_CATALOG.forEach(function (m) {
-      brands.push(m.b);
-    });
-
-    (engineExtra || []).forEach(function (e) {
-      if (e.b) brands.push(e.b);
-    });
-
-    return unique(brands).sort(function (a, b) {
-      return norm(a).localeCompare(norm(b));
-    });
-  }
-
-  function getUniqueModels() {
-    var models = [];
-    MODEL_CATALOG.forEach(function (m) {
-      models.push(m.b + " " + m.m);
-    });
-    return unique(models);
-  }
-
-  function getUniqueEngines() {
-    var count = 0;
-    MODEL_CATALOG.forEach(function (m) {
-      count += (m.engines || []).length;
-    });
-    count += (engineExtra || []).length;
-    return count;
-  }
-
-  function normalizeEngineRecord(r, sourceUrl) {
-    if (!r || typeof r !== "object") return null;
-
-    var brand = valToString(firstVal(r, ["b", "brand", "marque", "constructeur"]));
-    var model = valToString(firstVal(r, ["m", "models", "model", "modele", "modèle"]));
-    var years = valToString(firstVal(r, ["y", "years", "annee", "année", "period", "range"]));
-    var engine = valToString(firstVal(r, ["e", "engine", "motorisation", "moteur", "powertrain"]));
-    var power = valToString(firstVal(r, ["p", "power", "puissance", "ch", "kw"]));
-    var type = valToString(firstVal(r, ["t", "type", "engineType", "typeMotorisation", "energie"]));
-
-    if (!brand || !engine) return null;
-
-    if (!type) {
-      type = inferEngineType(
-        engine,
-        valToString(firstVal(r, ["tg", "tags", "categorie", "category"])),
-        valToString(firstVal(r, ["s", "symptoms", "symptomes", "panne", "pannes"])),
-        valToString(firstVal(r, ["n", "note", "description"]))
-      );
+    if (Array.isArray(o)) {
+      brand = o[0] || "";
+      model = o[1] || "";
+      years = o[2] || "";
+      engine = o[3] || "";
+      power = o[4] || "";
+      fuel = o[5] || "";
+      trans = o[6] || "";
     }
 
-    if (!isMotorisationType(type)) return null;
+    brand = String(brand || "").trim();
+    model = String(model || "").trim();
+    engine = String(engine || "").trim();
 
-    return {
-      b: brand,
-      m: model || "*",
-      y: years || "2017-2027",
-      e: engine,
-      p: power || "N/A",
-      t: type,
-      sourceUrl: sourceUrl || valToString(firstVal(r, ["sourceUrl", "url", "lien", "link"]))
-    };
+    if (!brand || !model || !engine) return;
+
+    if (!fuel) fuel = inferFuel(engine + " " + power + " " + trans + " " + years);
+    if (!isFuelType(fuel)) fuel = inferFuel(engine + " " + trans);
+
+    var k = normKey(brand) + "|" + normKey(model) + "|" + normKey(engine) + "|" + normKey(power) + "|" + normKey(fuel) + "|" + normKey(trans);
+    if (catalog.engineKeys[k]) return;
+
+    catalog.engineKeys[k] = true;
+
+    catalog.engines.push({
+      brand: brand,
+      model: model,
+      engine: engine,
+      power: power || "N/A",
+      fuel: fuel,
+      transmission: trans || "",
+      years: years || "",
+      source: source,
+      sourceUrl: sourceUrl
+    });
+
+    addModel(brand, model, years, source);
   }
 
-  function collectEngineRecordsFromJson(json, sourceUrl, depth) {
-    depth = depth || 0;
+  function isFuelType(f) {
+    f = norm(f);
+    return [
+      "essence", "diesel", "hybride", "hybride rechargeable",
+      "hybride leger 48v", "electrique", "gpl", "e85", "bioethanol"
+    ].some(function (x) { return f.indexOf(x) >= 0; });
+  }
+
+  function getAllBrands() {
+    var arr = Object.keys(catalog.brands).map(function (k) { return catalog.brands[k]; });
+
+    arr.sort(function (a, b) {
+      return norm(a.name).localeCompare(norm(b.name));
+    });
+
+    return arr;
+  }
+
+  function getModels(brand, year) {
     var out = [];
-    if (!json || depth > 4) return out;
 
-    if (Array.isArray(json)) {
-      json.forEach(function (item) {
-        var rec = normalizeEngineRecord(item, sourceUrl);
-        if (rec) out.push(rec);
-
-        if (item && typeof item === "object") {
-          ["motorisations", "engines", "engineCatalog", "catalogue", "data", "items"].forEach(function (key) {
-            if (item[key]) out = out.concat(collectEngineRecordsFromJson(item[key], sourceUrl, depth + 1));
-          });
-        }
+    catalog.models.forEach(function (m) {
+      if (!brandMatch(m.brand, brand)) return;
+      if (!yearMatches(m.years, year)) return;
+      out.push({
+        id: normKey(m.brand) + "|" + normKey(m.name),
+        brand: m.brand,
+        name: m.name,
+        years: m.years,
+        source: m.source
       });
-      return out;
-    }
+    });
 
-    if (typeof json === "object") {
-      var direct = normalizeEngineRecord(json, sourceUrl);
-      if (direct) out.push(direct);
-
-      ["motorisations", "engines", "engineCatalog", "catalogue", "data", "items"].forEach(function (key) {
-        if (json[key]) out = out.concat(collectEngineRecordsFromJson(json[key], sourceUrl, depth + 1));
-      });
-    }
+    out.sort(function (a, b) {
+      return norm(a.name).localeCompare(norm(b.name));
+    });
 
     return out;
   }
 
-  function engineRecordKey(e) {
-    return norm(e.b) + "|" + norm(e.m) + "|" + norm(e.e) + "|" + norm(e.p) + "|" + norm(e.t);
-  }
-
-  function mergeEngineRecords(base, incoming) {
-    var map = new Map();
-    (base || []).forEach(function (e) { map.set(engineRecordKey(e), e); });
-    (incoming || []).forEach(function (e) {
-      var k = engineRecordKey(e);
-      if (!map.has(k)) map.set(k, e);
-    });
-    return Array.from(map.values());
-  }
-
-  function addEngineOption(out, e, source) {
-    if (!e || !e.e) return;
-    var id = norm(e.b) + "|" + norm(e.m) + "|" + norm(e.e) + "|" + norm(e.p) + "|" + norm(e.t);
-    if (out.some(function (x) { return x.id === id; })) return;
-
-    out.push({
-      id: id,
-      brand: e.b,
-      model: e.m,
-      engine: e.e,
-      power: e.p || "N/A",
-      years: e.y || "2017-2027",
-      type: e.t,
-      source: source || "catalogue local",
-      sourceUrl: e.sourceUrl || ""
-    });
-  }
-
-  function getModelsForBrandYear(brand, year) {
-    var nb = norm(brand);
+  function getEngines(brand, model, year) {
     var out = [];
 
-    MODEL_CATALOG.forEach(function (entry) {
-      if (nb && !(norm(entry.b).indexOf(nb) >= 0 || nb.indexOf(norm(entry.b)) >= 0)) return;
-      if (!checkYearRange(entry.y, year)) return;
-      out.push(entry.m);
-    });
+    catalog.engines.forEach(function (e) {
+      if (!brandMatch(e.brand, brand)) return;
+      if (!nameMatch(e.model, model)) return;
+      if (!yearMatches(e.years, year)) return;
 
-    (engineExtra || []).forEach(function (entry) {
-      if (nb && !(norm(entry.b).indexOf(nb) >= 0 || nb.indexOf(norm(entry.b)) >= 0)) return;
-      if (!checkYearRange(entry.y, year)) return;
-      if (entry.m && entry.m !== "*") out.push(entry.m);
-    });
-
-    return unique(out).sort();
-  }
-
-  function getEnginesForModelYear(brand, model, year) {
-    var nb = norm(brand);
-    var nm = norm(model);
-    var out = [];
-
-    MODEL_CATALOG.forEach(function (entry) {
-      if (nb && !(norm(entry.b).indexOf(nb) >= 0 || nb.indexOf(norm(entry.b)) >= 0)) return;
-      if (nm && entry.m && !(norm(entry.m).indexOf(nm) >= 0 || nm.indexOf(norm(entry.m)) >= 0)) return;
-      if (!checkYearRange(entry.y, year)) return;
-
-      (entry.engines || []).forEach(function (eng) {
-        if (eng.y && !checkYearRange(eng.y, year)) return;
-        addEngineOption(out, {
-          b: entry.b,
-          m: entry.m,
-          y: eng.y || entry.y,
-          e: eng.e,
-          p: eng.p,
-          t: eng.t
-        }, "catalogue local");
+      out.push({
+        id: normKey(e.brand) + "|" + normKey(e.model) + "|" + normKey(e.engine) + "|" + normKey(e.power) + "|" + normKey(e.fuel) + "|" + normKey(e.transmission),
+        brand: e.brand,
+        model: e.model,
+        engine: e.engine,
+        power: e.power,
+        fuel: e.fuel,
+        transmission: e.transmission,
+        years: e.years,
+        source: e.source,
+        sourceUrl: e.sourceUrl
       });
     });
-
-    (engineExtra || []).forEach(function (entry) {
-      if (nb && !(norm(entry.b).indexOf(nb) >= 0 || nb.indexOf(norm(entry.b)) >= 0)) return;
-      if (nm && entry.m && entry.m !== "*" && !(norm(entry.m).indexOf(nm) >= 0 || nm.indexOf(norm(entry.m)) >= 0)) return;
-      if (!checkYearRange(entry.y, year)) return;
-      addEngineOption(out, entry, "import / auto-diagnostic");
-    });
-
-    if (!out.length && brand && model && model !== "Autre / non listé") {
-      var generic = [
-        { t: "Essence", e: "Motorisation essence" },
-        { t: "Diesel", e: "Motorisation diesel" },
-        { t: "Hybride", e: "Motorisation hybride" },
-        { t: "Hybride rechargeable", e: "Motorisation hybride rechargeable" },
-        { t: "Hybride léger 48V", e: "Motorisation 48V" },
-        { t: "Électrique", e: "Motorisation électrique" }
-      ];
-
-      generic.forEach(function (g) {
-        addEngineOption(out, {
-          b: brand,
-          m: model,
-          y: year ? year + "-" + year : "2017-2027",
-          e: g.e,
-          p: "N/A",
-          t: g.t
-        }, "générique");
-      });
-    }
 
     out.sort(function (a, b) {
-      var ra = engineTypeRank(a.type);
-      var rb = engineTypeRank(b.type);
-      if (ra !== rb) return ra - rb;
+      var fa = fuelRank(a.fuel);
+      var fb = fuelRank(b.fuel);
+      if (fa !== fb) return fa - fb;
       return norm(a.engine).localeCompare(norm(b.engine));
     });
 
-    out.push({
-      id: "__other__",
-      brand: brand,
-      model: model,
-      engine: "Autre / non précisée",
-      power: "N/A",
-      years: year ? year + "-" + year : "2017-2027",
-      type: "Non précisé / mixte",
-      source: "manuel",
-      sourceUrl: ""
-    });
-
     return out;
   }
 
-  function renderBrandSuggestions() {
-    var input = q("#vehicleBrand");
-    var box = q("#brandSuggestions");
-    if (!input || !box) return;
-
-    var val = input.value.trim();
-    var brands = getUniqueBrands();
-    var matches = val
-      ? brands.filter(function (b) { return norm(b).indexOf(norm(val)) >= 0; }).slice(0, 12)
-      : brands.slice(0, 12);
-
-    if (!matches.length || (matches.length === 1 && matches[0] === val)) {
-      box.classList.add("hidden");
-      box.innerHTML = "";
-      return;
-    }
-
-    box.innerHTML = matches.map(function (b) {
-      return '<button type="button" class="suggest-item" data-brand="' + esc(b) + '">' + esc(b) + "</button>";
-    }).join("");
-
-    box.classList.remove("hidden");
-  }
-
-  function hideBrandSuggestions() {
-    var box = q("#brandSuggestions");
-    if (box) {
-      box.classList.add("hidden");
-      box.innerHTML = "";
-    }
-  }
-
-  function selectBrand(name) {
-    var input = q("#vehicleBrand");
-    if (input) input.value = name;
-    hideBrandSuggestions();
-    refreshModelOptions();
-  }
-
-  function populateSelect(select, options, placeholder, preserveValue) {
-    if (!select) return;
-
-    var old = preserveValue != null ? preserveValue : select.value;
-    select.innerHTML = "";
-
-    var ph = document.createElement("option");
-    ph.value = "";
-    ph.textContent = placeholder;
-    select.appendChild(ph);
-
-    options.forEach(function (o) {
-      var opt = document.createElement("option");
-      opt.value = o.value;
-      opt.textContent = o.text;
-      select.appendChild(opt);
-    });
-
-    if (old && options.some(function (o) { return o.value === old; })) {
-      select.value = old;
-    } else {
-      select.value = "";
-    }
-  }
-
-  function refreshModelOptions() {
-    var brandEl = q("#vehicleBrand");
-    var modelEl = q("#vehicleModel");
-    var yearEl = q("#vehicleYear");
-    if (!brandEl || !modelEl || !yearEl) return;
-
-    var brand = brandEl.value.trim();
-    var year = parseYear(yearEl.value);
-    var models = getModelsForBrandYear(brand, year);
-
-    var options = models.map(function (m) {
-      return { value: m, text: m };
-    });
-
-    if (brand) {
-      options.push({ value: "__other__", text: "Autre / non listé" });
-    }
-
-    modelOptionMap = {};
-    options.forEach(function (o) { modelOptionMap[o.value] = o.text; });
-
-    populateSelect(modelEl, options, brand ? "Choisir un modèle" : "Choisir d’abord une marque", modelEl.value);
-    refreshEngineOptions();
-  }
-
-  function refreshEngineOptions() {
-    var brandEl = q("#vehicleBrand");
-    var modelEl = q("#vehicleModel");
-    var yearEl = q("#vehicleYear");
-    var engineEl = q("#vehicleEngine");
-    var help = q("#engineHelp");
-    if (!brandEl || !modelEl || !yearEl || !engineEl) return;
-
-    var brand = brandEl.value.trim();
-    var modelValue = modelEl.value;
-    var model = modelValue === "__other__" ? "" : modelValue;
-    var year = parseYear(yearEl.value);
-
-    if (!brand || !modelValue) {
-      engineOptionMap = {};
-      populateSelect(engineEl, [], !brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle", "");
-      if (help) help.textContent = "Les motorisations proposées dépendent du modèle et de l’année.";
-      updateSelectionSummary();
-      return;
-    }
-
-    var engines = getEnginesForModelYear(brand, model, year);
-    engineOptionMap = {};
-
-    var options = engines.map(function (e) {
-      engineOptionMap[e.id] = e;
-      var label = e.type + " — " + e.engine;
-      if (e.power && e.power !== "N/A") label += " (" + e.power + ")";
-      if (e.years) label += " • " + e.years;
-      return { value: e.id, text: label };
-    });
-
-    populateSelect(engineEl, options, "Choisir une motorisation", engineEl.value);
-
-    if (help) {
-      if (options.length <= 1) {
-        help.textContent = "Aucune motorisation spécifique trouvée. Sélection possible : Autre / non précisée.";
-      } else {
-        help.textContent = (options.length - 1) + " motorisation(s) proposée(s) pour ce modèle et cette année.";
-      }
-    }
-
-    updateSelectionSummary();
-  }
-
-  function updateSelectionSummary() {
-    var el = q("#selectionSummary");
-    if (!el) return;
-
-    var data = getSelectedVehicleData();
-    if (!data.marque && !data.modele && !data.annee && !data.engine) {
-      el.textContent = "Aucune sélection véhicule complète.";
-      return;
-    }
-
-    var parts = [];
-    if (data.marque) parts.push(data.marque);
-    if (data.modele) parts.push(data.modele);
-    if (data.annee) parts.push(data.annee);
-    if (data.engine) parts.push(data.engine + (data.engineType ? " (" + data.engineType + ")" : ""));
-
-    el.textContent = "Sélection retenue : " + parts.join(" • ");
-  }
-
-  function getSelectedVehicleData() {
-    var brandEl = q("#vehicleBrand");
-    var modelEl = q("#vehicleModel");
-    var yearEl = q("#vehicleYear");
-    var engineEl = q("#vehicleEngine");
-    var kmEl = q("#vehicleKilometrage");
-    var vinEl = q("#vehicleVin");
-
-    var brand = brandEl ? brandEl.value.trim() : "";
-    var modelValue = modelEl ? modelEl.value : "";
-    var model = modelValue === "__other__" ? "Modèle non listé" : (modelValue || "");
-    var year = yearEl ? yearEl.value.trim() : "";
-    var engineId = engineEl ? engineEl.value : "";
-    var engine = engineOptionMap[engineId] || null;
-
-    return {
-      marque: brand,
-      modele: model,
-      annee: year,
-      engine: engine && engine.id !== "__other__" ? engine.engine : "",
-      power: engine && engine.id !== "__other__" ? engine.power : "",
-      engineType: engine && engine.id !== "__other__" ? engine.type : "",
-      engineSource: engine ? engine.source : "",
-      engineSourceUrl: engine ? engine.sourceUrl : "",
-      kilometrage: kmEl ? kmEl.value.trim() : "",
-      vin: vinEl ? vinEl.value.trim() : ""
-    };
-  }
-
-  function scheduleVehicleRefresh() {
-    clearTimeout(vehicleRefreshTimer);
-    vehicleRefreshTimer = setTimeout(function () {
-      refreshModelOptions();
-    }, 180);
+  function fuelRank(f) {
+    var order = ["Essence", "Diesel", "Hybride", "Hybride rechargeable", "Hybride léger 48V", "Électrique", "GPL", "E85 / Bioéthanol", "Non précisé / mixte"];
+    var i = order.indexOf(f);
+    return i >= 0 ? i : 999;
   }
 
   /* =========================================================
-     BASE TECHNIQUE LOCALE
+     DEFAUTS TECHNIQUES
      ========================================================= */
-  function D(b, m, y, e, p, s, sev, wf, n, law, rec, tg) {
-    return { b: b, m: m, y: y, e: e, p: p, s: s, sev: sev, wf: wf, n: n, law: law, rec: rec, tg: tg };
-  }
-
-  var BRAND_LIST = unique(BRAND_SEED.concat(MODEL_CATALOG.map(function (m) { return m.b; }))).concat(["Toutes marques"]);
-
-  var CATEGORY_TEMPLATES = [
-    ["Essence turbo downsizing", "consommation huile|turbo|chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe|huile|preignition|LSPI|carbonisation", "critique", 0.72, "Moteur essence turbo à cylindrée réduite : surveillance huile, turbo, distribution, encrassement, pré-allumage, perte de puissance.", "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.; tromperie L.213-1 si dissimulation.", "TSB constructeurs; forums; rappel.conso; NHTSA", "moteur|turbo|huile|distribution|puissance|combustion"],
-    ["Diesel dépollution", "EGR|FAP|DPF|AdBlue|NOx|injecteur|turbo|regeneration|voyant antipollution|fumee noire|puissance reduite|cristallisation|conso gasoil", "moyen", 0.55, "Chaîne de dépollution diesel : EGR, FAP/DPF, AdBlue, NOx, injecteurs, turbo, régénération.", "Vice caché 1641 C.civ.; usure normale à écarter; tromperie L.213-1 si logiciel.", "Rappels diesel; CJUE; DGCCRF; KBA", "diesel|EGR|FAP|AdBlue|NOx|pollution|turbo"],
-    ["Boîte automatique / robotisée", "a-coups|patinage|embrayage|mecatronique|convertisseur|voyant boite|mode degrade|surchauffe|odeur brulee|bruit boite|blocage vitesse", "critique", 0.7, "Boîte automatique ou robotisée : mécatronique, embrayage, convertisseur, logiciel, surchauffe urbaine.", "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.", "TSB boîtes; rappels constructeurs", "boite|embrayage|mecatronique|convertisseur|logiciel"],
-    ["Hybride / électrique batterie", "batterie|BMS|autonomie|charge|cellule|SOH|thermal|incendie|12V|DC-DC|software|recharge|deséquilibre", "critique", 0.92, "Batterie haute tension, BMS, cellules, autonomie, batterie 12V, DC-DC, logiciel, risque thermique.", "Sécurité L.423-1 C.consom.; produits défectueux 1245 C.civ.; conformité L.217-4.", "Rappels EV/hybride; NHTSA; DGCCRF; KBA", "batterie|charge|autonomie|electricite|securite|logiciel"],
-    ["ADAS / conduite assistée", "ADAS|camera|radar|lidar|phantom braking|lane keeping|emergency brake|calibration|autopilot|Travel Assist|Pilot Assist|ProPILOT|Toyota Safety Sense|BlueCruise", "critique", 0.95, "Capteurs ADAS, calibration, caméra, radar, lidar, freinage fantôme, assistance autoroute, logiciel.", "Sécurité L.423-1; produits défectueux 1245; conformité L.217-4; pénal si accident.", "NHTSA ADAS; Euro NCAP; DGCCRF; SafetyGate", "ADAS|logiciel|securite|capteurs|camera|radar"],
-    ["Électricité / infiltration eau", "infiltration eau|court circuit|moisiure|corrosion|faisceau|boitier fusibles|calculateurs|voyants aleatoires|incendie electrique|odeur brulee", "critique", 0.93, "Infiltration d’eau, corrosion, courts-circuits, faisceaux, calculateurs, voyants aléatoires, risque incendie électrique.", "Sécurité L.423-1; vice caché 1641; produits défectueux 1245.", "Rappels électriques; forums; NHTSA; DGCCRF", "eau|electricite|court-circuit|incendie|securite"],
-    ["Freinage / ABS / ESP", "frein|ABS|ESP|plaquettes|disques|etrier|pedale molle|vibration freinage|bruit frein|perte freinage", "critique", 0.85, "Freinage, ABS, ESP, plaquettes, disques, étriers, pédale, perte de freinage.", "Sécurité L.423-1; vice caché 1641; pénal si accident.", "Rappels freinage; NHTSA; DGCCRF", "frein|ABS|ESP|securite"],
-    ["Logiciel / OTA / calculateurs", "logiciel|OTA|mise a jour|calculateur|module|brick|erreur software|reinitialisation|voyant multiple", "critique", 0.88, "Mise à jour OTA, calculateurs, modules, briquage, erreurs logicielles, voyants multiples.", "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.", "Rappels logiciels; NHTSA; DGCCRF", "logiciel|OTA|electricite|securite"]
-  ];
-
-  function buildGeneratedDefects() {
-    var out = [];
-    BRAND_LIST.forEach(function (brand) {
-      CATEGORY_TEMPLATES.forEach(function (t) {
-        out.push(D(
-          brand,
-          "*",
-          "2017-2027",
-          t[0],
-          "N/A",
-          t[1],
-          t[2],
-          t[3],
-          t[4],
-          t[5],
-          t[6],
-          t[7]
-        ));
-      });
-    });
-    return out;
-  }
-
-  var GENERATED_DEFECTS = buildGeneratedDefects();
-
-  var SPECIFIC_DEFECTS = [
-    D("Renault", "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", "2017-2022", "K9K / 1.5 dCi", "75ch-110ch",
-      "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
-      "critique", 0.9,
-      "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
-      "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
-      "Programme technique Renault K9K; TSB; jurisprudences",
-      "moteur|huile|bielle|pompe|bruit|critique"),
-
-    D("Renault", "Trafic II|Master III|Espace V|Talisman", "2017-2027", "Baie de pare-brise / étanchéité", "N/A",
-      "infiltration eau|court circuit|moisiure|panne electronique|voyants aleatoires|erreur ABS|erreur ESP|corrosion|odeur humidite",
-      "critique", 0.95,
-      "Défaut d’étanchéité de la baie de pare-brise. Eau vers calculateurs et faisceaux. Indépendant du km.",
-      "Vice caché 1641 C.civ.; sécurité L.423-1 C.consom.; produits défectueux 1245 C.civ.",
-      "Campagnes Renault; forums; DGCCRF",
-      "eau|electricite|court-circuit|securite|carrosserie"),
-
-    D("Peugeot", "208|2008|308|3008|5008|Partner|Rifter|Boxer", "2017-2024", "EB2 / 1.2 PureTech", "100ch-155ch",
-      "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
-      "critique", 0.85,
-      "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
-      "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
-      "Extension garantie Stellantis PureTech; TSB; DGCCRF",
-      "moteur|distribution|courroie|huile|pompe|critique"),
-
-    D("Volkswagen", "Golf|Polo|T-Cross|Taigo|Tiguan|Touran", "2017-2024", "DSG DQ200 / DQ381", "N/A boite",
-      "a-coups|mecatronique|patinage|bruit claquement|voyant boite|mode degrade|blocage vitesse|odeur brulee",
-      "critique", 0.7,
-      "Boîtes DSG : mécatronique, embrayage, convertisseur, logiciel boîte.",
-      "Vice caché 1641; conformité L.217-4; tromperie L.213-1.",
-      "Rappels/TSB VAG DSG; class actions",
-      "boite|DSG|mecatronique|embrayage"),
-
-    D("Volkswagen", "ID.3|ID.4|ID.5|ID.7", "2020-2027", "MEB électrique", "145ch-286ch",
-      "autonomie|charge AC|charge DC|BMS|cellules|logiciel|software|ADAS|Travel Assist|camera|radar|12V|DC-DC|thermal derating",
-      "critique", 0.92,
-      "Plateforme MEB : logiciel, charge, batterie, autonomie, ADAS, batterie 12V, DC-DC.",
-      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
-      "Rappels VW ID; KBA Allemagne; NHTSA; DGCCRF",
-      "batterie|charge|autonomie|adas|logiciel|electricite"),
-
-    D("Tesla", "Model 3|Model Y|Model S|Model X", "2017-2027", "Électrique", "283ch-1020ch",
-      "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
-      "critique", 0.92,
-      "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
-      "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
-      "NHTSA Tesla recalls; DGCCRF; SafetyGate",
-      "ADAS|batterie|charge|logiciel|securite"),
-
-    D("Toyota", "Yaris|Corolla|Camry|RAV4|C-HR|Prius|Hilux|Land Cruiser", "2017-2027", "Hybride THS / Dynamic Force / D-4D", "100ch-309ch",
-      "batterie hybride|refroidissement batterie|CVT|bruit|vibration|12V|Toyota Safety Sense|camera|radar|ADAS|consommation|mode degrade",
-      "critique", 0.65,
-      "Hybrides Toyota : batterie, ventilation, CVT, 12V, ADAS Toyota Safety Sense.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "Rappels Toyota hybride/ADAS; NHTSA",
-      "hybride|batterie|CVT|ADAS|12V"),
-
-    D("Ford", "Fiesta|Focus|Puma|Kuga|Explorer|Transit", "2017-2027", "EcoBoost 1.0 / 1.5 / 2.3 / PowerShift", "95ch-280ch",
-      "joint culasse|surchauffe|refroidissement|pompe a eau|eau dans huile|fumee blanche|PowerShift|a-coups|embrayage|vibrations|odeur brulee",
-      "critique", 0.85,
-      "EcoBoost 1.0 : refroidissement/joint culasse. PowerShift : embrayage sec fragile.",
-      "Vice caché 1641; tromperie L.213-1; conformité L.217-4.",
-      "Class actions PowerShift; TSB Ford EcoBoost",
-      "moteur|refroidissement|culasse|boite|embrayage"),
-
-    D("Chevrolet", "Bolt EV|Bolt EUV|Lyriq|Equinox EV", "2017-2027", "Électrique Ultium / Bolt", "204ch-1000ch",
-      "incendie|batterie|thermal runaway|charge|recall|BMS|software|ADAS|Super Cruise|autonomie|12V",
-      "critique", 1.0,
-      "Bolt : rappel mondial incendie batterie. Ultium/Super Cruise : logiciel, charge, ADAS.",
-      "Sécurité L.423-1; produits défectueux 1245; pénal si accident; conformité L.217-4.",
-      "NHTSA Bolt recall; GM recalls; DGCCRF",
-      "incendie|batterie|charge|ADAS|logiciel")
-  ];
-
   function normalizeDefect(d) {
+    if (!d) return null;
+
     var out = {
-      b: d.b || d.brand || "",
-      m: d.m || d.models || "",
-      y: d.y || d.years || "",
-      e: d.e || d.engine || "",
-      p: d.p || d.power || "",
-      s: d.s || d.symptoms || "",
-      sev: d.sev || d.severity || "moyen",
+      b: valToString(firstVal(d, ["b", "brand", "marque", "constructeur"])),
+      m: valToString(firstVal(d, ["m", "models", "model", "modele", "modèle"])),
+      y: valToString(firstVal(d, ["y", "years", "annee", "année", "period", "range"])),
+      e: valToString(firstVal(d, ["e", "engine", "motorisation", "moteur", "system", "système"])),
+      p: valToString(firstVal(d, ["p", "power", "puissance"])),
+      s: valToString(firstVal(d, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut"])),
+      sev: valToString(firstVal(d, ["sev", "severity", "gravite", "gravité"])) || "moyen",
       wf: typeof d.wf === "number" ? d.wf : (typeof d.wearFactor === "number" ? d.wearFactor : 0.5),
-      n: d.n || d.note || d.description || "",
-      law: d.law || d.legal || d.baseLegale || "",
-      rec: d.rec || d.recall || d.recallRef || "",
-      tg: d.tg || d.tags || ""
+      n: valToString(firstVal(d, ["n", "note", "description", "fiche", "detail"])),
+      law: valToString(firstVal(d, ["law", "legal", "baseLegale", "droit", "fondement"])),
+      rec: valToString(firstVal(d, ["rec", "recall", "rappel", "campagne", "source"])),
+      tg: valToString(firstVal(d, ["tg", "tags", "categorie", "category", "systeme"])),
+      dtc: valToString(firstVal(d, ["dtc", "codeDtc", "code", "codes"])),
+      source: valToString(firstVal(d, ["source", "src"])) || "base locale",
+      sourceUrl: valToString(firstVal(d, ["sourceUrl", "url", "lien", "link"]))
     };
 
-    out.et = d.et || d.engineType || d.type || inferEngineType(out.e, out.tg, out.s, out.n);
+    out.et = valToString(firstVal(d, ["et", "engineType", "type", "fuel", "energie"])) || inferFuel(out.e + " " + out.tg + " " + out.s + " " + out.n);
 
-    if (d.source) out.source = d.source;
-    if (d.sourceUrl) out.sourceUrl = d.sourceUrl;
-    if (d.dtc) out.dtc = d.dtc;
-
+    if (!out.b || !out.s) return null;
     return out;
   }
 
-  function isValidDefect(d) {
-    return d && d.b && d.s;
+  function addDefect(d) {
+    var nd = normalizeDefect(d);
+    if (!nd) return;
+
+    catalog.defects.push(nd);
+    addBrand(nd.b, null, nd.source);
+
+    if (nd.m && nd.m !== "*") {
+      String(nd.m).split("|").forEach(function (m) {
+        addModel(nd.b, m, nd.y, nd.source);
+      });
+    }
   }
 
-  function defectKey(d) {
-    return norm(d.b) + "|" + norm(d.e) + "|" + norm(d.y) + "|" + norm(d.m).slice(0, 40);
-  }
-
-  function mergeDefects(base, incoming) {
-    var map = new Map();
-    base.forEach(function (d) { map.set(defectKey(d), d); });
-    incoming.forEach(function (d) {
-      var nd = normalizeDefect(d);
-      if (!isValidDefect(nd)) return;
-      map.set(defectKey(nd), nd);
-    });
-    return Array.from(map.values());
-  }
-
-  var SEED_DEFECTS = SPECIFIC_DEFECTS.concat(GENERATED_DEFECTS)
-    .map(normalizeDefect)
-    .filter(isValidDefect);
-
-  function allDefects() {
-    return SEED_DEFECTS.concat(techUpdates || [], autoDb || []);
-  }
-
-  /* =========================================================
-     INTEGRATION AUTO-DIAGNOSTIC
-     ========================================================= */
-  function inferAutoLegal(sev, tags, symptoms) {
+  function legalForDefect(d) {
     var laws = [];
-    var t = norm(tags || "");
-    var s = norm(symptoms || "");
-
-    if (sev === "critique") {
-      laws.push("Vice caché art. 1641 C.civ.");
-      laws.push("Défaut de conformité L.217-4 C.consom. si vendeur professionnel.");
-      laws.push("Tromperie L.213-1 C.consom. en cas de dissimulation.");
-    } else {
-      laws.push("Vice caché art. 1641 C.civ. à confirmer par expertise.");
-      laws.push("Usure normale à écarter selon kilométrage, entretien et usage.");
-    }
-
-    if (t.indexOf("eau") >= 0 || t.indexOf("electricite") >= 0 || s.indexOf("court circuit") >= 0) {
-      laws.push("Défaut de sécurité L.423-1 C.consom.");
-      laws.push("Produits défectueux art. 1245 C.civ.");
-    }
-
-    if (t.indexOf("incendie") >= 0 || s.indexOf("incendie") >= 0 || s.indexOf("airbag") >= 0) {
-      laws.push("Mise en danger art. 223-1 C.pénal.");
-      laws.push("Homicide/blessures involontaires art. 221-6 / 222-19 C.pénal en cas d’accident.");
-    }
-
-    if (t.indexOf("adas") >= 0 || s.indexOf("autopilot") >= 0 || s.indexOf("phantom") >= 0) {
-      laws.push("Sécurité des systèmes automatisés L.423-1 C.consom.");
-      laws.push("Responsabilité du constructeur art. 1245 C.civ.");
-    }
-
-    if (t.indexOf("batterie") >= 0 || s.indexOf("thermal runaway") >= 0) {
-      laws.push("Risque incendie batterie : sécurité L.423-1, produits défectueux 1245 C.civ.");
-    }
-
-    return laws.filter(function (v, i, a) { return a.indexOf(v) === i; }).join(" | ");
-  }
-
-  function normalizeAutoRecord(r, sourceUrl) {
-    if (!r || typeof r !== "object") return null;
-
-    var brand = valToString(firstVal(r, ["b", "brand", "marque", "constructeur", "make"]));
-    var model = valToString(firstVal(r, ["m", "models", "model", "modele", "modèle", "vehicle", "vehicule"]));
-    var years = valToString(firstVal(r, ["y", "years", "annee", "année", "millésime", "range", "period"]));
-    var engine = valToString(firstVal(r, ["e", "engine", "motorisation", "moteur", "powertrain"]));
-    var power = valToString(firstVal(r, ["p", "power", "puissance", "ch", "kw"]));
-    var symptoms = valToString(firstVal(r, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"]));
-    var severityRaw = norm(valToString(firstVal(r, ["sev", "severity", "gravite", "gravité", "niveau"])));
-    var note = valToString(firstVal(r, ["n", "note", "description", "fiche", "ficheExpert", "expert", "detail"]));
-    var law = valToString(firstVal(r, ["law", "legal", "baseLegale", "droit", "fondement"]));
-    var recall = valToString(firstVal(r, ["rec", "recall", "rappel", "campagne", "campaign", "source"]));
-    var tags = valToString(firstVal(r, ["tg", "tags", "categorie", "category", "family", "systeme"]));
-    var dtc = valToString(firstVal(r, ["dtc", "codeDtc", "code", "codes", "DTC"]));
-    var recSourceUrl = valToString(firstVal(r, ["sourceUrl", "url", "lien", "link"]));
-    var wfRaw = firstVal(r, ["wf", "wearFactor", "coefUsure", "resistanceUsure"]);
-    var wf = typeof wfRaw === "number" ? wfRaw : parseFloat(String(wfRaw || ""));
-    if (!isFinite(wf)) wf = 0.6;
-
-    if (!brand || !symptoms) return null;
-
-    if (!years && r.annee) years = String(r.annee);
-    if (years && /^\d{4}$/.test(years)) years = years + "-" + years;
-
-    var sev = "moyen";
-    if (severityRaw.indexOf("critique") >= 0 || severityRaw.indexOf("high") >= 0 || severityRaw.indexOf("major") >= 0) sev = "critique";
-    else if (severityRaw.indexOf("moyen") >= 0 || severityRaw.indexOf("medium") >= 0) sev = "moyen";
-    else if (severityRaw.indexOf("faible") >= 0 || severityRaw.indexOf("low") >= 0) sev = "faible";
-
-    if (!law) law = inferAutoLegal(sev, tags, symptoms);
-
-    return {
-      b: brand,
-      m: model || "*",
-      y: years || "2017-2027",
-      e: engine || "Auto-diagnostic",
-      p: power || "N/A",
-      s: symptoms,
-      sev: sev,
-      wf: wf,
-      n: note || "Fiche technique issue de la base auto-diagnostic.",
-      law: law,
-      rec: recall || "Source auto-diagnostic",
-      tg: tags || "auto-diagnostic",
-      dtc: dtc,
-      source: "auto-diagnostic",
-      sourceUrl: recSourceUrl || sourceUrl || autoConfig.baseUrl
-    };
-  }
-
-  function parseBalanced(text, start) {
-    var open = text.charAt(start);
-    if (open !== "[" && open !== "{") return null;
-
-    var stack = [open];
-    var inString = false;
-    var escape = false;
-    var max = Math.min(text.length, start + 1500000);
-
-    for (var i = start + 1; i < max; i++) {
-      var ch = text.charAt(i);
-
-      if (escape) {
-        escape = false;
-        continue;
-      }
-
-      if (ch === "\\") {
-        escape = true;
-        continue;
-      }
-
-      if (ch === '"') {
-        inString = !inString;
-        continue;
-      }
-
-      if (inString) continue;
-
-      if (ch === "[" || ch === "{") {
-        stack.push(ch);
-      } else if (ch === "]" || ch === "}") {
-        var expected = ch === "]" ? "[" : "{";
-        if (stack.pop() !== expected) return null;
-        if (stack.length === 0) return text.substring(start, i + 1);
-      }
-    }
-
-    return null;
-  }
-
-  function extractJsonCandidates(text) {
-    var out = [];
-    if (!text) return out;
-
-    var keywordRe = /marque|brand|modele|model|panne|defaut|dtc|symptom|rappel|recall|motorisation|engine|fiche/i;
-    var max = Math.min(text.length, 2000000);
-    var attempts = 0;
-
-    for (var i = 0; i < max && attempts < 120; i++) {
-      var ch = text.charAt(i);
-      if (ch !== "[" && ch !== "{") continue;
-
-      var snippet = text.substr(i, 400).toLowerCase();
-      if (!keywordRe.test(snippet)) continue;
-
-      attempts++;
-      var raw = parseBalanced(text, i);
-      if (!raw) continue;
-
-      try {
-        var obj = JSON.parse(raw);
-        out.push(obj);
-        i += raw.length;
-      } catch (e) {}
-    }
-
-    return out;
-  }
-
-  function collectRecordsFromJson(json, sourceUrl, depth) {
-    depth = depth || 0;
-    var out = [];
-    if (!json || depth > 4) return out;
-
-    if (Array.isArray(json)) {
-      json.forEach(function (item) {
-        if (item && typeof item === "object" && Array.isArray(item.pannes)) {
-          var parent = Object.assign({}, item);
-          delete parent.pannes;
-          item.pannes.forEach(function (p) {
-            var sub = Object.assign({}, parent, p || {});
-            var rec = normalizeAutoRecord(sub, sourceUrl);
-            if (rec) out.push(rec);
-          });
-        } else {
-          var rec = normalizeAutoRecord(item, sourceUrl);
-          if (rec) out.push(rec);
-        }
-      });
-      return out;
-    }
-
-    if (typeof json === "object") {
-      var direct = normalizeAutoRecord(json, sourceUrl);
-      if (direct) out.push(direct);
-
-      ["defects", "base", "pannes", "models", "dtc", "records", "data", "items", "technicalUpdates", "autoDiagnostic"].forEach(function (key) {
-        if (json[key] && typeof json[key] === "object") {
-          out = out.concat(collectRecordsFromJson(json[key], sourceUrl, depth + 1));
-        }
-      });
-    }
-
-    return out;
-  }
-
-  function fetchJsonUrl(url) {
-    return fetch(url, { cache: "no-store", method: "GET" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-      });
-  }
-
-  function fetchTextUrl(url) {
-    return fetch(url, { cache: "no-store", method: "GET" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.text();
-      });
-  }
-
-  function finishAutoSync(incoming, manual, mode) {
-    autoDb = mergeDefects(autoDb, incoming);
-    save(KEYS.AUTO_DB, autoDb);
-    autoLastSync = Date.now();
-    save(KEYS.AUTO_LAST_SYNC, autoLastSync);
-    updateAdminStats();
-    updateDataStatus("Auto-diagnostic synchronisé (" + mode + ")");
-    if (manual) toast("Auto-diagnostic synchronisé : " + incoming.length + " entrées traitées.", "success");
-    notify("Auto-diagnostic synchronisé", incoming.length + " entrées traitées (" + mode + ").");
-  }
-
-  function fetchEngineCatalogs(manual) {
-    if (!window.fetch) {
-      if (manual) toast("Catalogue motorisation impossible : fetch non supporté.", "warning");
-      return Promise.resolve(false);
-    }
-
-    var urls = [CONFIG.engineCatalogUrl];
-
-    if (autoConfig.baseUrl) {
-      urls.push(resolveUrl(autoConfig.baseUrl, "data/engine-catalog.json"));
-      urls.push(resolveUrl(autoConfig.baseUrl, "data/motorisations.json"));
-    }
-
-    return Promise.all(urls.map(function (url) {
-      return fetchJsonUrl(url)
-        .then(function (json) {
-          return collectEngineRecordsFromJson(json, url, 0);
-        })
-        .catch(function () {
-          return [];
-        });
-    })).then(function (results) {
-      var incoming = [];
-      results.forEach(function (arr) {
-        incoming = incoming.concat(arr);
-      });
-
-      if (incoming.length) {
-        engineExtra = mergeEngineRecords(engineExtra, incoming);
-        save(KEYS.ENGINE_EXTRA, engineExtra);
-        updateAdminStats();
-        refreshModelOptions();
-        if (manual) toast("Catalogue motorisation chargé : " + incoming.length + " entrées.", "success");
-        return true;
-      }
-
-      if (manual) toast("Aucun catalogue motorisation additionnel trouvé.", "info");
-      return false;
-    }).catch(function (err) {
-      console.warn("[AR-EXPERT] Catalogue motorisation impossible:", err);
-      if (manual) toast("Catalogue motorisation indisponible.", "warning");
-      return false;
-    });
-  }
-
-  function syncAutoDiagnostic(manual) {
-    if (!window.fetch) {
-      if (manual) toast("Synchronisation impossible : fetch non supporté.", "warning");
-      return Promise.resolve(false);
-    }
-
-    updateDataStatus(manual ? "Synchronisation auto-diagnostic en cours..." : "Synchronisation auto-diagnostic en arrière-plan...");
-
-    var baseUrl = autoConfig.baseUrl || CONFIG.autoDiagnostic.baseUrl;
-    var endpoints = autoConfig.endpoints || CONFIG.autoDiagnostic.endpoints;
-    var scriptUrls = autoConfig.scriptUrls || CONFIG.autoDiagnostic.scriptUrls;
-    var pageUrl = autoConfig.pageUrl || CONFIG.autoDiagnostic.pageUrl;
-
-    var tasks = [];
-
-    endpoints.forEach(function (ep) {
-      var url = resolveUrl(baseUrl, ep);
-      tasks.push(
-        fetchJsonUrl(url)
-          .then(function (json) {
-            return collectRecordsFromJson(json, url, 0);
-          })
-          .catch(function () {
-            return [];
-          })
-      );
-    });
-
-    return Promise.all(tasks).then(function (results) {
-      var incoming = [];
-      results.forEach(function (arr) {
-        incoming = incoming.concat(arr);
-      });
-
-      if (incoming.length) {
-        finishAutoSync(incoming, manual, "JSON direct");
-        return fetchEngineCatalogs(false).then(function () { return true; });
-      }
-
-      var textTasks = [];
-
-      textTasks.push(
-        fetchTextUrl(resolveUrl(baseUrl, pageUrl))
-          .then(function (text) {
-            var candidates = extractJsonCandidates(text);
-            var recs = [];
-            var erecs = [];
-            candidates.forEach(function (c) {
-              recs = recs.concat(collectRecordsFromJson(c, resolveUrl(baseUrl, pageUrl), 0));
-              erecs = erecs.concat(collectEngineRecordsFromJson(c, resolveUrl(baseUrl, pageUrl), 0));
-            });
-            if (erecs.length) {
-              engineExtra = mergeEngineRecords(engineExtra, erecs);
-              save(KEYS.ENGINE_EXTRA, engineExtra);
-              updateAdminStats();
-              refreshModelOptions();
-            }
-            return recs;
-          })
-          .catch(function () { return []; })
-      );
-
-      scriptUrls.forEach(function (sp) {
-        var url = resolveUrl(baseUrl, sp);
-        textTasks.push(
-          fetchTextUrl(url)
-            .then(function (text) {
-              var candidates = extractJsonCandidates(text);
-              var recs = [];
-              var erecs = [];
-              candidates.forEach(function (c) {
-                recs = recs.concat(collectRecordsFromJson(c, url, 0));
-                erecs = erecs.concat(collectEngineRecordsFromJson(c, url, 0));
-              });
-              if (erecs.length) {
-                engineExtra = mergeEngineRecords(engineExtra, erecs);
-                save(KEYS.ENGINE_EXTRA, engineExtra);
-                updateAdminStats();
-                refreshModelOptions();
-              }
-              return recs;
-            })
-            .catch(function () { return []; })
-        );
-      });
-
-      return Promise.all(textTasks).then(function (textResults) {
-        var fallbackIncoming = [];
-        textResults.forEach(function (arr) {
-          fallbackIncoming = fallbackIncoming.concat(arr);
-        });
-
-        if (fallbackIncoming.length) {
-          finishAutoSync(fallbackIncoming, manual, "extraction HTML/JS");
-          return fetchEngineCatalogs(false).then(function () { return true; });
-        }
-
-        save(KEYS.AUTO_LAST_SYNC, Date.now());
-        autoLastSync = Date.now();
-        updateAdminStats();
-        updateDataStatus("Auto-diagnostic : aucune donnée JSON exploitable trouvée");
-        if (manual) toast("Aucune donnée auto-diagnostic exploitable trouvée. Utilisez import JSON ou exposez data/base.json.", "warning");
-        return fetchEngineCatalogs(manual).then(function () { return false; });
-      });
-    }).catch(function (err) {
-      console.warn("[AR-EXPERT] Sync auto-diagnostic impossible:", err);
-      updateDataStatus("Auto-diagnostic indisponible — base locale conservée");
-      if (manual) toast("Synchronisation auto-diagnostic impossible.", "warning");
-      return false;
-    });
-  }
-
-  function renderAutoConfig() {
-    var baseEl = q("#autoBaseUrl");
-    var epEl = q("#autoEndpoints");
-
-    if (baseEl) baseEl.value = autoConfig.baseUrl || "";
-    if (epEl) epEl.value = (autoConfig.endpoints || []).join("\n");
-  }
-
-  function saveAutoConfigFromUi() {
-    var baseEl = q("#autoBaseUrl");
-    var epEl = q("#autoEndpoints");
-
-    autoConfig.baseUrl = baseEl ? baseEl.value.trim() : autoConfig.baseUrl;
-    var rawEndpoints = epEl ? epEl.value : "";
-    autoConfig.endpoints = String(rawEndpoints)
-      .split(/[\n,]+/)
-      .map(function (s) { return s.trim(); })
-      .filter(function (s) { return s; });
-
-    save(KEYS.AUTO_CFG, autoConfig);
-    toast("Configuration auto-diagnostic enregistrée.", "success");
-  }
-
-  /* =========================================================
-     MISE A JOUR AUTOMATIQUE TOUS LES 30 JOURS
-     ========================================================= */
-  function updateDataStatus(msg) {
-    var el = q("#dataStatus");
-    if (el) el.textContent = msg + " • Auto-diagnostic: " + (autoDb ? autoDb.length : 0);
-  }
-
-  function checkAutoUpdate(manual) {
-    try {
-      var last = loadWithMigration(KEYS.LAST_UPDATE, OLD_KEYS.LAST_UPDATE, 0);
-      var interval = CONFIG.updateIntervalDays * 24 * 60 * 60 * 1000;
-      var due = (Date.now() - last) >= interval;
-
-      if (!due && !manual) return;
-      if (!navigator.onLine && !manual) return;
-
-      fetchUpdate(manual);
-    } catch (e) {
-      console.warn("[AR-EXPERT] Check update ignore:", e);
-    }
-  }
-
-  function fetchUpdate(manual) {
-    if (!window.fetch) {
-      if (manual) toast("Mise à jour impossible : fetch non supporté.", "warning");
-      return;
-    }
-
-    updateDataStatus(manual ? "Recherche de mise à jour..." : "Mise à jour périodique en arrière-plan...");
-
-    fetch(CONFIG.updateUrl, { cache: "no-store", method: "GET" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-      })
-      .then(function (json) {
-        var incoming = Array.isArray(json) ? json : (json && Array.isArray(json.defects) ? json.defects : []);
-        if (!incoming.length) {
-          if (manual) toast("Aucune nouvelle donnée technique.", "info");
-          save(KEYS.LAST_UPDATE, Date.now());
-          updateDataStatus("Base locale à jour");
-          return;
-        }
-
-        techUpdates = mergeDefects(techUpdates, incoming);
-        save(KEYS.TECH_UPDATES, techUpdates);
-        save(KEYS.LAST_UPDATE, Date.now());
-        updateAdminStats();
-        updateDataStatus("Base mise à jour automatiquement");
-
-        if (manual) toast("Mise à jour technique appliquée.", "success");
-        notify("Base technique mise à jour", incoming.length + " entrées traitées.");
-      })
-      .catch(function (err) {
-        console.warn("[AR-EXPERT] Mise à jour impossible:", err);
-        save(KEYS.LAST_UPDATE, Date.now());
-        updateDataStatus("Mode autonome : mise à jour indisponible");
-        if (manual) toast("Mise à jour impossible. Base locale conservée.", "warning");
-      });
-  }
-
-  /* =========================================================
-     CORRELATION TECHNIQUE / JURIDIQUE
-     ========================================================= */
-  function symptomMatch(textNorm, symptom) {
-    var s = norm(symptom);
-    if (!s) return false;
-    if (textNorm.indexOf(s) >= 0) return true;
-
-    var words = s.split(/\s+/).filter(function (w) { return w.length > 3; });
-    if (!words.length) return false;
-
-    return words.every(function (w) { return textNorm.indexOf(w) >= 0; });
-  }
-
-  function tagBoost(textNorm, tags) {
-    var boost = 0;
-    String(tags || "").split("|").forEach(function (t) {
-      var tn = norm(t);
-      if (tn && textNorm.indexOf(tn) >= 0) boost += 0.35;
-    });
-    return boost;
-  }
-
-  function legalFor(defect) {
-    var laws = [];
-    if (defect.law) laws.push(defect.law);
-
-    var tags = norm(defect.tg || "");
-    var symptoms = norm(defect.s || "");
-    var sev = defect.sev || "moyen";
-    var type = norm(defect.et || "");
+    if (d.law) laws.push(d.law);
+
+    var tags = norm(d.tg || "");
+    var symptoms = norm(d.s || "");
+    var sev = d.sev || "moyen";
+    var type = norm(d.et || "");
 
     if (sev === "critique") {
       laws.push("Vice caché art. 1641 C.civ.");
@@ -3304,7 +1358,7 @@
       laws.push("Responsabilité du fait des produits défectueux art. 1245 C.civ.");
     }
 
-    if (tags.indexOf("incendie") >= 0 || symptoms.indexOf("incendie") >= 0 || symptoms.indexOf("airbag") >= 0 || symptoms.indexOf("pedale") >= 0) {
+    if (tags.indexOf("incendie") >= 0 || symptoms.indexOf("incendie") >= 0 || symptoms.indexOf("airbag") >= 0) {
       laws.push("Mise en danger art. 223-1 C.pénal.");
       laws.push("Homicide/blessures involontaires art. 221-6 / 222-19 C.pénal en cas d’accident.");
     }
@@ -3317,37 +1371,36 @@
     return laws.filter(function (v, i, a) { return a.indexOf(v) === i; }).join(" | ");
   }
 
-  function matchDefects(marque, modele, annee, kilometrage, texte, engine, engineType) {
-    var bq = norm(marque);
-    var mq = norm(modele);
-    var yr = parseYear(annee);
-    var km = parseKm(kilometrage);
-    var txt = norm(texte);
-    var eng = norm(engine || "");
-    var typ = norm(engineType || "");
+  function symptomMatch(textNorm, symptom) {
+    var s = norm(symptom);
+    if (!s) return false;
+    if (textNorm.indexOf(s) >= 0) return true;
+
+    var words = s.split(/\s+/).filter(function (w) { return w.length > 3; });
+    if (!words.length) return false;
+
+    return words.every(function (w) { return textNorm.indexOf(w) >= 0; });
+  }
+
+  function tagBoost(textNorm, tags) {
+    var boost = 0;
+    String(tags || "").split("|").forEach(function (t) {
+      var tn = norm(t);
+      if (tn && textNorm.indexOf(tn) >= 0) boost += 0.35;
+    });
+    return boost;
+  }
+
+  function matchDefects(v, text) {
+    var txt = norm(text);
+    var yr = parseYear(v.annee);
+    var km = parseKm(v.kilometrage);
     var results = [];
 
-    allDefects().forEach(function (d) {
-      var db = norm(d.b || "");
-
-      var brandOk;
-      if (!bq) {
-        brandOk = db === "toutes marques";
-      } else {
-        brandOk = db === "toutes marques" || db.indexOf(bq) >= 0 || bq.indexOf(db) >= 0;
-      }
-
-      if (!brandOk) return;
-      if (!checkYearRange(d.y, yr)) return;
-
-      var modelOk = true;
-      if (mq && d.m && d.m !== "*") {
-        modelOk = String(d.m || "").split("|").some(function (m) {
-          var nm = norm(m);
-          return nm.indexOf(mq) >= 0 || mq.indexOf(nm) >= 0;
-        });
-      }
-      if (!modelOk) return;
+    catalog.defects.forEach(function (d) {
+      if (v.marque && !brandMatch(d.b, v.marque)) return;
+      if (!yearMatches(d.y, yr)) return;
+      if (v.modele && d.m && d.m !== "*" && !modelListContains(d.m, v.modele)) return;
 
       var score = 0;
       var found = [];
@@ -3361,24 +1414,20 @@
 
       score += tagBoost(txt, d.tg);
 
-      var det = norm(d.et || "");
-      if (eng) {
-        var de = norm(d.e || "");
-        if (de.indexOf(eng) >= 0 || eng.indexOf(de) >= 0) score += 3;
+      if (v.engine && nameMatch(d.e, v.engine)) score += 4;
+      if (v.power && String(d.p || "").toLowerCase().indexOf(norm(v.power)) >= 0) score += 1;
+      if (v.fuel && norm(d.et) === norm(v.fuel)) score += 3;
+
+      if (v.fuel && isElectricLike(v.fuel) && containsAny(d.tg + " " + d.s, ["batterie", "charge", "autonomie", "electricite", "hybride", "48v"])) {
+        score += 2;
       }
 
-      if (typ && det === typ) score += 2;
+      if (norm(v.fuel) === "diesel" && containsAny(d.tg + " " + d.s, ["diesel", "egr", "fap", "adblue", "nox", "pollution"])) {
+        score += 2;
+      }
 
-      if (typ && isElectricLike(typ) && containsAny(d.tg + " " + d.s, ["batterie", "charge", "autonomie", "electricite", "hybride", "48v"])) {
+      if (norm(v.fuel) === "essence" && containsAny(d.tg + " " + d.s, ["essence", "turbo", "huile", "distribution", "courroie", "chaine"])) {
         score += 1.5;
-      }
-
-      if (typ === "diesel" && containsAny(d.tg + " " + d.s, ["diesel", "egr", "fap", "adblue", "nox", "pollution"])) {
-        score += 1.5;
-      }
-
-      if (typ === "essence" && containsAny(d.tg + " " + d.s, ["essence", "turbo", "huile", "distribution", "courroie", "chaine"])) {
-        score += 1;
       }
 
       if (score >= 1) {
@@ -3411,7 +1460,7 @@
           score: score,
           confiance: confidence,
           alerteUsure: wearAlert,
-          baseLegale: legalFor(d),
+          baseLegale: legalForDefect(d),
           rappelRef: d.rec || "À vérifier via VIN auprès constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate.",
           wearFactor: d.wf,
           tags: d.tg,
@@ -3423,23 +1472,703 @@
       }
     });
 
-    return results.sort(function (a, b) { return b.score - a.score; }).slice(0, 15);
+    return results.sort(function (a, b) { return b.score - a.score; }).slice(0, 12);
   }
 
-  function researchLinks(brand, model, engine, symptoms, engineType) {
-    var baseQuery = (brand + " " + model + " " + (engine || "") + " " + (engineType || "") + " " + (symptoms || []).slice(0, 3).join(" ")).trim();
-    var q1 = encodeURIComponent(baseQuery + " défaut panne rappel incendie DTC motorisation");
-    var q2 = encodeURIComponent(brand + " " + model);
+  /* =========================================================
+     SEED DEFECTS
+     ========================================================= */
+  var SEED_DEFECTS = [
+    {
+      b: "Renault", m: "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", y: "2017-2022",
+      e: "K9K / 1.5 dCi", p: "75ch-110ch",
+      s: "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
+      sev: "critique", wf: 0.9,
+      n: "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
+      law: "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
+      rec: "Programme technique Renault K9K; TSB; jurisprudences",
+      tg: "moteur|huile|bielle|pompe|bruit|critique", et: "Diesel"
+    },
+    {
+      b: "Renault", m: "Trafic II|Master III|Espace V|Talisman", y: "2017-2027",
+      e: "Baie de pare-brise / étanchéité", p: "N/A",
+      s: "infiltration eau|court circuit|moisiure|panne electronique|voyants aleatoires|erreur ABS|erreur ESP|corrosion|odeur humidite",
+      sev: "critique", wf: 0.95,
+      n: "Défaut d’étanchéité de la baie de pare-brise. Eau vers calculateurs et faisceaux. Indépendant du km.",
+      law: "Vice caché 1641 C.civ.; sécurité L.423-1 C.consom.; produits défectueux 1245 C.civ.",
+      rec: "Campagnes Renault; forums; DGCCRF",
+      tg: "eau|electricite|court-circuit|securite|carrosserie", et: "Non précisé / mixte"
+    },
+    {
+      b: "Peugeot", m: "208|2008|308|3008|5008|Partner|Rifter|Boxer", y: "2017-2024",
+      e: "EB2 / 1.2 PureTech", p: "100ch-155ch",
+      s: "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
+      sev: "critique", wf: 0.85,
+      n: "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
+      law: "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
+      rec: "Extension garantie Stellantis PureTech; TSB; DGCCRF",
+      tg: "moteur|distribution|courroie|huile|pompe|critique", et: "Essence"
+    },
+    {
+      b: "Volkswagen", m: "Golf|Polo|T-Cross|Taigo|Tiguan|Touran", y: "2017-2024",
+      e: "DSG DQ200 / DQ381", p: "N/A boite",
+      s: "a-coups|mecatronique|patinage|bruit claquement|voyant boite|mode degrade|blocage vitesse|odeur brulee",
+      sev: "critique", wf: 0.7,
+      n: "Boîtes DSG : mécatronique, embrayage, convertisseur, logiciel boîte.",
+      law: "Vice caché 1641; conformité L.217-4; tromperie L.213-1.",
+      rec: "Rappels/TSB VAG DSG; class actions",
+      tg: "boite|DSG|mecatronique|embrayage", et: "Non précisé / mixte"
+    },
+    {
+      b: "Volkswagen", m: "ID.3|ID.4|ID.5|ID.7", y: "2020-2027",
+      e: "MEB électrique", p: "145ch-286ch",
+      s: "autonomie|charge AC|charge DC|BMS|cellules|logiciel|software|ADAS|Travel Assist|camera|radar|12V|DC-DC|thermal derating",
+      sev: "critique", wf: 0.92,
+      n: "Plateforme MEB : logiciel, charge, batterie, autonomie, ADAS, batterie 12V, DC-DC.",
+      law: "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
+      rec: "Rappels VW ID; KBA Allemagne; NHTSA; DGCCRF",
+      tg: "batterie|charge|autonomie|adas|logiciel|electricite", et: "Électrique"
+    },
+    {
+      b: "Tesla", m: "Model 3|Model Y|Model S|Model X", y: "2017-2027",
+      e: "Électrique", p: "283ch-1020ch",
+      s: "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
+      sev: "critique", wf: 0.92,
+      n: "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
+      law: "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
+      rec: "NHTSA Tesla recalls; DGCCRF; SafetyGate",
+      tg: "ADAS|batterie|charge|logiciel|securite", et: "Électrique"
+    },
+    {
+      b: "Toyota", m: "Yaris|Corolla|Camry|RAV4|C-HR|Prius|Hilux|Land Cruiser", y: "2017-2027",
+      e: "Hybride THS / Dynamic Force / D-4D", p: "100ch-309ch",
+      s: "batterie hybride|refroidissement batterie|CVT|bruit|vibration|12V|Toyota Safety Sense|camera|radar|ADAS|consommation|mode degrade",
+      sev: "critique", wf: 0.65,
+      n: "Hybrides Toyota : batterie, ventilation, CVT, 12V, ADAS Toyota Safety Sense.",
+      law: "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
+      rec: "Rappels Toyota hybride/ADAS; NHTSA",
+      tg: "hybride|batterie|CVT|ADAS|12V", et: "Hybride"
+    },
+    {
+      b: "Ford", m: "Fiesta|Focus|Puma|Kuga|Explorer|Transit", y: "2017-2027",
+      e: "EcoBoost 1.0 / 1.5 / 2.3 / PowerShift", p: "95ch-280ch",
+      s: "joint culasse|surchauffe|refroidissement|pompe a eau|eau dans huile|fumee blanche|PowerShift|a-coups|embrayage|vibrations|odeur brulee",
+      sev: "critique", wf: 0.85,
+      n: "EcoBoost 1.0 : refroidissement/joint culasse. PowerShift : embrayage sec fragile.",
+      law: "Vice caché 1641; tromperie L.213-1; conformité L.217-4.",
+      rec: "Class actions PowerShift; TSB Ford EcoBoost",
+      tg: "moteur|refroidissement|culasse|boite|embrayage", et: "Essence"
+    },
+    {
+      b: "Chevrolet", m: "Bolt EV|Bolt EUV|Lyriq|Equinox EV", y: "2017-2027",
+      e: "Électrique Ultium / Bolt", p: "204ch-1000ch",
+      s: "incendie|batterie|thermal runaway|charge|recall|BMS|software|ADAS|Super Cruise|autonomie|12V",
+      sev: "critique", wf: 1.0,
+      n: "Bolt : rappel mondial incendie batterie. Ultium/Super Cruise : logiciel, charge, ADAS.",
+      law: "Sécurité L.423-1; produits défectueux 1245; pénal si accident; conformité L.217-4.",
+      rec: "NHTSA Bolt recall; GM recalls; DGCCRF",
+      tg: "incendie|batterie|charge|ADAS|logiciel", et: "Électrique"
+    }
+  ];
 
-    return [
-      { label: "Base auto-diagnostic", url: autoConfig.baseUrl || CONFIG.autoDiagnostic.baseUrl },
-      { label: "Recherche spécialisée Google / forums techniques", url: "https://www.google.com/search?q=" + q1 },
-      { label: "Rappel Conso France (DGCCRF)", url: "https://www.rappel.conso.gouv.fr/recherche/?search=" + q2 },
-      { label: "NHTSA Recalls (USA)", url: "https://www.nhtsa.gov/recalls?search=" + q2 },
-      { label: "SafetyGate / défauts constructeurs", url: "https://www.google.com/search?q=" + encodeURIComponent(baseQuery + " safetygate TSB rappel défaut") },
-      { label: "Rappels allemands KBA", url: "https://www.google.com/search?q=" + encodeURIComponent(brand + " " + model + " KBA Rückruf") },
-      { label: "Vérification VIN constructeur", url: "https://www.google.com/search?q=" + encodeURIComponent(brand + " " + model + " VIN recall campaign motorisation") }
-    ];
+  /* =========================================================
+     INGESTION JSON
+     ========================================================= */
+  function ingestBrandItem(item, source) {
+    if (!item) return;
+
+    if (typeof item === "string") {
+      addBrand(item, null, source);
+      return;
+    }
+
+    if (typeof item === "object") {
+      var name = valToString(firstVal(item, ["name", "b", "brand", "marque", "constructeur"]));
+      var aliases = item.aliases || item.alias || [];
+      if (typeof aliases === "string") aliases = aliases.split("|");
+      addBrand(name, aliases, source);
+    }
+  }
+
+  function ingestModelItem(item, source) {
+    if (!item) return;
+
+    if (Array.isArray(item)) {
+      addModel(item[0], item[1], item[2], source);
+      return;
+    }
+
+    if (typeof item === "object") {
+      addModel(
+        valToString(firstVal(item, ["b", "brand", "marque", "constructeur"])),
+        valToString(firstVal(item, ["m", "model", "modele", "modèle", "name"])),
+        valToString(firstVal(item, ["y", "years", "annee", "année", "period"])),
+        source
+      );
+    }
+  }
+
+  function ingestEngineItem(item, source) {
+    if (!item) return;
+
+    if (Array.isArray(item)) {
+      addEngine({
+        b: item[0],
+        m: item[1],
+        y: item[2],
+        e: item[3],
+        p: item[4],
+        t: item[5],
+        tr: item[6],
+        source: source
+      });
+      return;
+    }
+
+    if (typeof item === "object") {
+      item.source = item.source || source;
+      addEngine(item);
+    }
+  }
+
+  function ingestDefectItem(item, source) {
+    if (!item) return;
+    if (typeof item === "object") {
+      item.source = item.source || source;
+      addDefect(item);
+    }
+  }
+
+  function ingestCatalogJson(json, sourceUrl) {
+    if (!json) return;
+
+    var source = sourceUrl || "json";
+
+    if (Array.isArray(json)) {
+      json.forEach(function (item) {
+        if (Array.isArray(item)) {
+          if (item.length >= 7) ingestEngineItem(item, source);
+          else if (item.length >= 3) ingestModelItem(item, source);
+          else if (item.length === 1) ingestBrandItem(item[0], source);
+        } else if (item && typeof item === "object") {
+          if (item.b && item.m && item.e) ingestEngineItem(item, source);
+          else if (item.b && item.m) ingestModelItem(item, source);
+          else if (item.b && item.s) ingestDefectItem(item, source);
+          else if (item.name || item.brand || item.marque) ingestBrandItem(item, source);
+        }
+      });
+      return;
+    }
+
+    if (typeof json !== "object") return;
+
+    (json.brands || []).forEach(function (x) { ingestBrandItem(x, source); });
+    (json.marques || []).forEach(function (x) { ingestBrandItem(x, source); });
+
+    (json.models || []).forEach(function (x) { ingestModelItem(x, source); });
+    (json.modeles || []).forEach(function (x) { ingestModelItem(x, source); });
+
+    (json.engines || []).forEach(function (x) { ingestEngineItem(x, source); });
+    (json.motorisations || []).forEach(function (x) { ingestEngineItem(x, source); });
+
+    (json.defects || []).forEach(function (x) { ingestDefectItem(x, source); });
+    (json.pannes || []).forEach(function (x) { ingestDefectItem(x, source); });
+
+    if (json.data && typeof json.data === "object") {
+      ingestCatalogJson(json.data, source);
+    }
+  }
+
+  function loadCatalogConfig() {
+    var cfg = loadWithMigration(KEYS.CATALOG_CFG, OLD_KEYS.CATALOG_CFG, null);
+    if (cfg) {
+      CONFIG.catalog = Object.assign({}, CONFIG.catalog, cfg);
+    }
+  }
+
+  function saveCatalogConfigFromUi() {
+    CONFIG.catalog.vehicleUrl = (q("#vehicleCatalogUrl") || {}).value || CONFIG.catalog.vehicleUrl;
+    CONFIG.catalog.engineUrl = (q("#engineCatalogUrl") || {}).value || CONFIG.catalog.engineUrl;
+    CONFIG.catalog.autoBaseUrl = (q("#autoBaseUrl") || {}).value || CONFIG.catalog.autoBaseUrl;
+    CONFIG.catalog.nhtsaEnabled = !!(q("#nhtsaEnabled") || {}).checked;
+
+    var eps = (q("#autoEndpoints") || {}).value || "";
+    CONFIG.catalog.endpoints = String(eps)
+      .split(/[\n,]+/)
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return s; });
+
+    save(KEYS.CATALOG_CFG, CONFIG.catalog);
+    toast("Configuration catalogue enregistrée.", "success");
+  }
+
+  function renderCatalogConfig() {
+    if (q("#vehicleCatalogUrl")) q("#vehicleCatalogUrl").value = CONFIG.catalog.vehicleUrl || "";
+    if (q("#engineCatalogUrl")) q("#engineCatalogUrl").value = CONFIG.catalog.engineUrl || "";
+    if (q("#autoBaseUrl")) q("#autoBaseUrl").value = CONFIG.catalog.autoBaseUrl || "";
+    if (q("#autoEndpoints")) q("#autoEndpoints").value = (CONFIG.catalog.endpoints || []).join("\n");
+    if (q("#nhtsaEnabled")) q("#nhtsaEnabled").checked = !!CONFIG.catalog.nhtsaEnabled;
+  }
+
+  function seedBaseCatalog() {
+    BASE_BRANDS.forEach(function (b) { addBrand(b, BRAND_ALIASES[normKey(b)], "base locale"); });
+    SEED_DEFECTS.forEach(function (d) { addDefect(d); });
+  }
+
+  function loadImportedCatalog() {
+    var raw = loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [];
+    raw.forEach(function (json) {
+      try { ingestCatalogJson(json, "import-admin"); } catch (e) {}
+    });
+  }
+
+  function loadStoredTechnicalUpdates() {
+    var oldTech = loadWithMigration(KEYS.TECH_UPDATES, OLD_KEYS.TECH_UPDATES, []) || [];
+    oldTech.forEach(function (d) { addDefect(d); });
+  }
+
+  function loadLocalCatalogs() {
+    var tasks = [];
+
+    tasks.push(
+      fetchJson(CONFIG.catalog.vehicleUrl)
+        .then(function (json) { ingestCatalogJson(json, CONFIG.catalog.vehicleUrl); })
+        .catch(function () {})
+    );
+
+    tasks.push(
+      fetchJson(CONFIG.catalog.engineUrl)
+        .then(function (json) { ingestCatalogJson(json, CONFIG.catalog.engineUrl); })
+        .catch(function () {})
+    );
+
+    tasks.push(
+      fetchJson(CONFIG.catalog.technicalUrl)
+        .then(function (json) { ingestCatalogJson(json, CONFIG.catalog.technicalUrl); save(KEYS.LAST_UPDATE, Date.now()); })
+        .catch(function () {})
+    );
+
+    return Promise.all(tasks);
+  }
+
+  function loadAutoDiagnostic(manual) {
+    if (!window.fetch) return Promise.resolve(false);
+
+    updateDataStatus(manual ? "Synchronisation auto-diagnostic..." : "Auto-diagnostic en arrière-plan...");
+
+    var baseUrl = CONFIG.catalog.autoBaseUrl;
+    var endpoints = CONFIG.catalog.endpoints || [];
+
+    var tasks = endpoints.map(function (ep) {
+      var url = resolveUrl(baseUrl, ep);
+      return fetchJson(url)
+        .then(function (json) {
+          ingestCatalogJson(json, url);
+          return true;
+        })
+        .catch(function () {
+          return false;
+        });
+    });
+
+    return Promise.all(tasks).then(function (results) {
+      var ok = results.some(Boolean);
+      autoLastSync = Date.now();
+      save(KEYS.AUTO_LAST_SYNC, autoLastSync);
+      updateAdminStats();
+      updateDataStatus(ok ? "Auto-diagnostic synchronisé" : "Auto-diagnostic : aucune donnée JSON exploitable trouvée");
+      if (manual) toast(ok ? "Auto-diagnostic synchronisé." : "Aucune donnée auto-diagnostic exploitable trouvée.", ok ? "success" : "warning");
+      return ok;
+    }).catch(function () {
+      updateDataStatus("Auto-diagnostic indisponible — base locale conservée");
+      if (manual) toast("Synchronisation auto-diagnostic impossible.", "warning");
+      return false;
+    });
+  }
+
+  function nhtsaMake(brand) {
+    var s = String(brand || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+    var map = {
+      "RANGE ROVER": "LAND ROVER",
+      "MERCEDES BENZ": "MERCEDES-BENZ",
+      "CITROEN": "CITROEN",
+      "SKODA": "SKODA",
+      "VOLKSWAGEN": "VOLKSWAGEN"
+    };
+    return map[s] || s;
+  }
+
+  function fetchNhtsaModels(brand) {
+    if (!CONFIG.catalog.nhtsaEnabled || !window.fetch || !brand) return Promise.resolve([]);
+
+    var make = nhtsaMake(brand);
+    var url = "https://vpic.nhtsa.dot.gov/api/vehicles/getmodelsformake/" + encodeURIComponent(make) + "?format=json";
+
+    return fetch(url, { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        var results = (data && data.Results) || [];
+        return results.map(function (r) {
+          return {
+            id: normKey(brand) + "|" + normKey(r.Model_Name),
+            brand: brand,
+            name: r.Model_Name,
+            years: "1990-2026",
+            source: "NHTSA vPIC"
+          };
+        }).filter(function (x) { return x.name; });
+      })
+      .catch(function () {
+        return [];
+      });
+  }
+
+  function loadCatalogs(manual) {
+    updateDataStatus(manual ? "Chargement des catalogues..." : "Chargement des catalogues en arrière-plan...");
+
+    return loadLocalCatalogs()
+      .then(function () {
+        return loadAutoDiagnostic(manual);
+      })
+      .then(function () {
+        updateAdminStats();
+        refreshSelectorsFromCatalog();
+        updateDataStatus("Catalogue chargé • Marques: " + getAllBrands().length + " • Modèles: " + catalog.models.length + " • Motorisations: " + catalog.engines.length);
+        if (manual) toast("Catalogues rechargés.", "success");
+      })
+      .catch(function (err) {
+        console.warn("[AR-EXPERT] Chargement catalogue impossible:", err);
+        updateDataStatus("Mode autonome : catalogue local partiel");
+        if (manual) toast("Chargement catalogue impossible. Base locale conservée.", "warning");
+      });
+  }
+
+  function refreshSelectorsFromCatalog() {
+    if (selection.brand) {
+      loadModelsForBrand(selection.brand.name, false);
+    } else {
+      renderBrandPanel();
+    }
+  }
+
+  /* =========================================================
+     UI DROPDOWN
+     ========================================================= */
+  function closeAllCombos(exceptId) {
+    ["brandPanel", "modelPanel", "enginePanel"].forEach(function (id) {
+      if (id === exceptId) return;
+      var el = q("#" + id);
+      if (el) el.classList.add("hidden");
+    });
+  }
+
+  function renderBrandPanel() {
+    var input = q("#brandInput");
+    var panel = q("#brandPanel");
+    if (!input || !panel) return;
+
+    var val = norm(input.value);
+    var brands = getAllBrands().filter(function (b) {
+      if (!val) return true;
+      if (norm(b.name).indexOf(val) >= 0) return true;
+      return b.aliases.some(function (a) { return norm(a).indexOf(val) >= 0; });
+    }).slice(0, 40);
+
+    if (!brands.length) {
+      panel.innerHTML = '<div class="combo-empty">Aucune marque trouvée.</div>';
+      panel.classList.remove("hidden");
+      return;
+    }
+
+    panel.innerHTML = brands.map(function (b) {
+      return '<button type="button" class="suggest-item" data-brand="' + esc(b.name) + '">' + esc(b.name) + '</button>';
+    }).join("");
+
+    panel.classList.remove("hidden");
+  }
+
+  function selectBrand(name) {
+    selection.brand = { name: name };
+    selection.model = null;
+    selection.engine = null;
+
+    var input = q("#brandInput");
+    if (input) input.value = name;
+
+    closeAllCombos();
+    updateModelButton();
+    updateEngineButton();
+    updateSelectionSummary();
+    loadModelsForBrand(name, true);
+  }
+
+  function updateModelButton() {
+    var btn = q("#modelButton");
+    if (!btn) return;
+
+    if (!selection.brand) {
+      btn.disabled = true;
+      btn.textContent = "Choisir d’abord une marque";
+      return;
+    }
+
+    if (selection.model) {
+      btn.disabled = false;
+      btn.textContent = selection.model.name + (selection.model.years ? " • " + selection.model.years : "");
+    } else {
+      btn.disabled = false;
+      btn.textContent = "Choisir un modèle";
+    }
+  }
+
+  function updateEngineButton() {
+    var btn = q("#engineButton");
+    if (!btn) return;
+
+    if (!selection.brand || !selection.model) {
+      btn.disabled = true;
+      btn.textContent = !selection.brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle";
+      return;
+    }
+
+    if (selection.engine) {
+      btn.disabled = false;
+      btn.textContent = engineLabel(selection.engine);
+    } else {
+      btn.disabled = false;
+      btn.textContent = "Choisir une motorisation";
+    }
+  }
+
+  function engineLabel(o) {
+    var parts = [];
+    if (o.fuel) parts.push(o.fuel);
+    if (o.engine) parts.push(o.engine);
+    if (o.power && o.power !== "N/A") parts.push(o.power);
+    if (o.transmission) parts.push(o.transmission);
+    if (o.years) parts.push(o.years);
+    return parts.join(" • ");
+  }
+
+  function modelLabel(o) {
+    return o.name + (o.years ? " • " + o.years : "") + (o.source ? " • " + o.source : "");
+  }
+
+  function renderModelList(filter) {
+    var list = q("#modelList");
+    if (!list) return;
+
+    var f = norm(filter || "");
+    currentModelOptions = modelOptions.filter(function (o) {
+      if (!f) return true;
+      return norm(modelLabel(o)).indexOf(f) >= 0;
+    });
+
+    if (!currentModelOptions.length) {
+      list.innerHTML = '<div class="combo-empty">Aucun modèle trouvé.</div>';
+      return;
+    }
+
+    list.innerHTML = currentModelOptions.map(function (o, i) {
+      return '<button type="button" class="combo-option" data-model-index="' + i + '">' + esc(modelLabel(o)) + '</button>';
+    }).join("");
+  }
+
+  function renderEngineList(filter) {
+    var list = q("#engineList");
+    if (!list) return;
+
+    var f = norm(filter || "");
+    currentEngineOptions = engineOptions.filter(function (o) {
+      if (!f) return true;
+      return norm(engineLabel(o)).indexOf(f) >= 0;
+    });
+
+    if (!currentEngineOptions.length) {
+      list.innerHTML = '<div class="combo-empty">Aucune motorisation trouvée.</div>';
+      return;
+    }
+
+    list.innerHTML = currentEngineOptions.map(function (o, i) {
+      return '<button type="button" class="combo-option" data-engine-index="' + i + '">' + esc(engineLabel(o)) + '</button>';
+    }).join("");
+  }
+
+  function loadModelsForBrand(brand, showLoading) {
+    var token = ++modelLoadToken;
+    var year = parseYear((q("#vehicleYear") || {}).value);
+    var local = getModels(brand, year);
+
+    if (showLoading && local.length < 5) {
+      modelOptions = local.concat([{
+        id: "__loading__",
+        brand: brand,
+        name: "Chargement des modèles...",
+        years: "",
+        source: "NHTSA / catalogue"
+      }]);
+      renderModelList("");
+      updateModelButton();
+    } else {
+      modelOptions = local;
+      renderModelList("");
+      updateModelButton();
+    }
+
+    if (CONFIG.catalog.nhtsaEnabled && local.length < 10) {
+      fetchNhtsaModels(brand).then(function (remote) {
+        if (token !== modelLoadToken) return;
+
+        var merged = local.slice();
+        var seen = {};
+        merged.forEach(function (m) { seen[m.id] = true; });
+
+        remote.forEach(function (m) {
+          if (!seen[m.id]) {
+            seen[m.id] = true;
+            merged.push(m);
+          }
+        });
+
+        merged.sort(function (a, b) {
+          return norm(a.name).localeCompare(norm(b.name));
+        });
+
+        modelOptions = merged;
+        renderModelList((q("#modelSearch") || {}).value || "");
+        updateModelButton();
+        updateAdminStats();
+      });
+    }
+
+    refreshEngineOptions();
+  }
+
+  function selectModel(opt) {
+    if (!opt || opt.id === "__loading__") return;
+
+    if (opt.id === "__other__") {
+      selection.model = {
+        id: "__other__",
+        brand: selection.brand ? selection.brand.name : "",
+        name: "Modèle non listé",
+        years: "",
+        source: "manuel"
+      };
+    } else {
+      selection.model = opt;
+    }
+
+    selection.engine = null;
+    closeAllCombos();
+    updateModelButton();
+    refreshEngineOptions();
+    updateSelectionSummary();
+  }
+
+  function refreshEngineOptions() {
+    if (!selection.brand || !selection.model) {
+      engineOptions = [];
+      currentEngineOptions = [];
+      updateEngineButton();
+      return;
+    }
+
+    var year = parseYear((q("#vehicleYear") || {}).value);
+    var engines = getEngines(selection.brand.name, selection.model.name, year);
+
+    if (!engines.length) {
+      engines.push({
+        id: "__other_engine__",
+        brand: selection.brand.name,
+        model: selection.model.name,
+        engine: "Motorisation à confirmer",
+        power: "N/A",
+        fuel: inferFuel(selection.model.name + " " + ((q("#textInput") || {}).value || "")),
+        transmission: "",
+        years: year ? String(year) : "",
+        source: "manuel",
+        sourceUrl: ""
+      });
+    }
+
+    engines.push({
+      id: "__unknown_engine__",
+      brand: selection.brand.name,
+      model: selection.model.name,
+      engine: "Autre / non précisée",
+      power: "N/A",
+      fuel: "Non précisé / mixte",
+      transmission: "",
+      years: year ? String(year) : "",
+      source: "manuel",
+      sourceUrl: ""
+    });
+
+    engineOptions = engines;
+    renderEngineList("");
+    updateEngineButton();
+  }
+
+  function selectEngine(opt) {
+    if (!opt) return;
+
+    if (opt.id === "__other_engine__" || opt.id === "__unknown_engine__") {
+      selection.engine = opt;
+    } else {
+      selection.engine = opt;
+    }
+
+    closeAllCombos();
+    updateEngineButton();
+    updateSelectionSummary();
+  }
+
+  function updateSelectionSummary() {
+    var el = q("#selectionSummary");
+    if (!el) return;
+
+    var v = getSelectedVehicleData();
+
+    if (!v.marque && !v.modele && !v.annee && !v.engine) {
+      el.textContent = "Aucune sélection véhicule complète.";
+      return;
+    }
+
+    var parts = [];
+    if (v.marque) parts.push(v.marque);
+    if (v.modele) parts.push(v.modele);
+    if (v.annee) parts.push(v.annee);
+    if (v.engine) parts.push(v.engine);
+    if (v.power && v.power !== "N/A") parts.push(v.power);
+    if (v.fuel) parts.push(v.fuel);
+    if (v.transmission) parts.push(v.transmission);
+
+    el.textContent = "Sélection retenue : " + parts.join(" • ");
+  }
+
+  function getSelectedVehicleData() {
+    var brandEl = q("#brandInput");
+    var yearEl = q("#vehicleYear");
+    var kmEl = q("#vehicleKilometrage");
+    var vinEl = q("#vehicleVin");
+
+    return {
+      marque: selection.brand ? selection.brand.name : (brandEl ? brandEl.value.trim() : ""),
+      modele: selection.model ? selection.model.name : "",
+      annee: yearEl ? yearEl.value.trim() : "",
+      engine: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.engine : "",
+      power: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.power : "",
+      fuel: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.fuel : "",
+      transmission: selection.engine ? selection.engine.transmission : "",
+      engineSource: selection.engine ? selection.engine.source : "",
+      engineSourceUrl: selection.engine ? selection.engine.sourceUrl : "",
+      kilometrage: kmEl ? kmEl.value.trim() : "",
+      vin: vinEl ? vinEl.value.trim() : ""
+    };
   }
 
   /* =========================================================
@@ -3456,8 +2185,10 @@
 
     if (flags.engine) {
       h += '<div class="rappel-info"><h4>🧰 Motorisation retenue pour l’analyse</h4>';
-      h += "<p><strong>Motorisation déclarée :</strong> " + esc(flags.engine) + "</p>";
-      h += "<p><strong>Type :</strong> " + esc(flags.engineType || "non précisé") + " " + addTerm("motorisation", "énergie", "powertrain", "type de motorisation") + "</p>";
+      h += "<p><strong>Motorisation :</strong> " + esc(flags.engine) + "</p>";
+      h += "<p><strong>Puissance :</strong> " + esc(flags.power || "non précisée") + "</p>";
+      h += "<p><strong>Énergie :</strong> " + esc(flags.fuel || "non précisée") + "</p>";
+      h += "<p><strong>Transmission / boîte :</strong> " + esc(flags.transmission || "non précisée") + "</p>";
       h += "<p>La motorisation est prise en compte comme critère technique et juridique : elle oriente le diagnostic, la présomption d’antériorité, la gravité, les rappels applicables et les fondements de responsabilité.</p>";
       h += "</div>";
     }
@@ -3498,24 +2229,24 @@
   function runAnalysis(text, context, objective, sellerType) {
     var all = (text + " " + context).toLowerCase();
     var allNorm = norm(all);
-
-    var engineTypeNorm = norm(vehicleData.engineType || "");
+    var fuelNorm = norm(vehicleData.fuel || "");
 
     var flags = {
       engine: vehicleData.engine || "",
-      engineType: vehicleData.engineType || "",
+      power: vehicleData.power || "",
+      fuel: vehicleData.fuel || "",
+      transmission: vehicleData.transmission || "",
       professional: sellerType === "professional" || containsAny(all, ["professionnel", "garage", "concession", "revendeur", "automobile", "commercial"]),
       privateSeller: sellerType === "private" || containsAny(all, ["particulier", "entre particuliers", "leboncoin", "lavitrine"]),
-      defect: containsAny(all, ["défaut", "panne", "problème", "dysfonctionnement", "casse", "fuite", "bruit", "vibration", "perte puissance", "à-coup", "claquement", "voyant", "mode dégradé", "surchauffe", "infiltration", "court circuit", "moisiure", "odeur", "fumée", "calage", "patinage", "blocage"]),
       waterLeak: containsAny(all, ["eau", "humidité", "infiltration", "baie", "pare brise", "pare-brise", "moisiure", "court circuit", "traces d’eau", "flaque", "égouttement"]),
       safety: containsAny(all, ["sécurité", "frein", "airbag", "direction", "incendie", "danger", "vie", "intégrité physique", "mise en danger", "ADAS", "autopilot"]),
-      ev: isElectricLike(engineTypeNorm) || containsAny(all, ["batterie", "charge", "autonomie", "electrique", "électrique", "hybride", "BMS", "DC", "AC", "recharge"]),
-      diesel: engineTypeNorm.indexOf("diesel") >= 0 || containsAny(allNorm, ["diesel", "egr", "fap", "adblue", "nox", "gasoil"]),
-      petrol: engineTypeNorm.indexOf("essence") >= 0 || containsAny(allNorm, ["essence", "turbo", "puretech", "tce", "tsi", "ecoboost"]),
-      hybrid: engineTypeNorm.indexOf("hybride") >= 0,
-      phev: engineTypeNorm.indexOf("rechargeable") >= 0,
-      mild48: engineTypeNorm.indexOf("48v") >= 0,
-      electricLike: isElectricLike(engineTypeNorm),
+      ev: isElectricLike(fuelNorm) || containsAny(all, ["batterie", "charge", "autonomie", "electrique", "électrique", "hybride", "BMS", "DC", "AC", "recharge"]),
+      diesel: fuelNorm.indexOf("diesel") >= 0 || containsAny(allNorm, ["diesel", "egr", "fap", "adblue", "nox", "gasoil"]),
+      petrol: fuelNorm.indexOf("essence") >= 0 || containsAny(allNorm, ["essence", "turbo", "puretech", "tce", "tsi", "ecoboost"]),
+      hybrid: fuelNorm.indexOf("hybride") >= 0,
+      phev: fuelNorm.indexOf("rechargeable") >= 0,
+      mild48: fuelNorm.indexOf("48v") >= 0,
+      electricLike: isElectricLike(fuelNorm),
       dtc: /\bp[0-9a-z]{3,5}\b/i.test(all) || allNorm.indexOf("dtc") >= 0 || allNorm.indexOf("code défaut") >= 0,
       invoice: all.indexOf("facture") >= 0,
       repair: all.indexOf("réparation") >= 0 || all.indexOf("ordre de réparation") >= 0 || all.indexOf("devis") >= 0,
@@ -3525,15 +2256,7 @@
       veryHighKm: parseKm(vehicleData.kilometrage) > 180000
     };
 
-    var matches = matchDefects(
-      vehicleData.marque,
-      vehicleData.modele,
-      vehicleData.annee,
-      vehicleData.kilometrage,
-      text,
-      vehicleData.engine,
-      vehicleData.engineType
-    );
+    var matches = matchDefects(vehicleData, text);
 
     analysisData = {
       date: new Date().toLocaleString("fr-FR"),
@@ -3544,21 +2267,13 @@
     };
 
     var S = [];
-    S.push(["I. ÉLÉMENTS FACTUELS ET IDENTIFICATION DU VÉHICULE", secFacts(text, context)]);
-    S.push(["II. DIAGNOSTIC TECHNIQUE — MOTORISATION, DÉFAUTS CONNUS, VÉTUSTÉ, USURE, SÉCURITÉ", secDiag(matches, flags, vehicleData)]);
-    S.push(["II-B. APPUI TECHNIQUE AUTO-DIAGNOSTIC IMPORTÉ", secAutoAppui(matches, flags)]);
-    S.push(["III. QUALIFICATION JURIDIQUE PROVISOIRE", secQualif(flags, matches)]);
-    S.push(["IV. RISQUES ET RESPONSABILITÉS SELON LA QUALITÉ DU VENDEUR", secRisques(flags, matches)]);
-    S.push(["V. TROIS CRITÈRES CUMULATIFS : ANTÉRIORITÉ, CARACTÈRE CACHÉ, GRAVITÉ", secCriteres(flags, matches, vehicleData)]);
-    S.push(["VI. RÉGIMES DE GARANTIE ET FONDEMENTS JURIDIQUES CROISÉS", secGaranties(flags, matches)]);
-    S.push(["VII. DOSSIER PROBATOIRE ET DOCUMENTS À CONSOLIDER", secDocs(flags, matches)]);
-    S.push(["VIII. JURISPRUDENCE, TEXTES ET SOURCES DE RÉFÉRENCE", secJuri(matches, flags)]);
-    S.push(["IX. ÉVALUATION DU PRÉJUDICE", secPrejudice(flags, matches)]);
-    S.push(["X. STRATÉGIE CONTENTIEUSE RECOMMANDÉE", secStrategie(flags, matches, objective)]);
-    S.push(["XI. RECHERCHE APPROFONDIE ET VÉRIFICATIONS EXTERNES", secVerif(matches, flags)]);
-    S.push(["XII. VOIES D’ACTION POSSIBLES", secVoies(flags, matches)]);
-    S.push(["XIII. CONCLUSION ORIENTÉE EXPERT / INGÉNIEUR / JURISTE / SAPEUR-POMPIER", secConclu(objective, matches, flags, vehicleData)]);
-    S.push(["XIV. LEXIQUE JURIDIQUE ET TECHNIQUE MOBILISÉ", secLexique()]);
+    S.push(["I. IDENTIFICATION DU VÉHICULE ET SÉLECTIONS PRISES EN COMPTE", secIdentification(text, context)]);
+    S.push(["II. ANALYSE TECHNIQUE — MOTORISATION, DÉFAUTS CONNUS, USURE, SÉCURITÉ", secTechnique(matches, flags, vehicleData)]);
+    S.push(["III. APPUI AUTO-DIAGNOSTIC ET FICHES CORRÉLÉES", secAuto(matches, flags)]);
+    S.push(["IV. QUALIFICATION JURIDIQUE, RISQUES ET RÉGIMES DE GARANTIE", secJuridique(flags, matches, vehicleData)]);
+    S.push(["V. PREUVE, STRATÉGIE ET VÉRIFICATIONS EXTERNES", secPreuve(matches, flags, objective)]);
+    S.push(["VI. CONCLUSION ORIENTÉE INGÉNIEUR / JURISTE / SÉCURITÉ", secConclusion(objective, matches, flags, vehicleData)]);
+    S.push(["VII. LEXIQUE JURIDIQUE ET TECHNIQUE MOBILISÉ", secLexique()]);
 
     analysisData.sections = S;
     renderAnalysis();
@@ -3582,15 +2297,17 @@
     }
   }
 
-  function secFacts(text, context) {
+  function secIdentification(text, context) {
     var h = "<p><strong>Objet :</strong> recensement des éléments fournis " + addTerm("éléments factuels", "faits allégués") + ".</p>";
 
-    h += "<h4>A. Véhicule déclaré</h4><ul>";
+    h += "<h4>A. Véhicule sélectionné</h4><ul>";
     h += "<li><strong>Marque :</strong> " + esc(vehicleData.marque || "non précisée") + "</li>";
     h += "<li><strong>Modèle :</strong> " + esc(vehicleData.modele || "non précisé") + "</li>";
     h += "<li><strong>Année :</strong> " + esc(vehicleData.annee || "non précisée") + " " + addTerm("millésime", "date de première mise en circulation") + "</li>";
-    h += "<li><strong>Motorisation :</strong> " + esc(vehicleData.engine || "non précisée") + " " + addTerm("motorisation", "powertrain") + "</li>";
-    h += "<li><strong>Type de motorisation :</strong> " + esc(vehicleData.engineType || "non précisé") + " " + addTerm("énergie", "essence", "diesel", "hybride", "électrique", "48V") + "</li>";
+    h += "<li><strong>Motorisation :</strong> " + esc(vehicleData.engine || "non précisée") + "</li>";
+    h += "<li><strong>Puissance :</strong> " + esc(vehicleData.power || "non précisée") + "</li>";
+    h += "<li><strong>Énergie :</strong> " + esc(vehicleData.fuel || "non précisée") + "</li>";
+    h += "<li><strong>Transmission / boîte :</strong> " + esc(vehicleData.transmission || "non précisée") + "</li>";
     h += "<li><strong>Kilométrage :</strong> " + esc(vehicleData.kilometrage || "non précisé") + " km " + addTerm("kilométrage", "usure normale", "vétusté") + "</li>";
     h += "<li><strong>VIN :</strong> " + esc(vehicleData.vin || "non communiqué") + " " + addTerm("VIN", "numéro de série", "traçabilité") + "</li>";
     h += "</ul>";
@@ -3606,7 +2323,7 @@
     return h;
   }
 
-  function secDiag(matches, flags, vData) {
+  function secTechnique(matches, flags, vData) {
     var km = parseKm(vData.kilometrage);
     var yr = parseYear(vData.annee);
     var age = new Date().getFullYear() - (yr || new Date().getFullYear());
@@ -3616,14 +2333,14 @@
     if (!matches.length) {
       h += "<p><strong>Objet :</strong> recherche de défauts conceptuels connus " + addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série") + ".</p>";
       h += '<div class="verification-needed">';
-      h += "<p>Aucune correspondance exacte trouvée dans la base locale / auto-diagnostic pour Marque/Modèle/Année/Motorisation/Symptômes.</p>";
+      h += "<p>Aucune correspondance exacte trouvée dans la base locale / auto-diagnostic pour Marque/Modèle/Année/Motorisation/Puissance/Symptômes.</p>";
       h += "<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>";
       h += "<p>Une expertise individuelle est nécessaire " + addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine") + ".</p>";
       h += "</div>";
       return h;
     }
 
-    h += "<p><strong>Objet :</strong> croisement technique local avec motorisation, défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA, auto-diagnostic et bases de sécurité " + addTerm("vice caché notoire", "défaut de série", "défaut de conception") + ".</p>";
+    h += "<p><strong>Objet :</strong> croisement technique local avec motorisation, puissance, énergie, défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA, auto-diagnostic et bases de sécurité " + addTerm("vice caché notoire", "défaut de série", "défaut de conception") + ".</p>";
 
     matches.forEach(function (m, i) {
       var cls = m.severite === "critique" ? "rappel-critical" : "rappel-info";
@@ -3689,26 +2406,25 @@
     return h;
   }
 
-  function secAutoAppui(matches, flags) {
+  function secAuto(matches, flags) {
     var autoMatches = matches.filter(function (m) {
       return m.source === "auto-diagnostic";
     });
 
     var h = "<p><strong>Objet :</strong> appui technique issu de la base auto-diagnostic, corrélé au contexte du litige et à la motorisation " + addTerm("appui technique", "corrélation auto-diagnostic", "fiche expert", "DTC", "motorisation") + ".</p>";
 
-    if (!autoDb.length) {
+    var autoCount = catalog.defects.filter(function (d) { return d.source === "auto-diagnostic"; }).length;
+
+    if (!autoCount) {
       h += '<div class="verification-needed">';
-      h += "<p>La base auto-diagnostic n’est pas encore synchronisée localement.</p>";
-      h += "<p>L’application a tenté de récupérer les données depuis :</p>";
-      h += "<p><code>" + esc(autoConfig.baseUrl || CONFIG.autoDiagnostic.baseUrl) + "</code></p>";
-      h += "<p>Si aucune donnée n’est exposée en JSON, déposer un export JSON dans :</p>";
-      h += "<p><code>" + esc(resolveUrl(autoConfig.baseUrl || CONFIG.autoDiagnostic.baseUrl, "data/base.json")) + "</code></p>";
-      h += "<p>ou utiliser : Admin → Base technique → Importer JSON.</p>";
+      h += "<p>La base auto-diagnostic n’est pas encore synchronisée localement ou n’a pas exposé de JSON exploitable.</p>";
+      h += "<p>URL configurée : <code>" + esc(CONFIG.catalog.autoBaseUrl) + "</code></p>";
+      h += "<p>Déposer un export JSON dans l’un des endpoints configurés, ou utiliser : Admin → Base technique → Importer JSON.</p>";
       h += "</div>";
       return h;
     }
 
-    h += "<p><strong>Entrées auto-diagnostic disponibles localement :</strong> " + autoDb.length + ".</p>";
+    h += "<p><strong>Entrées auto-diagnostic disponibles localement :</strong> " + autoCount + ".</p>";
 
     if (!autoMatches.length) {
       h += '<div class="certainty-medium">';
@@ -3733,8 +2449,7 @@
       h += "</li>";
     });
 
-    h += "</ul>";
-    h += "</div>";
+    h += "</ul></div>";
 
     h += "<h4>Exploitation experte / juriste de l’appui auto-diagnostic</h4><ul>";
     h += "<li>" + addTerm("corrélation technique", "faisceau d’indices") + " : les fiches auto-diagnostic permettent de démontrer que le désordre n’est pas isolé mais documenté.</li>";
@@ -3751,8 +2466,8 @@
     return h;
   }
 
-  function secQualif(flags, matches) {
-    var h = "<p><strong>Objet :</strong> qualification juridique provisoire " + addTerm("qualification juridique", "qualification incertaine") + ".</p>";
+  function secJuridique(flags, matches, vData) {
+    var h = "<p><strong>Objet :</strong> qualification juridique, risques et régimes de garantie " + addTerm("qualification juridique", "responsabilité", "garantie") + ".</p>";
 
     if (flags.professional && !flags.privateSeller) {
       h += '<div class="certainty-high"><p>Vendeur présumé professionnel ' + addTerm("vendeur professionnel") + ". Protection consommateur renforcée : garantie légale de conformité, charge de la preuve allégée, obligation d’information et de vérification des rappels.</p></div>";
@@ -3762,166 +2477,67 @@
       h += '<div class="certainty-low"><p>Statut du vendeur incertain ' + addTerm("ambiguïté statut vendeur") + ". Qualifier d’abord le vendeur avant action.</p></div>";
     }
 
-    if (matches.length) {
-      h += "<p>La probabilité d’un " + addTerm("défaut de conception", "vice caché notoire") + " renforce la non-conformité initiale du bien.</p>";
-    }
+    h += "<h4>A. Critères cumulatifs</h4>";
+    h += "<p><strong>Antériorité :</strong> " + (matches.some(function (m) { return m.confiance === "Haute"; }) ? "renforcée par défaut de série / logiciel / conception." : "à confirmer par expertise.") + " " + addTerm("antériorité") + "</p>";
+    h += "<p><strong>Caractère caché :</strong> " + (matches.some(function (m) { return m.wearFactor >= 0.8; }) ? "soutenable, défaut non visible lors d’un examen standard." : "à apprécier concrètement.") + " " + addTerm("caractère caché") + "</p>";
+    h += "<p><strong>Gravité :</strong> " + (matches.some(function (m) { return m.severite === "critique"; }) ? "élevée : sécurité, casse, incendie, immobilisation, coût disproportionné." : "à mesurer par devis et usage normal.") + " " + addTerm("gravité") + "</p>";
 
-    if (flags.diesel) {
-      h += "<p>La motorisation diesel rend particulièrement pertinents les textes sur la conformité antipollution, la tromperie en cas de dispositif illicite ou de dissimulation, et la sécurité des produits " + addTerm("conformité antipollution", "defeat device", "L.213-1 C.consom.") + ".</p>";
-    }
-
-    if (flags.electricLike) {
-      h += "<p>La motorisation électrifiée rend particulièrement pertinents les axes batterie, autonomie, charge, logiciel, sécurité incendie et conformité du bien comportant des éléments numériques " + addTerm("bien non conforme", "sécurité batterie", "logiciel", "L.217-4 C.consom.") + ".</p>";
-    }
-
-    return h;
-  }
-
-  function secRisques(flags, matches) {
-    var h = "<p><strong>Objet :</strong> risques et responsabilités " + addTerm("risques encourus", "responsabilité contractuelle", "responsabilité délictuelle") + ".</p>";
-
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += '<div class="rappel-critical"><h4>⚠️ Responsabilité aggravée</h4><ul>';
-      h += "<li>Professionnel : faute lourde ou dolosive possible " + addTerm("faute lourde", "faute dolosive") + ".</li>";
-      h += "<li>Particulier : mauvaise foi si défaut connu ou dissimulé " + addTerm("mauvaise foi", "réticence dolosive") + ".</li>";
-      h += "<li>Pénal possible en cas d’accident " + addTerm("homicide involontaire", "blessures involontaires", "mise en danger") + ".</li>";
-      h += "<li>Constructeur : produits défectueux " + addTerm("article 1245 C.civ.") + ".</li>";
-      h += "</ul></div>";
-    }
-
-    h += "<h4>A. Si professionnel</h4><ul>";
-    h += "<li>" + addTerm("garantie légale de conformité", "L.217-4 C.consom.") + " : réparation, remplacement, réduction, résolution.</li>";
-    h += "<li>" + addTerm("présomption d’antériorité") + " pendant 12 mois, 24 mois depuis 2022.</li>";
-    h += "<li>" + addTerm("responsabilité contractuelle", "1231-1 C.civ.") + " : dommages-intérêts.</li>";
-    h += "<li>" + addTerm("tromperie", "L.213-1 C.consom.") + " si dissimulation.</li>";
-    h += "<li>" + addTerm("DGCCRF", "rappel conso", "sanctions administratives") + ".</li>";
-    h += "</ul>";
-
-    h += "<h4>B. Si particulier</h4><ul>";
-    h += "<li>" + addTerm("garantie des vices cachés", "1641 C.civ.") + ".</li>";
-    h += "<li>" + addTerm("action rédhibitoire") + " ou " + addTerm("action estimatoire") + ".</li>";
-    h += "<li>" + addTerm("charge de la preuve") + " sur l’acquéreur.</li>";
-    h += "<li>" + addTerm("clause vendu en l’état") + " inopposable en cas de mauvaise foi.</li>";
-    h += "</ul>";
-
-    if (flags.diesel) {
-      h += "<h4>C. Risque diesel / antipollution</h4><ul>";
-      h += "<li>Non-conformité aux normes de dépollution " + addTerm("conformité environnementale") + ".</li>";
-      h += "<li>Tromperie si dispositif illicite ou information dissimulée " + addTerm("defeat device", "L.213-1 C.consom.") + ".</li>";
-      h += "<li>Rappel / campagne technique " + addTerm("DGCCRF", "KBA", "NHTSA") + ".</li>";
-      h += "</ul>";
-    }
-
-    if (flags.electricLike) {
-      h += "<h4>D. Risque électrifié / batterie / logiciel</h4><ul>";
-      h += "<li>Risque thermique, incendie, isolation HV " + addTerm("sécurité L.423-1 C.consom.") + ".</li>";
-      h += "<li>Autonomie non conforme, charge défaillante, bug logiciel " + addTerm("L.217-4 C.consom.") + ".</li>";
-      h += "<li>Responsabilité constructeur produits défectueux " + addTerm("1245 C.civ.") + ".</li>";
-      h += "</ul>";
-    }
-
-    return h;
-  }
-
-  function secCriteres(flags, matches, vData) {
-    var km = parseKm(vData.kilometrage);
-    var best = matches[0];
-
-    var h = "<p><strong>Objet :</strong> critères cumulatifs adaptés à l’usure, à la vétusté et à la motorisation " + addTerm("critères cumulatifs", "usure normale", "vétusté", "motorisation") + ".</p>";
-
-    h += "<h4>A. Antériorité " + addTerm("antériorité") + "</h4>";
-    if (best && best.confiance === "Haute") {
-      h += '<p class="certainty-high">Défaut de série/conception/software : antériorité fortement présumée, souvent indépendante du kilométrage.</p>';
-    } else if (best && best.confiance === "Moyenne") {
-      h += '<p class="certainty-medium">Antériorité probable, mais km élevé (' + km.toLocaleString("fr-FR") + ") : expertise pour écarter l’usure.</p>";
-    } else if (best) {
-      h += '<p class="certainty-low">Antériorité difficile à établir sans expertise : km très élevé, usure normale plausible.</p>';
-    } else {
-      h += '<p class="verification-needed">Antériorité à prouver par expertise contradictoire.</p>';
-    }
-
-    if (flags.electricLike) {
-      h += '<p class="certainty-high">Pour une motorisation électrifiée, les défauts BMS, logiciel, charge, batterie 12V, DC-DC ou autonomie sont souvent antérieurs et peu dépendants du kilométrage thermique.</p>';
-    }
-
-    if (flags.diesel) {
-      h += '<p class="certainty-medium">Pour une motorisation diesel, distinguer l’encrassement d’usage (trajets courts, entretien) d’un défaut de conception, de logiciel ou de dépollution.</p>';
-    }
-
-    h += "<h4>B. Caractère caché " + addTerm("caractère caché") + "</h4>";
-    if (best && best.wearFactor >= 0.8) {
-      h += '<p class="certainty-high">Défaut non apparent lors d’un examen visuel standard et d’un essai court.</p>';
-    } else if (best) {
-      h += '<p class="certainty-medium">Caractère caché soutenable, mais dépend de la diligence de l’acheteur et de la visibilité du symptôme.</p>';
-    } else {
-      h += "<p>Caractère caché à apprécier concrètement.</p>";
-    }
-
-    h += "<h4>C. Gravité " + addTerm("gravité") + "</h4>";
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += '<p class="certainty-high">Gravité élevée : sécurité, casse moteur, incendie, immobilisation, coût disproportionné.</p>';
-    } else if (matches.length) {
-      h += '<p class="certainty-medium">Gravité à mesurer par rapport au coût de réparation et à la valeur du véhicule.</p>';
-    } else {
-      h += "<p>Gravité à évaluer par devis et usage normal du véhicule.</p>";
-    }
-
-    h += '<div class="verification-needed">Réunion des critères à confirmer par expertise ' + addTerm("confirmation expertise") + ".</div>";
-    return h;
-  }
-
-  function secGaranties(flags, matches) {
-    var h = "<p><strong>Objet :</strong> régimes de garantie et croisement juridique local " + addTerm("régimes de garantie", "cumul des garanties") + ".</p>";
-
+    h += "<h4>B. Régimes mobilisables</h4><ul>";
+    h += "<li>" + addTerm("garantie des vices cachés", "1641 C.civ.") + "</li>";
     if (flags.professional) {
-      h += "<h4>Professionnel</h4><ul>";
-      h += "<li>" + addTerm("garantie légale de conformité", "L.217-4 et s. C.consom.") + "</li>";
-      h += "<li>" + addTerm("garantie des vices cachés", "1641 C.civ.") + " cumulable</li>";
+      h += "<li>" + addTerm("garantie légale de conformité", "L.217-4 C.consom.") + "</li>";
       h += "<li>" + addTerm("responsabilité contractuelle", "1231-1 C.civ.") + "</li>";
       h += "<li>" + addTerm("tromperie", "L.213-1 C.consom.") + "</li>";
       h += "<li>" + addTerm("pratique commerciale trompeuse", "L.121-2 C.consom.") + "</li>";
-      h += "</ul>";
     } else {
-      h += "<h4>Particulier</h4><ul>";
-      h += "<li>" + addTerm("garantie des vices cachés", "1641 à 1649 C.civ.") + "</li>";
-      h += "<li>" + addTerm("action rédhibitoire") + " / " + addTerm("action estimatoire") + "</li>";
       h += "<li>" + addTerm("dol", "1137 C.civ.") + " si dissimulation</li>";
       h += "<li>" + addTerm("obligation d’information précontractuelle", "1112-1 C.civ.") + "</li>";
-      h += "</ul>";
     }
-
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += "<h4>Constructeur / sécurité</h4><ul>";
-      h += "<li>" + addTerm("produits défectueux", "1245 C.civ.") + "</li>";
-      h += "<li>" + addTerm("défaut de sécurité", "L.423-1 C.consom.") + "</li>";
-      h += "<li>" + addTerm("rappel obligatoire", "DGCCRF", "NHTSA", "KBA") + "</li>";
-      h += "</ul>";
-    }
+    h += "<li>" + addTerm("produits défectueux", "1245 C.civ.") + "</li>";
+    h += "<li>" + addTerm("défaut de sécurité", "L.423-1 C.consom.") + "</li>";
+    h += "</ul>";
 
     if (flags.diesel) {
-      h += "<h4>Motorisation diesel</h4><ul>";
-      h += "<li>" + addTerm("conformité antipollution", "L.217-4 C.consom.") + "</li>";
-      h += "<li>" + addTerm("tromperie / defeat device", "L.213-1 C.consom.") + " si logiciel ou dispositif illicite</li>";
-      h += "<li>" + addTerm("rappel / campagne technique", "DGCCRF", "KBA") + "</li>";
+      h += "<h4>C. Incidence diesel</h4><ul>";
+      h += "<li>Conformité antipollution " + addTerm("L.217-4 C.consom.") + "</li>";
+      h += "<li>Tromperie si dispositif illicite ou dissimulation " + addTerm("L.213-1 C.consom.") + "</li>";
+      h += "<li>Rappel / campagne technique " + addTerm("DGCCRF", "KBA", "NHTSA") + "</li>";
       h += "</ul>";
     }
 
     if (flags.electricLike) {
-      h += "<h4>Motorisation électrifiée</h4><ul>";
-      h += "<li>" + addTerm("sécurité batterie / charge", "L.423-1 C.consom.") + "</li>";
-      h += "<li>" + addTerm("conformité logiciel / autonomie", "L.217-4 C.consom.") + "</li>";
-      h += "<li>" + addTerm("produits défectueux", "1245 C.civ.") + "</li>";
+      h += "<h4>D. Incidence électrifiée</h4><ul>";
+      h += "<li>Sécurité batterie / charge / BMS " + addTerm("L.423-1 C.consom.") + "</li>";
+      h += "<li>Conformité logiciel / autonomie " + addTerm("L.217-4 C.consom.") + "</li>";
+      h += "<li>Produits défectueux " + addTerm("1245 C.civ.") + "</li>";
       h += "</ul>";
     }
 
     return h;
   }
 
-  function secDocs(flags, matches) {
-    var h = "<p><strong>Objet :</strong> preuve documentaire " + addTerm("preuve documentaire", "dossier probatoire") + ".</p><ul>";
-    h += "<li>Facture : " + (flags.invoice ? "présente" : "à récupérer") + "</li>";
-    h += "<li>Certificat de cession : à conserver</li>";
-    h += "<li>Carte grise : vérifier cohérence kilométrage et motorisation</li>";
+  function researchLinks(brand, model, engine, symptoms, fuel) {
+    var baseQuery = (brand + " " + model + " " + (engine || "") + " " + (fuel || "") + " " + (symptoms || []).slice(0, 3).join(" ")).trim();
+    var q1 = encodeURIComponent(baseQuery + " défaut panne rappel incendie DTC motorisation puissance");
+    var q2 = encodeURIComponent(brand + " " + model);
+
+    return [
+      { label: "Base auto-diagnostic", url: CONFIG.catalog.autoBaseUrl },
+      { label: "Recherche spécialisée Google / forums techniques", url: "https://www.google.com/search?q=" + q1 },
+      { label: "Rappel Conso France (DGCCRF)", url: "https://www.rappel.conso.gouv.fr/recherche/?search=" + q2 },
+      { label: "NHTSA Recalls (USA)", url: "https://www.nhtsa.gov/recalls?search=" + q2 },
+      { label: "SafetyGate / défauts constructeurs", url: "https://www.google.com/search?q=" + encodeURIComponent(baseQuery + " safetygate TSB rappel défaut") },
+      { label: "Rappels allemands KBA", url: "https://www.google.com/search?q=" + encodeURIComponent(brand + " " + model + " KBA Rückruf") },
+      { label: "Vérification VIN constructeur", url: "https://www.google.com/search?q=" + encodeURIComponent(brand + " " + model + " VIN recall campaign motorisation") }
+    ];
+  }
+
+  function secPreuve(matches, flags, objective) {
+    var h = "<p><strong>Objet :</strong> dossier probatoire, stratégie et vérifications " + addTerm("preuve documentaire", "stratégie contentieuse") + ".</p>";
+
+    h += "<h4>A. Documents à consolider</h4><ul>";
+    h += "<li>Facture d’achat : " + (flags.invoice ? "présente" : "à récupérer") + "</li>";
+    h += "<li>Certificat de cession / carte grise : vérifier motorisation, énergie, puissance, kilométrage</li>";
     h += "<li>Contrôle technique : " + (flags.controlTech ? "présent" : "à récupérer") + "</li>";
     h += "<li>Historique entretien / carnet / factures garage</li>";
     h += "<li>Preuve des rappels effectués via VIN</li>";
@@ -3930,130 +2546,38 @@
     h += "<li>Rapport auto-diagnostic / fiches expert corrélées</li>";
     h += "<li>Document motorisation : énergie, puissance, code moteur, boîte, logiciel</li>";
     h += "<li>Photos : moisiure, eau, corrosion, voyants, niveaux, batterie, charge</li>";
-    if (matches.length) {
-      h += "<li>Vérification VIN sur sites constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate, auto-diagnostic</li>";
-    }
-    h += "</ul>";
-    h += '<div class="verification-needed">Sans facture, CT ou historique, la preuve de l’antériorité sera fragilisée ' + addTerm("insuffisance probatoire") + ".</div>";
-    return h;
-  }
-
-  function secJuri(matches, flags) {
-    var h = "<p><strong>Objet :</strong> textes et jurisprudence " + addTerm("jurisprudence", "doctrine") + ".</p>";
-    h += "<h4>Textes</h4><ul>";
-    h += "<li>1641 à 1649 C.civ. — vices cachés</li>";
-    h += "<li>1130 à 1144 C.civ. — vices du consentement</li>";
-    h += "<li>1112-1 C.civ. — information précontractuelle</li>";
-    h += "<li>1231-1 C.civ. — responsabilité contractuelle</li>";
-    h += "<li>1240, 1241 C.civ. — responsabilité délictuelle</li>";
-    h += "<li>1245 et s. C.civ. — produits défectueux</li>";
-    h += "<li>L.217-3 à L.217-20 C.consom. — conformité</li>";
-    h += "<li>L.213-1 C.consom. — tromperie</li>";
-    h += "<li>L.121-2 C.consom. — pratique commerciale trompeuse</li>";
-    h += "<li>L.423-1 C.consom. — sécurité des produits</li>";
-    h += "<li>221-6, 222-19, 223-1, 313-1, 441-1 C.pénal</li>";
     h += "</ul>";
 
-    h += "<h4>Jurisprudence / références</h4><ul>";
-    h += "<li>Cass. civ. 1ère, 3 mai 2006 — caractère caché</li>";
-    h += "<li>Cass. civ. 1ère, 12 juill. 2018 — vérification des rappels par pro</li>";
-    h += "<li>Cass. civ. 1ère, 27 févr. 2019 — clause vendu en l’état et mauvaise foi</li>";
-    h += "<li>CJUE, 5 avril 2023, C-277/22 — defeat device et conformité</li>";
-    h += "<li>TGI Paris, 15 janv. 2020 — Renault 1.5 dCi bielles</li>";
-    h += "<li>NHTSA / KBA / DGCCRF / auto-diagnostic — rappels sécurité, batteries, ADAS, incendies, DTC, motorisation</li>";
-    h += "</ul>";
-
-    if (flags.diesel) {
-      h += "<h4>Références diesel</h4><ul>";
-      h += "<li>Conformité antipollution L.217-4 C.consom.</li>";
-      h += "<li>Tromperie L.213-1 C.consom. si dispositif illicite ou dissimulation</li>";
-      h += "<li>Rappels diesel DGCCRF / KBA / SafetyGate</li>";
-      h += "</ul>";
-    }
-
-    if (flags.electricLike) {
-      h += "<h4>Références électrifiées</h4><ul>";
-      h += "<li>Sécurité batterie / charge L.423-1 C.consom.</li>";
-      h += "<li>Produits défectueux 1245 C.civ.</li>";
-      h += "<li>Conformité logiciel / autonomie L.217-4 C.consom.</li>";
-      h += "<li>Rappels EV/hybride NHTSA / DGCCRF / KBA</li>";
-      h += "</ul>";
-    }
-
-    if (matches.length) {
-      h += "<h4>Références spécifiques aux défauts détectés</h4><ul>";
-      matches.forEach(function (m) {
-        h += "<li><strong>" + esc(m.moteur) + " :</strong> " + esc(m.rappelRef) + (m.sourceUrl ? " — source : " + esc(m.sourceUrl) : "") + "</li>";
-      });
-      h += "</ul>";
-    }
-
-    return h;
-  }
-
-  function secPrejudice(flags, matches) {
-    var h = "<p><strong>Objet :</strong> préjudice " + addTerm("évaluation du préjudice", "réparation intégrale") + ".</p>";
-    h += "<h4>Préjudices matériels</h4><ul>";
-    h += "<li>Coût réparations / devis</li>";
-    h += "<li>Remboursement prix si résolution</li>";
-    h += "<li>Moins-value</li>";
-    h += "<li>Location véhicule remplacement</li>";
-    h += "<li>Frais expertise / avocat / dépens</li>";
-    h += "<li>Manque à gagner si usage professionnel</li>";
-    h += "</ul>";
-
-    h += "<h4>Préjudices moraux / corporels</h4><ul>";
-    h += "<li>Préjudice d’anxiété si dangerosité</li>";
-    h += "<li>Trouble dans les conditions d’existence</li>";
-    h += "<li>Souffrances endurées / préjudice esthétique / DFT / DFP si accident</li>";
-    h += "</ul>";
-
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += '<div class="rappel-critical"><strong>Angle sapeur-pompier / sécurité :</strong> la peur de conduire un véhicule dangereux peut justifier un préjudice moral même sans accident ' + addTerm("préjudice d’anxiété") + ".</div>";
-    }
-
-    if (flags.electricLike) {
-      h += '<div class="rappel-info"><strong>Angle électrifié :</strong> perte d’autonomie réelle, impossibilité de recharge, immobilisation ou risque batterie peut aggraver le préjudice d’usage ' + addTerm("préjudice d’agrément", "trouble de jouissance") + ".</div>";
-    }
-
-    return h;
-  }
-
-  function secStrategie(flags, matches, objective) {
-    var h = "<p><strong>Objet :</strong> stratégie " + addTerm("stratégie contentieuse", "MARD") + ".</p>";
-
-    h += "<h4>Phase 1 — consolidation probatoire</h4><ol>";
+    h += "<h4>B. Stratégie recommandée</h4><ol>";
     h += "<li>Expertise amiable contradictoire</li>";
     h += "<li>Devis réparation</li>";
     h += "<li>Lecture OBD / DTC</li>";
     h += "<li>Export / impression des fiches auto-diagnostic corrélées</li>";
     h += "<li>Vérification VIN / rappels / motorisation</li>";
-    h += "<li>Photos et constats</li>";
-    h += "</ol>";
-
-    h += "<h4>Phase 2 — mise en demeure</h4><ol>";
-    h += "<li>LRAR au vendeur</li>";
+    h += "<li>Mise en demeure LRAR au vendeur</li>";
     if (matches.length) {
       h += "<li>Invoquer le défaut de série documenté " + addTerm("défaut de série", "présomption de connaissance") + "</li>";
     }
-    h += "<li>Joindre annexes auto-diagnostic / DTC / motorisation / devis / photos</li>";
-    h += "<li>Délai 15 jours</li>";
-    h += "</ol>";
-
-    h += "<h4>Phase 3 — résolution amiable</h4><ol>";
-    h += "<li>Conciliation</li>";
-    if (flags.professional) h += "<li>Médiation de la consommation</li>";
-    h += "<li>Transaction écrite si accord</li>";
-    h += "</ol>";
-
-    h += "<h4>Phase 4 — judiciaire</h4><ol>";
-    h += "<li>Assignation TJ / tribunal de proximité</li>";
-    h += "<li>Demande d’expertise judiciaire si nécessaire</li>";
-    h += "<li>Référé si urgence / danger</li>";
-    if (matches.length && matches.some(function (m) { return m.severite === "critique"; })) {
+    h += "<li>Conciliation / médiation si professionnel</li>";
+    h += "<li>Assignation / expertise judiciaire si nécessaire</li>";
+    if (matches.some(function (m) { return m.severite === "critique"; })) {
       h += "<li>Signalement DGCCRF / préfet / NHTSA / KBA si danger collectif</li>";
     }
     h += "</ol>";
+
+    var links = researchLinks(
+      vehicleData.marque,
+      vehicleData.modele,
+      matches[0] ? matches[0].moteur : vehicleData.engine,
+      matches[0] ? matches[0].symptomes : [],
+      vehicleData.fuel
+    );
+
+    h += "<h4>C. Pistes de recherche externe</h4><ul>";
+    links.forEach(function (l) {
+      h += '<li><a href="' + esc(l.url) + '" target="_blank" rel="noopener noreferrer">' + esc(l.label) + "</a></li>";
+    });
+    h += "</ul>";
 
     if (objective) {
       h += "<p><strong>Objectif déclaré :</strong> " + esc(objective) + "</p>";
@@ -4062,87 +2586,21 @@
     return h;
   }
 
-  function secVerif(matches, flags) {
-    var h = "<p><strong>Objet :</strong> vérifications et recherche approfondie " + addTerm("vérifications complémentaires") + ".</p>";
-
-    h += "<ul>";
-    h += "<li>Vérifier VIN sur site constructeur</li>";
-    h += "<li>Consulter auto-diagnostic et ses fiches / DTC / motorisations</li>";
-    h += "<li>Consulter rappel.conso.gouv.fr</li>";
-    h += "<li>Consulter NHTSA si véhicule importé / groupe international</li>";
-    h += "<li>Consulter KBA pour rappels allemands</li>";
-    h += "<li>Consulter SafetyGate / bases européennes</li>";
-    h += "<li>Rechercher TSB / notes techniques atelier</li>";
-    h += "<li>Consulter forums spécialisés et retours propriétaires</li>";
-    h += "<li>Vérifier historique entretien et rappels effectués</li>";
-    h += "<li>Faire lire les codes défaut OBD</li>";
-    if (flags.waterLeak) {
-      h += "<li>Inspecter baie de pare-brise, cavillon, évacuations, boîtier fusibles, connecteurs</li>";
-    }
-    if (flags.electricLike) {
-      h += "<li>Contrôler SOH batterie, BMS, charge AC/DC, température, isolation HV, batterie 12V</li>";
-    }
-    if (flags.diesel) {
-      h += "<li>Contrôler EGR, FAP/DPF, AdBlue, NOx, régénération, logiciel moteur</li>";
-    }
-    h += "</ul>";
-
-    var links = researchLinks(
-      vehicleData.marque,
-      vehicleData.modele,
-      matches[0] ? matches[0].moteur : vehicleData.engine,
-      matches[0] ? matches[0].symptomes : [],
-      vehicleData.engineType
-    );
-
-    h += "<h4>Pistes de recherche externe à ouvrir manuellement</h4><ul>";
-    links.forEach(function (l) {
-      h += '<li><a href="' + esc(l.url) + '" target="_blank" rel="noopener noreferrer">' + esc(l.label) + "</a></li>";
-    });
-    h += "</ul>";
-
-    h += '<div class="verification-needed">Ces liens ne sont pas appelés automatiquement pendant l’analyse. Ils servent à confirmer la notoriété du défaut avant conclusion finale.</div>';
-
-    return h;
-  }
-
-  function secVoies(flags, matches) {
-    var h = "<p><strong>Objet :</strong> voies d’action " + addTerm("voies d’action") + ".</p><ul>";
-    h += "<li>Action civile en garantie des vices cachés</li>";
-    if (flags.professional) {
-      h += "<li>Garantie légale de conformité</li>";
-      h += "<li>Signalement DGCCRF / rappel.conso</li>";
-      h += "<li>Médiation de la consommation</li>";
-    }
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += "<li>Action contre constructeur : produits défectueux</li>";
-      h += "<li>Plainte pénale si danger dissimulé</li>";
-      h += "<li>Action collective si défaut massif</li>";
-    }
-    if (flags.diesel) {
-      h += "<li>Action antipollution / tromperie si dispositif illicite ou dissimulation</li>";
-    }
-    if (flags.electricLike) {
-      h += "<li>Action sécurité batterie / charge / logiciel / autonomie</li>";
-    }
-    h += "<li>Expertise judiciaire</li>";
-    h += "</ul>";
-    return h;
-  }
-
-  function secConclu(objective, matches, flags, vData) {
+  function secConclusion(objective, matches, flags, vData) {
     var high = matches.some(function (m) { return m.confiance === "Haute"; });
     var critical = matches.some(function (m) { return m.severite === "critique"; });
     var auto = matches.some(function (m) { return m.source === "auto-diagnostic"; });
 
-    var h = "<p><strong>Objet :</strong> conclusion prudente " + addTerm("synthèse") + ".</p>";
+    var h = "<p><strong>Objet :</strong> conclusion prudente orientée ingénieur / juriste " + addTerm("synthèse", "conclusion") + ".</p>";
 
     h += "<p><strong>Sélections prises en compte :</strong> " +
       esc(vData.marque || "marque non précisée") + " / " +
       esc(vData.modele || "modèle non précisé") + " / " +
       esc(vData.annee || "année non précisée") + " / " +
       esc(vData.engine || "motorisation non précisée") +
-      (vData.engineType ? " (" + esc(vData.engineType) + ")" : "") +
+      (vData.power && vData.power !== "N/A" ? " / " + esc(vData.power) : "") +
+      (vData.fuel ? " / " + esc(vData.fuel) : "") +
+      (vData.transmission ? " / " + esc(vData.transmission) : "") +
       ".</p>";
 
     h += "<p>";
@@ -4156,10 +2614,6 @@
       h += "Aucun défaut de série identifié localement. Le problème peut être individuel : diagnostic et expertise nécessaires.";
     }
     h += "</p>";
-
-    if (flags.engineType) {
-      h += "<p><strong>Motorisation :</strong> le type " + esc(flags.engineType) + " est intégré comme critère d’analyse technique et juridique.</p>";
-    }
 
     if (flags.diesel) {
       h += "<p><strong>Incidence diesel :</strong> la qualification peut mobiliser conformité antipollution, tromperie, rappel et sécurité produit.</p>";
@@ -4193,29 +2647,29 @@
   }
 
   /* =========================================================
-     ADMIN PANEL
+     ADMIN
      ========================================================= */
+  function updateDataStatus(msg) {
+    var el = q("#dataStatus");
+    if (el) el.textContent = msg;
+  }
+
   function updateAdminStats() {
-    var brands = {};
-    allDefects().forEach(function (d) {
-      if (d.b && d.b !== "Toutes marques") brands[d.b] = true;
-    });
-
-    getUniqueBrands().forEach(function (b) { brands[b] = true; });
-
-    var statEntries = q("#statEntries");
     var statBrands = q("#statBrands");
     var statModels = q("#statModels");
     var statEngines = q("#statEngines");
+    var statEntries = q("#statEntries");
     var statAutoEntries = q("#statAutoEntries");
     var statAutoSync = q("#statAutoSync");
     var statSync = q("#statSync");
 
-    if (statEntries) statEntries.textContent = allDefects().length;
-    if (statBrands) statBrands.textContent = Object.keys(brands).length;
-    if (statModels) statModels.textContent = getUniqueModels().length;
-    if (statEngines) statEngines.textContent = getUniqueEngines();
-    if (statAutoEntries) statAutoEntries.textContent = autoDb.length;
+    var autoCount = catalog.defects.filter(function (d) { return d.source === "auto-diagnostic"; }).length;
+
+    if (statBrands) statBrands.textContent = getAllBrands().length;
+    if (statModels) statModels.textContent = catalog.models.length;
+    if (statEngines) statEngines.textContent = catalog.engines.length;
+    if (statEntries) statEntries.textContent = catalog.defects.length;
+    if (statAutoEntries) statAutoEntries.textContent = autoCount;
 
     if (statAutoSync) statAutoSync.textContent = autoLastSync ? new Date(autoLastSync).toLocaleString("fr-FR") : "Jamais";
 
@@ -4227,17 +2681,9 @@
     var box = q("#pendingRequests");
     if (!box) return;
 
-    var all = getRequests().slice().sort(function (a, b) {
-      return (b.ts || 0) - (a.ts || 0);
-    });
-
-    var pending = all.filter(function (r) {
-      return r.status === "pending";
-    });
-
-    var processed = all.filter(function (r) {
-      return r.status !== "pending";
-    }).slice(0, 30);
+    var all = getRequests().slice().sort(function (a, b) { return (b.ts || 0) - (a.ts || 0); });
+    var pending = all.filter(function (r) { return r.status === "pending"; });
+    var processed = all.filter(function (r) { return r.status !== "pending"; }).slice(0, 30);
 
     var count = q("#pendingCount");
     if (count) count.textContent = pending.length;
@@ -4319,13 +2765,46 @@
   function renderAdmin() {
     renderRequests();
     renderUsers();
-    renderAutoConfig();
+    renderCatalogConfig();
     updateAdminStats();
   }
 
   /* =========================================================
-     PDF UPLOAD / EXPORT
+     PDF / EXPORT
      ========================================================= */
+  function ensurePdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      s.async = true;
+      s.onload = function () {
+        if (!window.pdfjsLib) return reject(new Error("PDF.js non chargé"));
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        resolve(window.pdfjsLib);
+      };
+      s.onerror = function () { reject(new Error("PDF.js indisponible")); };
+      document.head.appendChild(s);
+    });
+  }
+
+  function ensureJsPdf() {
+    if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+
+    return new Promise(function (resolve, reject) {
+      var s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
+      s.async = true;
+      s.onload = function () {
+        if (!window.jspdf || !window.jspdf.jsPDF) return reject(new Error("jsPDF non chargé"));
+        resolve(window.jspdf.jsPDF);
+      };
+      s.onerror = function () { reject(new Error("jsPDF indisponible")); };
+      document.head.appendChild(s);
+    });
+  }
+
   function readFileAsArrayBuffer(file) {
     if (file.arrayBuffer) return file.arrayBuffer();
     return new Promise(function (resolve, reject) {
@@ -4373,7 +2852,7 @@
       '<h1>Rapport d’analyse expert auto</h1>' +
       '<p><strong>Date :</strong> ' + esc(analysisData.date || "") + '</p>' +
       '<p><strong>Véhicule :</strong> ' + esc(vehicleData.marque || "") + ' ' + esc(vehicleData.modele || "") + ' ' + esc(vehicleData.annee || "") + '</p>' +
-      '<p><strong>Motorisation :</strong> ' + esc(vehicleData.engine || "") + ' — ' + esc(vehicleData.engineType || "") + '</p>' +
+      '<p><strong>Motorisation :</strong> ' + esc(vehicleData.engine || "") + ' — ' + esc(vehicleData.power || "") + ' — ' + esc(vehicleData.fuel || "") + '</p>' +
       '<p><strong>Kilométrage :</strong> ' + esc(vehicleData.kilometrage || "") + ' km</p>' +
       body +
       '</body>' +
@@ -4427,7 +2906,7 @@
       doc.text("Véhicule : " + (vehicleData.marque || "") + " " + (vehicleData.modele || "") + " " + (vehicleData.annee || ""), 20, y);
       y += 6;
 
-      doc.text("Motorisation : " + (vehicleData.engine || "") + " — " + (vehicleData.engineType || ""), 20, y);
+      doc.text("Motorisation : " + (vehicleData.engine || "") + " — " + (vehicleData.power || "") + " — " + (vehicleData.fuel || ""), 20, y);
       y += 6;
 
       doc.text("Kilométrage : " + (vehicleData.kilometrage || "") + " km", 20, y);
@@ -4513,898 +2992,843 @@
       : Promise.resolve();
 
     Promise.all([unload.catch(function () {}), delCache.catch(function () {})])
-      .then(function () {
-        location.reload(true);
-      })
-      .catch(function () {
-        location.reload(true);
-      });
+      .then(function () { location.reload(true); })
+      .catch(function () { location.reload(true); });
   }
 
   /* =========================================================
      EVENEMENTS UI
      ========================================================= */
-  qa(".auth-tab").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      qa(".auth-tab").forEach(function (b) { b.classList.remove("active"); });
-      qa(".auth-pane").forEach(function (p) { p.classList.remove("active"); });
-      btn.classList.add("active");
+  function bindUi() {
+    qa(".auth-tab").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        qa(".auth-tab").forEach(function (b) { b.classList.remove("active"); });
+        qa(".auth-pane").forEach(function (p) { p.classList.remove("active"); });
+        btn.classList.add("active");
 
-      var pane = q("#" + btn.dataset.authTab + "Pane");
-      if (pane) pane.classList.add("active");
+        var pane = q("#" + btn.dataset.authTab + "Pane");
+        if (pane) pane.classList.add("active");
 
-      authMessage("", "");
-    });
-  });
-
-  on("#adminLoginBtn", "click", function () {
-    var pwdEl = q("#adminPassword");
-    var rememberEl = q("#rememberAdminPwd");
-    var pwd = pwdEl ? pwdEl.value : "";
-    var remember = rememberEl ? rememberEl.checked : false;
-
-    if (!pwd) {
-      authMessage("Mot de passe requis.", "error");
-      return;
-    }
-
-    verifyAdminPassword(pwd).then(function (ok) {
-      if (!ok) {
-        authMessage("Mot de passe incorrect.", "error");
-        return;
-      }
-
-      if (remember) {
-        sha256(pwd).then(function (h) {
-          save(KEYS.ADMIN_PWD_HASH, h);
-          refreshSavedPasswordButton();
-        });
-      } else {
-        del(KEYS.ADMIN_PWD_HASH);
-        refreshSavedPasswordButton();
-      }
-
-      setSession({
-        id: "admin",
-        name: "Administrateur",
-        email: "admin@local",
-        role: "admin",
-        status: "approved"
+        authMessage("", "");
       });
-
-      showApp();
-      toast("Connexion admin réussie.", "success");
-      if (pwdEl) pwdEl.value = "";
-    }).catch(function () {
-      if (pwd === CONFIG.adminPassword) {
-        setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
-        showApp();
-        toast("Connexion admin réussie (mode local).", "success");
-        if (pwdEl) pwdEl.value = "";
-      } else {
-        authMessage("Vérification impossible. Réessayez.", "error");
-      }
     });
-  });
 
-  on("#useSavedPwdBtn", "click", function () {
-    var saved = loadWithMigration(KEYS.ADMIN_PWD_HASH, OLD_KEYS.ADMIN_PWD_HASH, null);
-    if (!saved) {
-      authMessage("Aucun mot de passe enregistré.", "warning");
-      return;
-    }
+    on("#adminLoginBtn", "click", function () {
+      var pwdEl = q("#adminPassword");
+      var rememberEl = q("#rememberAdminPwd");
+      var pwd = pwdEl ? pwdEl.value : "";
+      var remember = rememberEl ? rememberEl.checked : false;
 
-    loginAdminFromHash(saved).then(function (ok) {
-      if (!ok) {
-        authMessage("Mot de passe enregistré invalide.", "error");
-        del(KEYS.ADMIN_PWD_HASH);
-        refreshSavedPasswordButton();
+      if (!pwd) {
+        authMessage("Mot de passe requis.", "error");
         return;
       }
 
-      setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
-      showApp();
-      toast("Connexion admin via mot de passe enregistré.", "success");
-    });
-  });
+      verifyAdminPassword(pwd).then(function (ok) {
+        if (!ok) {
+          authMessage("Mot de passe incorrect.", "error");
+          return;
+        }
 
-  on("#requestBtn", "click", function () {
-    var nameEl = q("#reqName");
-    var emailEl = q("#reqEmail");
-    var reasonEl = q("#reqReason");
-
-    var name = nameEl ? nameEl.value.trim() : "";
-    var email = emailEl ? emailEl.value.trim() : "";
-    var reason = reasonEl ? reasonEl.value.trim() : "";
-
-    if (!name || !email || !reason) {
-      authMessage("Nom, email et motif sont requis.", "error");
-      return;
-    }
-
-    var requests = getRequests();
-    var emailKey = userEmailKey(email);
-
-    var alreadyPending = requests.find(function (r) {
-      return r.emailNorm === emailKey && r.status === "pending";
-    });
-
-    if (alreadyPending) {
-      authMessage("Demande déjà en attente.", "warning");
-      return;
-    }
-
-    var existingApproved = findApprovedUser(name, email);
-    if (existingApproved) {
-      authMessage("Accès déjà accordé. Utilisez Connexion tiers.", "success");
-      return;
-    }
-
-    var req = migrateRequest({
-      id: uid(),
-      name: name,
-      email: email,
-      reason: reason,
-      status: "pending",
-      date: new Date().toLocaleString("fr-FR"),
-      ts: Date.now(),
-      source: "formulaire-local"
-    });
-
-    requests.push(req);
-    saveRequests(requests);
-
-    lastSharedAccessRequest = req;
-
-    var shareBtn = q("#shareRequestBtn");
-    if (shareBtn) shareBtn.classList.remove("hidden");
-
-    publishAccessRequest(req);
-
-    authMessage(
-      "Demande envoyée. Si l’admin est sur le même appareil, il sera notifié. Sinon, utilisez ‘Partager la demande avec l’admin’.",
-      "success"
-    );
-
-    if (nameEl) nameEl.value = "";
-    if (emailEl) emailEl.value = "";
-    if (reasonEl) reasonEl.value = "";
-  });
-
-  on("#shareRequestBtn", "click", function () {
-    if (!lastSharedAccessRequest) {
-      toast("Aucune demande à partager.", "warning");
-      return;
-    }
-
-    var url = makeAccessRequestShareUrl(lastSharedAccessRequest);
-
-    var text =
-      "Demande d’accès Expert Auto\n" +
-      "Nom : " + lastSharedAccessRequest.name + "\n" +
-      "Email : " + lastSharedAccessRequest.email + "\n" +
-      "Motif : " + lastSharedAccessRequest.reason + "\n" +
-      "Lien admin : " + url;
-
-    if (navigator.share) {
-      navigator.share({
-        title: "Demande d’accès Expert Auto",
-        text: text,
-        url: url
-      }).catch(function () {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url).then(function () {
-            toast("Lien de demande copié.", "success");
-          }).catch(function () {
-            toast("Copie impossible.", "error");
+        if (remember) {
+          sha256(pwd).then(function (h) {
+            save(KEYS.ADMIN_PWD_HASH, h);
+            refreshSavedPasswordButton();
           });
         } else {
-          toast("Partage impossible.", "warning");
+          del(KEYS.ADMIN_PWD_HASH);
+          refreshSavedPasswordButton();
+        }
+
+        setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
+        showApp();
+        toast("Connexion admin réussie.", "success");
+        if (pwdEl) pwdEl.value = "";
+      }).catch(function () {
+        if (pwd === CONFIG.adminPassword) {
+          setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
+          showApp();
+          toast("Connexion admin réussie (mode local).", "success");
+          if (pwdEl) pwdEl.value = "";
+        } else {
+          authMessage("Vérification impossible. Réessayez.", "error");
         }
       });
-    } else if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(function () {
-        toast("Lien de demande copié.", "success");
-      }).catch(function () {
-        toast("Copie impossible.", "error");
+    });
+
+    on("#useSavedPwdBtn", "click", function () {
+      var saved = loadWithMigration(KEYS.ADMIN_PWD_HASH, OLD_KEYS.ADMIN_PWD_HASH, null);
+      if (!saved) {
+        authMessage("Aucun mot de passe enregistré.", "warning");
+        return;
+      }
+
+      loginAdminFromHash(saved).then(function (ok) {
+        if (!ok) {
+          authMessage("Mot de passe enregistré invalide.", "error");
+          del(KEYS.ADMIN_PWD_HASH);
+          refreshSavedPasswordButton();
+          return;
+        }
+
+        setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
+        showApp();
+        toast("Connexion admin via mot de passe enregistré.", "success");
       });
-    } else {
-      toast("Partage non supporté.", "warning");
-    }
-  });
+    });
 
-  on("#thirdLoginBtn", "click", function () {
-    var nameEl = q("#loginName");
-    var emailEl = q("#loginEmail");
+    on("#requestBtn", "click", function () {
+      var nameEl = q("#reqName");
+      var emailEl = q("#reqEmail");
+      var reasonEl = q("#reqReason");
 
-    var name = nameEl ? nameEl.value.trim() : "";
-    var email = emailEl ? emailEl.value.trim() : "";
+      var name = nameEl ? nameEl.value.trim() : "";
+      var email = emailEl ? emailEl.value.trim() : "";
+      var reason = reasonEl ? reasonEl.value.trim() : "";
 
-    if (!email) {
-      authMessage("Email requis.", "error");
-      return;
-    }
+      if (!name || !email || !reason) {
+        authMessage("Nom, email et motif sont requis.", "error");
+        return;
+      }
 
-    var user = findApprovedUser(name, email);
-
-    if (!user) {
+      var requests = getRequests();
       var emailKey = userEmailKey(email);
-      var pending = getRequests().find(function (r) {
-        return r.status === "pending" && r.emailNorm === emailKey;
+
+      var alreadyPending = requests.find(function (r) {
+        return r.emailNorm === emailKey && r.status === "pending";
       });
 
-      if (pending) {
+      if (alreadyPending) {
+        authMessage("Demande déjà en attente.", "warning");
+        return;
+      }
+
+      var existingApproved = findApprovedUser(name, email);
+      if (existingApproved) {
+        authMessage("Accès déjà accordé. Utilisez Connexion tiers.", "success");
+        return;
+      }
+
+      var req = migrateRequest({
+        id: uid(),
+        name: name,
+        email: email,
+        reason: reason,
+        status: "pending",
+        date: new Date().toLocaleString("fr-FR"),
+        ts: Date.now(),
+        source: "formulaire-local"
+      });
+
+      requests.push(req);
+      saveRequests(requests);
+
+      lastSharedAccessRequest = req;
+
+      var shareBtn = q("#shareRequestBtn");
+      if (shareBtn) shareBtn.classList.remove("hidden");
+
+      publishAccessRequest(req);
+
+      authMessage(
+        "Demande envoyée. Si l’admin est sur le même appareil, il sera notifié. Sinon, utilisez ‘Partager la demande avec l’admin’.",
+        "success"
+      );
+
+      if (nameEl) nameEl.value = "";
+      if (emailEl) emailEl.value = "";
+      if (reasonEl) reasonEl.value = "";
+    });
+
+    on("#shareRequestBtn", "click", function () {
+      if (!lastSharedAccessRequest) {
+        toast("Aucune demande à partager.", "warning");
+        return;
+      }
+
+      var url = makeAccessRequestShareUrl(lastSharedAccessRequest);
+
+      var text =
+        "Demande d’accès Expert Auto\n" +
+        "Nom : " + lastSharedAccessRequest.name + "\n" +
+        "Email : " + lastSharedAccessRequest.email + "\n" +
+        "Motif : " + lastSharedAccessRequest.reason + "\n" +
+        "Lien admin : " + url;
+
+      shareTextUrl(text, url, "Demande d’accès Expert Auto");
+    });
+
+    on("#thirdLoginBtn", "click", function () {
+      var nameEl = q("#loginName");
+      var emailEl = q("#loginEmail");
+
+      var name = nameEl ? nameEl.value.trim() : "";
+      var email = emailEl ? emailEl.value.trim() : "";
+
+      if (!email) {
+        authMessage("Email requis.", "error");
+        return;
+      }
+
+      var user = findApprovedUser(name, email);
+
+      if (!user) {
+        var emailKey = userEmailKey(email);
+        var pending = getRequests().find(function (r) {
+          return r.status === "pending" && r.emailNorm === emailKey;
+        });
+
+        if (pending) {
+          authMessage("Votre demande est en attente de validation admin. Nom enregistré : " + pending.name, "warning");
+          return;
+        }
+
         authMessage(
-          "Votre demande est en attente de validation admin. Nom enregistré : " + pending.name,
-          "warning"
+          "Aucun accès approuvé trouvé pour cet email. Demandez l’accès puis attendez la validation admin, ou ouvrez le lien d’accès envoyé par l’admin.",
+          "error"
         );
         return;
       }
 
-      authMessage(
-        "Aucun accès approuvé trouvé pour cet email. Demandez l’accès puis attendez la validation admin, ou ouvrez le lien d’accès envoyé par l’admin.",
-        "error"
-      );
-      return;
-    }
-
-    setSession(user);
-    showApp();
-    toast("Connexion tiers réussie.", "success");
-  });
-
-  on("#logoutBtn", "click", function () {
-    clearSession();
-    showLogin();
-    toast("Déconnexion effectuée.", "info");
-  });
-
-  on("#clearCacheBtn", "click", function () {
-    clearCacheAndReload();
-  });
-
-  on("#vehicleBrand", "input", function () {
-    renderBrandSuggestions();
-    scheduleVehicleRefresh();
-  });
-
-  on("#vehicleBrand", "focus", function () {
-    renderBrandSuggestions();
-  });
-
-  on("#vehicleBrand", "blur", function () {
-    setTimeout(hideBrandSuggestions, 150);
-  });
-
-  on("#brandSuggestions", "mousedown", function (e) {
-    var btn = e.target.closest("button[data-brand]");
-    if (!btn) return;
-    e.preventDefault();
-    selectBrand(btn.dataset.brand);
-  });
-
-  document.addEventListener("click", function (e) {
-    var wrap = q("#brandWrap");
-    if (wrap && !wrap.contains(e.target)) {
-      hideBrandSuggestions();
-    }
-  });
-
-  on("#vehicleModel", "change", function () {
-    refreshEngineOptions();
-  });
-
-  on("#vehicleYear", "input", function () {
-    scheduleVehicleRefresh();
-  });
-
-  on("#vehicleYear", "change", function () {
-    refreshModelOptions();
-  });
-
-  on("#vehicleEngine", "change", function () {
-    updateSelectionSummary();
-  });
-
-  on("#pdfUpload", "change", function (e) {
-    var file = e.target.files && e.target.files[0];
-    if (!file) return;
-
-    if (file.type !== "application/pdf") {
-      pdfStatus("Format non supporté. PDF uniquement.", "error");
-      return;
-    }
-
-    pdfStatus("Chargement de la bibliothèque PDF...", "success");
-
-    ensurePdfJs()
-      .then(function () {
-        pdfStatus("Extraction du texte en cours...", "success");
-        return readFileAsArrayBuffer(file);
-      })
-      .then(function (arrayBuffer) {
-        return window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      })
-      .then(function (pdf) {
-        var fullText = "";
-        var promises = [];
-
-        for (var i = 1; i <= pdf.numPages; i++) {
-          (function (pageNum) {
-            promises.push(
-              pdf.getPage(pageNum).then(function (page) {
-                return page.getTextContent();
-              }).then(function (tc) {
-                fullText += tc.items.map(function (item) { return item.str; }).join(" ") + "\n\n";
-              })
-            );
-          })(i);
-        }
-
-        return Promise.all(promises).then(function () {
-          extractedText = fullText;
-          var textInput = q("#textInput");
-          if (textInput) textInput.value = fullText;
-          pdfStatus("PDF extrait avec succès (" + pdf.numPages + " pages).", "success");
-        });
-      })
-      .catch(function (err) {
-        console.warn(err);
-        pdfStatus("Extraction PDF indisponible : " + err.message + ". Saisissez le texte manuellement.", "error");
-      });
-  });
-
-  on("#analyzeBtn", "click", function () {
-    if (!currentUser) {
-      toast("Connectez-vous.", "error");
-      return;
-    }
-
-    var info = dailyInfo();
-    if (!info.allowed) {
-      toast("Limite de " + CONFIG.maxDailyAnalyses + " analyses/jour atteinte.", "warning");
-      return;
-    }
-
-    refreshModelOptions();
-
-    var textEl = q("#textInput");
-    var contextEl = q("#contextInfo");
-    var objectiveEl = q("#objectiveInfo");
-    var goalEl = q("#goalSelect");
-    var sellerEl = q("#sellerType");
-
-    var text = textEl ? textEl.value.trim() : "";
-    if (!text) text = extractedText.trim();
-
-    var context = contextEl ? contextEl.value.trim() : "";
-    var objective = (objectiveEl && objectiveEl.value.trim()) || (goalEl ? goalEl.value : "") || "";
-    var sellerType = sellerEl ? sellerEl.value : "unknown";
-
-    vehicleData = getSelectedVehicleData();
-
-    if (!text) {
-      toast("Saisissez des faits ou importez un PDF.", "warning");
-      return;
-    }
-
-    termesMobilises = new Set();
-
-    var btn = q("#analyzeBtn");
-    if (btn) {
-      btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Analyse experte + motorisation + auto-diagnostic en cours...';
-    }
-
-    setTimeout(function () {
-      try {
-        runAnalysis(text, context, objective, sellerType);
-        incrementDaily();
-        toast("Analyse générée.", "success");
-      } catch (err) {
-        console.error(err);
-        toast("Erreur d’analyse : " + err.message, "error");
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = "🔍 Lancer l’analyse croisée technique + juridique + motorisation + auto-diagnostic";
-        }
-      }
-    }, 700);
-  });
-
-  on("#adminPanelBtn", "click", function () {
-    if (!currentUser || currentUser.role !== "admin") return;
-    var panel = q("#adminPanel");
-    if (panel) panel.classList.remove("hidden");
-    renderAdmin();
-  });
-
-  on("#closeAdminBtn", "click", function () {
-    var panel = q("#adminPanel");
-    if (panel) panel.classList.add("hidden");
-  });
-
-  qa(".admin-tab").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      qa(".admin-tab").forEach(function (b) { b.classList.remove("active"); });
-      qa(".admin-pane").forEach(function (p) { p.classList.remove("active"); });
-      btn.classList.add("active");
-      var pane = q("#" + btn.dataset.adminTab + "Pane");
-      if (pane) pane.classList.add("active");
+      setSession(user);
+      showApp();
+      toast("Connexion tiers réussie.", "success");
     });
-  });
 
-  on("#adminPanel", "click", function (e) {
-    var btn = e.target.closest("button[data-action]");
-    if (!btn) return;
+    on("#logoutBtn", "click", function () {
+      clearSession();
+      showLogin();
+      toast("Déconnexion effectuée.", "info");
+    });
 
-    var action = btn.dataset.action;
+    on("#clearCacheBtn", "click", function () {
+      clearCacheAndReload();
+    });
 
-    if (action === "approve" || action === "refuse") {
-      var id = btn.dataset.id;
-      var reqs = getRequests();
-      var req = reqs.find(function (r) {
-        return r.id === id;
-      });
+    on("#brandInput", "input", function () {
+      selection.brand = null;
+      selection.model = null;
+      selection.engine = null;
+      updateModelButton();
+      updateEngineButton();
+      updateSelectionSummary();
+      renderBrandPanel();
+    });
 
-      if (!req) return;
+    on("#brandInput", "focus", function () {
+      renderBrandPanel();
+    });
 
-      req.status = action === "approve" ? "approved" : "refused";
-      req.processedAt = Date.now();
-      req.processedDate = new Date(req.processedAt).toLocaleString("fr-FR");
+    on("#brandInput", "blur", function () {
+      setTimeout(function () { closeAllCombos(); }, 160);
+    });
 
-      if (action === "approve") {
-        var user = upsertUser({
-          id: req.id,
-          name: req.name,
-          email: req.email,
-          role: "user",
-          status: "approved",
-          daily: { date: todayKey(), count: 0 }
-        });
+    on("#brandPanel", "mousedown", function (e) {
+      var btn = e.target.closest("[data-brand]");
+      if (!btn) return;
+      e.preventDefault();
+      selectBrand(btn.getAttribute("data-brand"));
+    });
 
-        req.userId = user.key;
-        notify("Accès approuvé", req.name + " (" + req.email + ")");
+    on("#modelButton", "click", function () {
+      if (!selection.brand) return;
+      var panel = q("#modelPanel");
+      var isOpen = panel && !panel.classList.contains("hidden");
+      closeAllCombos("modelPanel");
+      if (!isOpen && panel) {
+        panel.classList.remove("hidden");
+        renderModelList("");
+        var search = q("#modelSearch");
+        if (search) setTimeout(function () { search.focus(); }, 30);
+      }
+    });
+
+    on("#modelSearch", "input", function () {
+      renderModelList(this.value);
+    });
+
+    on("#modelList", "mousedown", function (e) {
+      var btn = e.target.closest("[data-model-index]");
+      if (!btn) return;
+      e.preventDefault();
+      var idx = parseInt(btn.getAttribute("data-model-index"), 10);
+      selectModel(currentModelOptions[idx]);
+    });
+
+    on("#engineButton", "click", function () {
+      if (!selection.brand || !selection.model) return;
+      var panel = q("#enginePanel");
+      var isOpen = panel && !panel.classList.contains("hidden");
+      closeAllCombos("enginePanel");
+      if (!isOpen && panel) {
+        panel.classList.remove("hidden");
+        renderEngineList("");
+        var search = q("#engineSearch");
+        if (search) setTimeout(function () { search.focus(); }, 30);
+      }
+    });
+
+    on("#engineSearch", "input", function () {
+      renderEngineList(this.value);
+    });
+
+    on("#engineList", "mousedown", function (e) {
+      var btn = e.target.closest("[data-engine-index]");
+      if (!btn) return;
+      e.preventDefault();
+      var idx = parseInt(btn.getAttribute("data-engine-index"), 10);
+      selectEngine(currentEngineOptions[idx]);
+    });
+
+    document.addEventListener("click", function (e) {
+      if (!e.target.closest(".combo")) {
+        closeAllCombos();
+      }
+    });
+
+    on("#vehicleYear", "input", function () {
+      if (selection.brand) loadModelsForBrand(selection.brand.name, false);
+      refreshEngineOptions();
+      updateSelectionSummary();
+    });
+
+    on("#vehicleYear", "change", function () {
+      if (selection.brand) loadModelsForBrand(selection.brand.name, false);
+      refreshEngineOptions();
+      updateSelectionSummary();
+    });
+
+    on("#pdfUpload", "change", function (e) {
+      var file = e.target.files && e.target.files[0];
+      if (!file) return;
+
+      if (file.type !== "application/pdf") {
+        pdfStatus("Format non supporté. PDF uniquement.", "error");
+        return;
       }
 
-      saveRequests(reqs);
+      pdfStatus("Chargement de la bibliothèque PDF...", "success");
 
-      if (broadcast) {
-        try {
-          broadcast.postMessage({
-            type: "access-change",
-            payload: {
-              email: req.email,
-              status: req.status
-            }
+      ensurePdfJs()
+        .then(function () {
+          pdfStatus("Extraction du texte en cours...", "success");
+          return readFileAsArrayBuffer(file);
+        })
+        .then(function (arrayBuffer) {
+          return window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+        })
+        .then(function (pdf) {
+          var fullText = "";
+          var promises = [];
+
+          for (var i = 1; i <= pdf.numPages; i++) {
+            (function (pageNum) {
+              promises.push(
+                pdf.getPage(pageNum).then(function (page) {
+                  return page.getTextContent();
+                }).then(function (tc) {
+                  fullText += tc.items.map(function (item) { return item.str; }).join(" ") + "\n\n";
+                })
+              );
+            })(i);
+          }
+
+          return Promise.all(promises).then(function () {
+            extractedText = fullText;
+            var textInput = q("#textInput");
+            if (textInput) textInput.value = fullText;
+            pdfStatus("PDF extrait avec succès (" + pdf.numPages + " pages).", "success");
           });
-        } catch (e2) {}
+        })
+        .catch(function (err) {
+          console.warn(err);
+          pdfStatus("Extraction PDF indisponible : " + err.message + ". Saisissez le texte manuellement.", "error");
+        });
+    });
+
+    on("#analyzeBtn", "click", function () {
+      if (!currentUser) {
+        toast("Connectez-vous.", "error");
+        return;
       }
 
+      var info = dailyInfo();
+      if (!info.allowed) {
+        toast("Limite de " + CONFIG.maxDailyAnalyses + " analyses/jour atteinte.", "warning");
+        return;
+      }
+
+      var textEl = q("#textInput");
+      var contextEl = q("#contextInfo");
+      var objectiveEl = q("#objectiveInfo");
+      var goalEl = q("#goalSelect");
+      var sellerEl = q("#sellerType");
+
+      var text = textEl ? textEl.value.trim() : "";
+      if (!text) text = extractedText.trim();
+
+      var context = contextEl ? contextEl.value.trim() : "";
+      var objective = (objectiveEl && objectiveEl.value.trim()) || (goalEl ? goalEl.value : "") || "";
+      var sellerType = sellerEl ? sellerEl.value : "unknown";
+
+      vehicleData = getSelectedVehicleData();
+
+      if (!text) {
+        toast("Saisissez des faits ou importez un PDF.", "warning");
+        return;
+      }
+
+      termesMobilises = new Set();
+
+      var btn = q("#analyzeBtn");
+      if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner"></span> Analyse experte + motorisation + auto-diagnostic en cours...';
+      }
+
+      setTimeout(function () {
+        try {
+          runAnalysis(text, context, objective, sellerType);
+          incrementDaily();
+          toast("Analyse générée.", "success");
+        } catch (err) {
+          console.error(err);
+          toast("Erreur d’analyse : " + err.message, "error");
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.innerHTML = "🔍 Lancer l’analyse croisée technique + juridique + motorisation + auto-diagnostic";
+          }
+        }
+      }, 700);
+    });
+
+    on("#adminPanelBtn", "click", function () {
+      if (!currentUser || currentUser.role !== "admin") return;
+      var panel = q("#adminPanel");
+      if (panel) panel.classList.remove("hidden");
       renderAdmin();
+    });
 
-      toast(
-        action === "approve"
-          ? "Demande acceptée. Si le tiers est sur un autre appareil, envoyez-lui le lien d’accès."
-          : "Demande refusée.",
-        action === "approve" ? "success" : "warning"
-      );
-    }
+    on("#closeAdminBtn", "click", function () {
+      var panel = q("#adminPanel");
+      if (panel) panel.classList.add("hidden");
+    });
 
-    if (action === "revoke" || action === "restore") {
-      var emailKey = userEmailKey(btn.dataset.email || "");
-      var users = getUsers();
-
-      var idx = users.findIndex(function (u) {
-        return u.emailNorm === emailKey && u.role !== "admin";
+    qa(".admin-tab").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        qa(".admin-tab").forEach(function (b) { b.classList.remove("active"); });
+        qa(".admin-pane").forEach(function (p) { p.classList.remove("active"); });
+        btn.classList.add("active");
+        var pane = q("#" + btn.dataset.adminTab + "Pane");
+        if (pane) pane.classList.add("active");
       });
+    });
 
-      if (idx >= 0) {
-        users[idx].status = action === "revoke" ? "revoked" : "approved";
-        users[idx].updatedAt = Date.now();
+    on("#adminPanel", "click", function (e) {
+      var btn = e.target.closest("button[data-action]");
+      if (!btn) return;
 
-        saveUsers(users);
+      var action = btn.dataset.action;
+
+      if (action === "approve" || action === "refuse") {
+        var id = btn.dataset.id;
+        var reqs = getRequests();
+        var req = reqs.find(function (r) { return r.id === id; });
+
+        if (!req) return;
+
+        req.status = action === "approve" ? "approved" : "refused";
+        req.processedAt = Date.now();
+        req.processedDate = new Date(req.processedAt).toLocaleString("fr-FR");
+
+        if (action === "approve") {
+          var user = upsertUser({
+            id: req.id,
+            name: req.name,
+            email: req.email,
+            role: "user",
+            status: "approved",
+            daily: { date: todayKey(), count: 0 }
+          });
+
+          req.userId = user.key;
+          notify("Accès approuvé", req.name + " (" + req.email + ")");
+        }
+
+        saveRequests(reqs);
 
         if (broadcast) {
           try {
             broadcast.postMessage({
               type: "access-change",
-              payload: {
-                email: users[idx].email,
-                status: users[idx].status
-              }
+              payload: { email: req.email, status: req.status }
             });
           } catch (e2) {}
         }
 
         renderAdmin();
-        enforceTierAccess();
 
         toast(
-          action === "revoke" ? "Accès révoqué." : "Accès rétabli.",
-          action === "revoke" ? "warning" : "success"
+          action === "approve"
+            ? "Demande acceptée. Si le tiers est sur un autre appareil, envoyez-lui le lien d’accès."
+            : "Demande refusée.",
+          action === "approve" ? "success" : "warning"
         );
       }
-    }
 
-    if (action === "share-grant") {
-      var name = btn.dataset.name || "";
-      var email = btn.dataset.email || "";
+      if (action === "revoke" || action === "restore") {
+        var emailKey = userEmailKey(btn.dataset.email || "");
+        var users = getUsers();
 
-      var user = findApprovedUser(name, email);
+        var idx = users.findIndex(function (u) {
+          return u.emailNorm === emailKey && u.role !== "admin";
+        });
 
-      if (!user) {
-        toast("Aucun utilisateur approuvé trouvé pour cet email.", "error");
+        if (idx >= 0) {
+          users[idx].status = action === "revoke" ? "revoked" : "approved";
+          users[idx].updatedAt = Date.now();
+
+          saveUsers(users);
+
+          if (broadcast) {
+            try {
+              broadcast.postMessage({
+                type: "access-change",
+                payload: { email: users[idx].email, status: users[idx].status }
+              });
+            } catch (e2) {}
+          }
+
+          renderAdmin();
+          enforceTierAccess();
+
+          toast(
+            action === "revoke" ? "Accès révoqué." : "Accès rétabli.",
+            action === "revoke" ? "warning" : "success"
+          );
+        }
+      }
+
+      if (action === "share-grant") {
+        var name = btn.dataset.name || "";
+        var email = btn.dataset.email || "";
+
+        var user = findApprovedUser(name, email);
+
+        if (!user) {
+          toast("Aucun utilisateur approuvé trouvé pour cet email.", "error");
+          return;
+        }
+
+        var url = makeAccessGrantUrl(user);
+
+        var text =
+          "Accès Expert Auto accordé\n" +
+          "Nom : " + user.name + "\n" +
+          "Email : " + user.email + "\n" +
+          "Ouvrez ce lien dans l’application pour être connecté automatiquement :\n" +
+          url;
+
+        shareTextUrl(text, url, "Accès Expert Auto");
+      }
+    });
+
+    on("#enableNotifBtn", "click", function () {
+      askNotification().then(function (permission) {
+        if (permission === "granted") toast("Notifications admin activées.", "success");
+        else if (permission === "denied") toast("Notifications bloquées. Autorisez-les dans Android / navigateur.", "warning");
+        else toast("Permission notification : " + permission, "info");
+      });
+    });
+
+    on("#testNotifBtn", "click", function () {
+      askNotification().then(function (permission) {
+        if (permission === "granted") {
+          notify("Test Expert Auto", "La notification admin fonctionne correctement.", "test-" + Date.now());
+          toast("Notification de test envoyée.", "success");
+        } else {
+          toast("Notification impossible : permission = " + permission, "warning");
+        }
+      });
+    });
+
+    on("#refreshRequestsBtn", "click", function () {
+      updateNotificationBell();
+      renderAdmin();
+      toast("Demandes actualisées.", "info");
+    });
+
+    on("#notifBellBtn", "click", function () {
+      if (!currentUser || currentUser.role !== "admin") return;
+
+      var panel = q("#adminPanel");
+      if (panel) panel.classList.remove("hidden");
+
+      qa(".admin-tab").forEach(function (b) {
+        b.classList.toggle("active", b.dataset.adminTab === "requests");
+      });
+
+      qa(".admin-pane").forEach(function (p) {
+        p.classList.toggle("active", p.id === "requestsPane");
+      });
+
+      renderAdmin();
+    });
+
+    on("#saveCatalogCfgBtn", "click", function () {
+      saveCatalogConfigFromUi();
+    });
+
+    on("#reloadCatalogBtn", "click", function () {
+      saveCatalogConfigFromUi();
+      loadCatalogs(true);
+    });
+
+    on("#syncAutoBtn", "click", function () {
+      saveCatalogConfigFromUi();
+      loadAutoDiagnostic(true).then(function () {
+        updateAdminStats();
+        refreshSelectorsFromCatalog();
+      });
+    });
+
+    on("#forceUpdateBtn", "click", function () {
+      fetchJson(CONFIG.catalog.technicalUrl)
+        .then(function (json) {
+          ingestCatalogJson(json, CONFIG.catalog.technicalUrl);
+          save(KEYS.LAST_UPDATE, Date.now());
+          updateAdminStats();
+          refreshSelectorsFromCatalog();
+          toast("Mise à jour technique appliquée.", "success");
+        })
+        .catch(function () {
+          toast("Mise à jour impossible. Base locale conservée.", "warning");
+        });
+    });
+
+    on("#exportDataBtn", "click", function () {
+      var data = {
+        exportedAt: new Date().toISOString(),
+        users: getUsers(),
+        requests: getRequests(),
+        importedRaw: loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [],
+        catalogStats: {
+          brands: getAllBrands().length,
+          models: catalog.models.length,
+          engines: catalog.engines.length,
+          defects: catalog.defects.length
+        }
+      };
+
+      var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "aide-redactionnelle-expert-data-v17.json";
+      a.click();
+      toast("Données exportées.", "success");
+    });
+
+    on("#importDataBtn", "click", function () {
+      var input = document.createElement("input");
+      input.type = "file";
+      input.accept = ".json";
+
+      input.onchange = function () {
+        var file = input.files && input.files[0];
+        if (!file) return;
+
+        var reader = new FileReader();
+        reader.onload = function () {
+          try {
+            var data = JSON.parse(reader.result);
+
+            if (data.users) saveUsers(data.users);
+            if (data.requests) saveRequests(data.requests);
+
+            var imported = loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [];
+            imported.push(data);
+            save(KEYS.IMPORTED_RAW, imported);
+
+            ingestCatalogJson(data, "import-manuel");
+
+            updateAdminStats();
+            refreshSelectorsFromCatalog();
+            renderAdmin();
+            toast("Données importées.", "success");
+          } catch (err) {
+            console.error(err);
+            toast("Erreur d’import JSON.", "error");
+          }
+        };
+
+        reader.readAsText(file);
+      };
+
+      input.click();
+    });
+
+    on("#apkBtn", "click", function () {
+      if (location.protocol === "file:") {
+        toast("Pour générer l’APK, publiez d’abord le site en HTTPS (GitHub Pages, Netlify, Vercel).", "warning");
+        return;
+      }
+      window.open("https://www.pwabuilder.com/?url=" + encodeURIComponent(location.origin + location.pathname), "_blank");
+    });
+
+    on("#copyUrlBtn", "click", function () {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(location.href).then(function () {
+          toast("URL copiée.", "success");
+        }).catch(function () {
+          toast("Copie impossible.", "error");
+        });
+      } else {
+        toast("Copie non supportée par ce navigateur.", "warning");
+      }
+    });
+
+    on("#installBtn", "click", function () {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then(function () {
+          deferredPrompt = null;
+        }).catch(function () {});
+      } else {
+        toast("Utilisez le menu du navigateur : Installer l’application.", "info");
+      }
+    });
+
+    window.addEventListener("beforeinstallprompt", function (e) {
+      e.preventDefault();
+      deferredPrompt = e;
+      var btn = q("#installBtn");
+      if (btn) btn.classList.remove("hidden");
+    });
+
+    on("#generatePdfBtn", "click", function () {
+      if (!analysisData || !analysisData.sections || !analysisData.sections.length) {
+        toast("Générez d’abord une analyse.", "warning");
         return;
       }
 
-      var url = makeAccessGrantUrl(user);
+      generatePdfWithJsPdf().catch(function () {
+        toast("Bibliothèque PDF indisponible. Impression/fallback HTML activé.", "warning");
+        printReportFallback();
+      });
+    });
 
-      var text =
-        "Accès Expert Auto accordé\n" +
-        "Nom : " + user.name + "\n" +
-        "Email : " + user.email + "\n" +
-        "Ouvrez ce lien dans l’application pour être connecté automatiquement :\n" +
-        url;
+    on("#shareBtn", "click", function () {
+      if (!analysisData || !analysisData.sections || !analysisData.sections.length) {
+        toast("Aucune analyse à partager.", "warning");
+        return;
+      }
+
+      var text = analysisData.sections.map(function (pair) {
+        return pair[0] + "\n" + stripTags(pair[1]);
+      }).join("\n\n");
 
       if (navigator.share) {
-        navigator.share({
-          title: "Accès Expert Auto",
-          text: text,
-          url: url
-        }).catch(function () {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(url).then(function () {
-              toast("Lien d’accès copié.", "success");
-            }).catch(function () {
-              toast("Copie impossible.", "error");
-            });
-          } else {
-            toast("Partage impossible.", "warning");
-          }
-        });
+        navigator.share({ title: "Analyse Expert Auto", text: text }).catch(function () {});
       } else if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(url).then(function () {
-          toast("Lien d’accès copié.", "success");
+        navigator.clipboard.writeText(text).then(function () {
+          toast("Rapport copié.", "success");
         }).catch(function () {
           toast("Copie impossible.", "error");
         });
       } else {
         toast("Partage non supporté.", "warning");
       }
-    }
-  });
+    });
 
-  on("#enableNotifBtn", "click", function () {
-    askNotification().then(function (permission) {
-      if (permission === "granted") {
-        toast("Notifications admin activées.", "success");
-      } else if (permission === "denied") {
-        toast("Notifications bloquées. Autorisez-les dans Android / navigateur.", "warning");
-      } else {
-        toast("Permission notification : " + permission, "info");
+    setInterval(enforceTierAccess, 15000);
+
+    window.addEventListener("storage", function (e) {
+      if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS || e.key === OLD_KEYS.USERS || e.key === OLD_KEYS.REQUESTS) {
+        updateNotificationBell();
+
+        if (currentUser && currentUser.role === "admin") {
+          pollAdminNotifications();
+          renderAdminIfOpen();
+        }
+
+        enforceTierAccess();
       }
     });
-  });
 
-  on("#testNotifBtn", "click", function () {
-    askNotification().then(function (permission) {
-      if (permission === "granted") {
-        notify(
-          "Test Expert Auto",
-          "La notification admin fonctionne correctement.",
-          "test-" + Date.now()
-        );
-        toast("Notification de test envoyée.", "success");
-      } else {
-        toast("Notification impossible : permission = " + permission, "warning");
-      }
-    });
-  });
-
-  on("#refreshRequestsBtn", "click", function () {
-    updateNotificationBell();
-    renderAdmin();
-    toast("Demandes actualisées.", "info");
-  });
-
-  on("#notifBellBtn", "click", function () {
-    if (!currentUser || currentUser.role !== "admin") return;
-
-    var panel = q("#adminPanel");
-    if (panel) panel.classList.remove("hidden");
-
-    qa(".admin-tab").forEach(function (b) {
-      b.classList.toggle("active", b.dataset.adminTab === "requests");
-    });
-
-    qa(".admin-pane").forEach(function (p) {
-      p.classList.toggle("active", p.id === "requestsPane");
-    });
-
-    renderAdmin();
-  });
-
-  on("#saveAutoCfgBtn", "click", function () {
-    saveAutoConfigFromUi();
-  });
-
-  on("#syncAutoBtn", "click", function () {
-    saveAutoConfigFromUi();
-    syncAutoDiagnostic(true).then(function () {
-      return fetchEngineCatalogs(true);
-    });
-  });
-
-  on("#loadEngineCatalogBtn", "click", function () {
-    fetchEngineCatalogs(true);
-  });
-
-  on("#forceUpdateBtn", "click", function () {
-    fetchUpdate(true);
-  });
-
-  on("#exportDataBtn", "click", function () {
-    var data = {
-      exportedAt: new Date().toISOString(),
-      users: getUsers(),
-      requests: getRequests(),
-      defects: techUpdates,
-      autoDefects: autoDb,
-      engineExtra: engineExtra,
-      autoConfig: autoConfig
-    };
-
-    var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "aide-redactionnelle-expert-data-v16.json";
-    a.click();
-    toast("Données exportées.", "success");
-  });
-
-  on("#importDataBtn", "click", function () {
-    var input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".json";
-
-    input.onchange = function () {
-      var file = input.files && input.files[0];
-      if (!file) return;
-
-      var reader = new FileReader();
-      reader.onload = function () {
+    if (broadcast) {
+      broadcast.onmessage = function (event) {
         try {
-          var data = JSON.parse(reader.result);
+          var data = event.data || {};
 
-          if (data.users) saveUsers(data.users);
-          if (data.requests) saveRequests(data.requests);
-          if (data.autoConfig) {
-            autoConfig = Object.assign({}, autoConfig, data.autoConfig);
-            save(KEYS.AUTO_CFG, autoConfig);
+          if (data.type === "access-request") {
+            onAccessRequestReceived(data.payload);
           }
 
-          if (data.engineExtra) {
-            engineExtra = mergeEngineRecords(engineExtra, data.engineExtra);
-            save(KEYS.ENGINE_EXTRA, engineExtra);
-          }
+          if (data.type === "access-change") {
+            enforceTierAccess();
 
-          var incoming = [];
-          if (Array.isArray(data)) incoming = data;
-          else if (data.defects) incoming = data.defects;
-          else if (data.autoDefects) incoming = data.autoDefects;
-          else if (data.base) incoming = data.base;
-          else if (data.pannes) incoming = data.pannes;
-
-          if (Array.isArray(incoming)) {
-            var normalized = collectRecordsFromJson(incoming, "import-manuel", 0);
-            if (normalized.length) {
-              autoDb = mergeDefects(autoDb, normalized);
-              save(KEYS.AUTO_DB, autoDb);
-              autoLastSync = Date.now();
-              save(KEYS.AUTO_LAST_SYNC, autoLastSync);
-            } else {
-              techUpdates = mergeDefects(techUpdates, incoming);
-              save(KEYS.TECH_UPDATES, techUpdates);
-              save(KEYS.LAST_UPDATE, Date.now());
+            if (currentUser && currentUser.role === "admin") {
+              updateNotificationBell();
+              renderAdminIfOpen();
             }
           }
-
-          var engineIncoming = [];
-          if (data.motorisations) engineIncoming = data.motorisations;
-          else if (data.engines) engineIncoming = data.engines;
-          else if (data.engineCatalog) engineIncoming = data.engineCatalog;
-
-          if (Array.isArray(engineIncoming)) {
-            var erecs = collectEngineRecordsFromJson(engineIncoming, "import-manuel", 0);
-            if (erecs.length) {
-              engineExtra = mergeEngineRecords(engineExtra, erecs);
-              save(KEYS.ENGINE_EXTRA, engineExtra);
-            }
-          }
-
-          updateAdminStats();
-          refreshModelOptions();
-          renderAdmin();
-          toast("Données importées.", "success");
-        } catch (err) {
-          console.error(err);
-          toast("Erreur d’import JSON.", "error");
+        } catch (e) {
+          console.warn("[AR-EXPERT] Broadcast message ignoré:", e);
         }
       };
-
-      reader.readAsText(file);
-    };
-
-    input.click();
-  });
-
-  on("#apkBtn", "click", function () {
-    if (location.protocol === "file:") {
-      toast("Pour générer l’APK, publiez d’abord le site en HTTPS (GitHub Pages, Netlify, Vercel).", "warning");
-      return;
-    }
-    window.open("https://www.pwabuilder.com/?url=" + encodeURIComponent(location.origin + location.pathname), "_blank");
-  });
-
-  on("#copyUrlBtn", "click", function () {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(location.href).then(function () {
-        toast("URL copiée.", "success");
-      }).catch(function () {
-        toast("Copie impossible.", "error");
-      });
-    } else {
-      toast("Copie non supportée par ce navigateur.", "warning");
-    }
-  });
-
-  on("#installBtn", "click", function () {
-    if (deferredPrompt) {
-      deferredPrompt.prompt();
-      deferredPrompt.userChoice.then(function () {
-        deferredPrompt = null;
-      }).catch(function () {});
-    } else {
-      toast("Utilisez le menu du navigateur : Installer l’application.", "info");
-    }
-  });
-
-  window.addEventListener("beforeinstallprompt", function (e) {
-    e.preventDefault();
-    deferredPrompt = e;
-    var btn = q("#installBtn");
-    if (btn) btn.classList.remove("hidden");
-  });
-
-  on("#generatePdfBtn", "click", function () {
-    if (!analysisData || !analysisData.sections || !analysisData.sections.length) {
-      toast("Générez d’abord une analyse.", "warning");
-      return;
     }
 
-    generatePdfWithJsPdf().catch(function () {
-      toast("Bibliothèque PDF indisponible. Impression/fallback HTML activé.", "warning");
-      printReportFallback();
+    window.addEventListener("arex:access-request", function (event) {
+      onAccessRequestReceived(event.detail);
     });
-  });
-
-  on("#shareBtn", "click", function () {
-    if (!analysisData || !analysisData.sections || !analysisData.sections.length) {
-      toast("Aucune analyse à partager.", "warning");
-      return;
-    }
-
-    var text = analysisData.sections.map(function (pair) {
-      return pair[0] + "\n" + stripTags(pair[1]);
-    }).join("\n\n");
-
-    if (navigator.share) {
-      navigator.share({
-        title: "Analyse Expert Auto",
-        text: text
-      }).catch(function () {});
-    } else if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () {
-        toast("Rapport copié.", "success");
-      }).catch(function () {
-        toast("Copie impossible.", "error");
-      });
-    } else {
-      toast("Partage non supporté.", "warning");
-    }
-  });
-
-  /* =========================================================
-     TEMPS REEL LOCAL
-     ========================================================= */
-  setInterval(enforceTierAccess, 15000);
-
-  window.addEventListener("storage", function (e) {
-    if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS || e.key === OLD_KEYS.USERS || e.key === OLD_KEYS.REQUESTS) {
-      updateNotificationBell();
-
-      if (currentUser && currentUser.role === "admin") {
-        pollAdminNotifications();
-        renderAdminIfOpen();
-      }
-
-      enforceTierAccess();
-    }
-  });
-
-  if (broadcast) {
-    broadcast.onmessage = function (event) {
-      try {
-        var data = event.data || {};
-
-        if (data.type === "access-request") {
-          onAccessRequestReceived(data.payload);
-        }
-
-        if (data.type === "access-change") {
-          enforceTierAccess();
-
-          if (currentUser && currentUser.role === "admin") {
-            updateNotificationBell();
-            renderAdminIfOpen();
-          }
-        }
-      } catch (e) {
-        console.warn("[AR-EXPERT] Broadcast message ignoré:", e);
-      }
-    };
   }
 
-  window.addEventListener("arex:access-request", function (event) {
-    onAccessRequestReceived(event.detail);
-  });
+  function shareTextUrl(text, url, title) {
+    if (navigator.share) {
+      navigator.share({ title: title, text: text, url: url }).catch(function () {
+        copyFallback(url);
+      });
+    } else {
+      copyFallback(url);
+    }
+  }
+
+  function copyFallback(url) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        toast("Lien copié.", "success");
+      }).catch(function () {
+        toast("Copie impossible.", "error");
+      });
+    } else {
+      toast("Partage/copie non supporté.", "warning");
+    }
+  }
 
   /* =========================================================
      INIT
      ========================================================= */
   function init() {
-    try {
-      techUpdates = (loadWithMigration(KEYS.TECH_UPDATES, OLD_KEYS.TECH_UPDATES, []) || [])
-        .map(normalizeDefect)
-        .filter(isValidDefect);
-    } catch (e) {
-      techUpdates = [];
-    }
-
-    try {
-      autoDb = (loadWithMigration(KEYS.AUTO_DB, OLD_KEYS.AUTO_DB, []) || [])
-        .map(normalizeDefect)
-        .filter(isValidDefect);
-    } catch (e) {
-      autoDb = [];
-    }
-
-    try {
-      engineExtra = (loadWithMigration(KEYS.ENGINE_EXTRA, OLD_KEYS.ENGINE_EXTRA, []) || [])
-        .map(function (e) { return normalizeEngineRecord(e, e.sourceUrl || ""); })
-        .filter(Boolean);
-    } catch (e) {
-      engineExtra = [];
-    }
+    loadCatalogConfig();
+    seedBaseCatalog();
+    loadStoredTechnicalUpdates();
+    loadImportedCatalog();
 
     autoLastSync = loadWithMigration(KEYS.AUTO_LAST_SYNC, OLD_KEYS.AUTO_LAST_SYNC, 0) || 0;
-    autoConfig = Object.assign({}, CONFIG.autoDiagnostic, loadWithMigration(KEYS.AUTO_CFG, OLD_KEYS.AUTO_CFG, {}) || {});
 
     updateAdminStats();
     updateDataStatus("Base locale ingénieur chargée");
     updateNotificationState();
 
     registerServiceWorker();
-    checkAutoUpdate(false);
-
     refreshSavedPasswordButton();
 
     processIncomingAccessRequestFromUrl();
 
     if (processIncomingAccessGrantFromUrl()) {
       updateNotificationBell();
+      loadCatalogs(false);
       return;
     }
 
@@ -5414,17 +3838,18 @@
       showLogin();
     }
 
-    refreshModelOptions();
+    updateModelButton();
+    updateEngineButton();
+    updateSelectionSummary();
 
-    syncAutoDiagnostic(false).then(function () {
-      return fetchEngineCatalogs(false);
-    }).catch(function () {});
+    loadCatalogs(false);
 
-    toast("Application prête. Marque prédictive + modèle/motorisation filtrés + auto-diagnostic chargés.", "success");
+    toast("Application prête. Catalogue intelligent + auto-diagnostic chargés.", "success");
   }
 
   function boot() {
     try {
+      bindUi();
       init();
     } catch (e) {
       console.warn("[AR-EXPERT] Boot dégradé:", e);
