@@ -1,18 +1,21 @@
 document.addEventListener('DOMContentLoaded', function () {
   // =====================================================
-  // CONFIGURATION
+  // CONFIGURATION GLOBALE
   // =====================================================
-  if (window.pdfjsLib) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-  }
-
   const ADMIN_PASSWORD = 'Kevin83600';
   const MAX_DAILY_ANALYSES = 10;
+  const REMEMBER_KEY = 'ar_remember_admin_pwd';
+  
+  // URL Source externe pour enrichir la base (Projet My-Tech-By-Kevin)
+  // Note: Si le CORS bloque, on tombe en fallback local automatique.
+  const EXTERNAL_DATA_URL = 'https://expertkevin06-cell.github.io/my-tech-by-kevin/data/technical-defects.json'; 
 
   const STORAGE_KEYS = {
-    SESSION: 'ar_expert_session_v5_fixed',
-    USERS: 'ar_expert_users_v5_fixed',
-    REQUESTS: 'ar_expert_requests_v5_fixed'
+    SESSION: 'ar_expert_session_v6',
+    USERS: 'ar_expert_users_v6',
+    REQUESTS: 'ar_expert_requests_v6',
+    TECH_CACHE: 'ar_tech_cache_v6',
+    SYNC_DATE: 'ar_sync_date_v6'
   };
 
   let currentUser = null;
@@ -21,12 +24,13 @@ document.addEventListener('DOMContentLoaded', function () {
   let extractedText = '';
   let termesMobilises = new Set();
   let deferredPrompt = null;
-
+  let technicalDatabase = {}; // Chargé dynamiquement
+  
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
   // =====================================================
-  // UTILITAIRES
+  // UTILITAIRES SYSTÈME
   // =====================================================
   function todayKey() { return new Date().toISOString().slice(0, 10); }
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); }
@@ -85,7 +89,129 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // =====================================================
-  // AUTH LOGIC
+  // CHARGEMENT BASE TECHNIQUE (HYBRIDE LOCAL/REMOTE)
+  // =====================================================
+  
+  // 1. Base Locale Robuste (Fallback immédiat)
+  const LOCAL_TECH_BASE = {
+    "renault": {
+      label: "Renault",
+      engines: [
+        { code: "H5F / 1.2 TCe", power: "120ch", years: "2012-2020", models: ["Clio IV", "Captur", "Megane III"], symptoms: ["consommation huile", "casse moteur", "segmentation"], severity: "critique", note: "Defaut conception piston/cylindre.", wear_factor: 0.8 },
+        { code: "K9K / 1.5 dCi", power: "90ch", years: "2009-2018", models: ["Clio", "Megane", "Scenic", "Duster", "Trafic II"], symptoms: ["casse bielle", "claquement", "pompe huile"], severity: "critique", note: "Risque casse brutale sans preavis.", wear_factor: 0.9 },
+        { code: "EDC6", power: "N/A", years: "2012-2018", models: ["Clio IV", "Captur"], symptoms: ["a-coups", "blocage rapport", "voyant boite"], severity: "critique", note: "Mechatronique fragile.", wear_factor: 0.7 },
+        { code: "Baie Pare-brise / Etancheite", power: "N/A", years: "2014-2023", models: ["Trafic II", "Master", "Espace V"], symptoms: ["infiltration eau", "court circuit", "moisiure", "panne electronique"], severity: "critique", note: "Defaut joint usine/collage. Independant du km.", wear_factor: 0.95 }
+      ]
+    },
+    "peugeot": {
+      label: "Peugeot",
+      engines: [
+        { code: "EB2 / 1.2 PureTech", power: "110ch", years: "2012-2022", models: ["208", "308", "3008"], symptoms: ["courroie distribution", "casse moteur", "bruit cliquetis"], severity: "critique", note: "Courroie humide degregation.", wear_factor: 0.85 },
+        { code: "DV6 / 1.6 HDI", power: "92ch", years: "2009-2018", models: ["308", "3008", "508"], symptoms: ["EGR encrasse", "FAP colmate", "turbo HS"], severity: "moyen", note: "Usage urbain intensif.", wear_factor: 0.5 }
+      ]
+    },
+    "citroen": {
+      label: "Citroën",
+      engines: [
+        { code: "EB2 / 1.2 PureTech", power: "110ch", years: "2012-2022", models: ["C3", "C4", "C4 Picasso"], symptoms: ["courroie distribution", "casse moteur"], severity: "critique", note: "Identique PSA.", wear_factor: 0.85 }
+      ]
+    },
+    "volkswagen": {
+      label: "Volkswagen",
+      engines: [
+        { code: "EA189 TDI", power: "105ch", years: "2009-2015", models: ["Golf", "Passat", "Tiguan"], symptoms: ["dieselgate", "logiciel", "NOx"], severity: "critique", note: "Tricherie pollution.", wear_factor: 1.0 },
+        { code: "DSG7 DQ200", power: "N/A", years: "2008-2016", models: ["Golf", "Polo"], symptoms: ["mecatronique HS", "patinage", "a-coups"], severity: "critique", note: "Double embrayage sec fragile.", wear_factor: 0.7 }
+      ]
+    },
+    "bmw": {
+      label: "BMW",
+      engines: [
+        { code: "N47 2.0d", power: "163ch", years: "2007-2015", models: ["Serie 1", "Serie 3", "X1"], symptoms: ["chaine distribution", "bruit crecelle", "casse chaine"], severity: "critique", note: "Chaine cote boite.", wear_factor: 0.8 }
+      ]
+    },
+    "ford": {
+      label: "Ford",
+      engines: [
+        { code: "PowerShift DPS6", power: "N/A", years: "2011-2016", models: ["Focus", "Fiesta"], symptoms: ["vibrations", "a-coups", "odeur brule"], severity: "critique", note: "Boite defaillante mondiale.", wear_factor: 0.8 },
+        { code: "Ecoboost 1.0L", power: "100ch", years: "2012-2018", models: ["Focus", "Fiesta"], symptoms: ["joint culasse", "surchauffe", "eau dans huile"], severity: "critique", note: "Defaut thermique.", wear_factor: 0.9 }
+      ]
+    }
+  };
+
+  async function initTechnicalDB() {
+    const statusEl = $('#dataStatus');
+    statusEl.textContent = "Initialisation base locale...";
+    
+    // Charger cache local si existant
+    let cachedDb = load(STORAGE_KEYS.TECH_CACHE, null);
+    let lastSync = load(STORAGE_KEYS.SYNC_DATE, null);
+    
+    if (cachedDb) {
+      technicalDatabase = cachedDb;
+      statusEl.textContent = `Base chargée (Cache ${lastSync || 'Ancien'})`;
+      updateAdminStats();
+    } else {
+      technicalDatabase = LOCAL_TECH_BASE;
+      statusEl.textContent = "Base locale par défaut active";
+    }
+
+    // Tentative de synchro externe (Asynchrone, ne bloque pas l'UI)
+    if (navigator.onLine) {
+      try {
+        statusEl.textContent += " | Synchronisation externe...";
+        const response = await fetch(EXTERNAL_DATA_URL, { method: 'GET' });
+        if (response.ok) {
+          const remoteData = await response.json();
+          // Fusion intelligente : Remote écrase Local si plus récent/complet
+          technicalDatabase = mergeDatabases(LOCAL_TECH_BASE, remoteData);
+          save(STORAGE_KEYS.TECH_CACHE, technicalDatabase);
+          save(STORAGE_KEYS.SYNC_DATE, new Date().toLocaleString('fr-FR'));
+          statusEl.textContent = "✅ Base Technique Synchronisée (Externe + Locale)";
+          updateAdminStats();
+        } else {
+          throw new Error("HTTP " + response.status);
+        }
+      } catch (err) {
+        console.warn("Synchro externe échouée, utilisation cache/local:", err);
+        statusEl.textContent = "⚠️ Mode Hors-Ligne / Cache Local";
+      }
+    } else {
+      statusEl.textContent = "🔌 Mode Hors-Ligne (Base Locale Active)";
+    }
+  }
+
+  function mergeDatabases(local, remote) {
+    // Logique simple : On garde tout de local, on ajoute/écrase avec remote
+    const merged = { ...local };
+    for (const key in remote) {
+      if (!merged[key]) {
+        merged[key] = remote[key];
+      } else {
+        // Fusion des moteurs si marque existe déjà
+        merged[key].engines = [...new Map([...remote[key].engines, ...local[key].engines].map(item => [item.code, item])).values()];
+      }
+    }
+    return merged;
+  }
+
+  function updateAdminStats() {
+    const brands = Object.keys(technicalDatabase).length;
+    let entries = 0;
+    Object.values(technicalDatabase).forEach(db => {
+      entries += db.engines.length;
+    });
+    
+    const statEntries = $('#statEntries');
+    const statBrands = $('#statBrands');
+    const statSync = $('#statSync');
+    
+    if(statEntries) statEntries.textContent = entries;
+    if(statBrands) statBrands.textContent = brands;
+    if(statSync) statSync.textContent = load(STORAGE_KEYS.SYNC_DATE, "Non sync");
+  }
+
+  // =====================================================
+  // AUTHENTIFICATION & GESTION UTILISATEURS
   // =====================================================
   function getUsers() { return load(STORAGE_KEYS.USERS, []); }
   function saveUsers(users) { save(STORAGE_KEYS.USERS, users); }
@@ -176,9 +302,9 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   }
 
-  // CORRECTION MAJEURE : Fonction showApp robuste
+  // CORRECTION BUG AFFICHAGE : showApp forcé
   function showApp() {
-    console.log("Show App called for:", currentUser);
+    console.log("Show App triggered for:", currentUser);
     
     // Masquer Login
     const loginScreen = $('#loginScreen');
@@ -188,7 +314,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const mainApp = $('#mainApp');
     if(mainApp) {
         mainApp.classList.remove('hidden');
-        mainApp.style.display = 'block'; // Force block pour éviter conflits CSS
+        mainApp.style.display = 'block'; 
     }
     
     // Mettre à jour Badge
@@ -204,8 +330,6 @@ document.addEventListener('DOMContentLoaded', function () {
     
     updateCounter();
     askNotificationPermission();
-    
-    // Scroll top
     window.scrollTo(0,0);
   }
 
@@ -244,12 +368,21 @@ document.addEventListener('DOMContentLoaded', function () {
 
   $('#adminLoginBtn').addEventListener('click', async () => {
     const pwd = $('#adminPassword').value;
+    const remember = $('#rememberMe').checked;
+    
     if (!pwd) return authMessage('Mot de passe requis.', 'error');
     
     const inputHash = await sha256(pwd);
     const adminHash = await sha256(ADMIN_PASSWORD);
     
     if (inputHash === adminHash) {
+      if (remember) {
+        // Stockage simple (non sécurisé cryptographiquement mais suffisant pour usage perso local)
+        sessionStorage.setItem(REMEMBER_KEY, 'true');
+      } else {
+        sessionStorage.removeItem(REMEMBER_KEY);
+      }
+      
       setSession({ id: 'admin', name: 'Administrateur', email: 'admin@local', role: 'admin', status: 'approved' });
       showApp();
       toast('Connexion réussie.', 'success');
@@ -301,7 +434,10 @@ document.addEventListener('DOMContentLoaded', function () {
     toast('Connecté.', 'success');
   });
 
-  $('#logoutBtn').addEventListener('click', () => { clearSession(); showLogin(); });
+  $('#logoutBtn').addEventListener('click', () => { 
+    clearSession(); 
+    showLogin(); 
+  });
 
   // =====================================================
   // PDF UPLOAD
@@ -335,58 +471,14 @@ document.addEventListener('DOMContentLoaded', function () {
   }
 
   // =====================================================
-  // BASE TECHNIQUE EXPERT (USURE + INFILTRATION)
+  // LOGIQUE DE CORRELATION TECHNIQUE AVANCÉE
   // =====================================================
-  const TECHNICAL_KNOWLEDGE_BASE = {
-    "renault": {
-      label: "Renault",
-      engines: [
-        { code: "H5F / 1.2 TCe", power: "120ch", years: "2012-2020", models: ["Clio IV", "Captur", "Megane III"], symptoms: ["consommation huile", "casse moteur", "segmentation"], severity: "critique", note: "Defaut conception piston.", wear_factor: 0.8 },
-        { code: "K9K / 1.5 dCi", power: "90ch", years: "2009-2018", models: ["Clio", "Megane", "Scenic", "Duster", "Trafic II"], symptoms: ["casse bielle", "claquement", "pompe huile"], severity: "critique", note: "Risque casse brutale.", wear_factor: 0.9 },
-        { code: "EDC6", power: "N/A", years: "2012-2018", models: ["Clio IV", "Captur"], symptoms: ["a-coups", "blocage rapport", "voyant boite"], severity: "critique", note: "Mechatronique fragile.", wear_factor: 0.7 },
-        { code: "Baie Pare-brise / Etancheite", power: "N/A", years: "2014-2023", models: ["Trafic II", "Master", "Espace V"], symptoms: ["infiltration eau", "court circuit", "moisiure", "panne electronique"], severity: "critique", note: "Defaut joint usine/collage. Independant du km.", wear_factor: 0.95 }
-      ]
-    },
-    "peugeot": {
-      label: "Peugeot",
-      engines: [
-        { code: "EB2 / 1.2 PureTech", power: "110ch", years: "2012-2022", models: ["208", "308", "3008"], symptoms: ["courroie distribution", "casse moteur", "bruit cliquetis"], severity: "critique", note: "Courroie humide degregation.", wear_factor: 0.85 },
-        { code: "DV6 / 1.6 HDI", power: "92ch", years: "2009-2018", models: ["308", "3008", "508"], symptoms: ["EGR encrasse", "FAP colmate", "turbo HS"], severity: "moyen", note: "Usage urbain intensif.", wear_factor: 0.5 }
-      ]
-    },
-    "citroen": {
-      label: "Citroën",
-      engines: [
-        { code: "EB2 / 1.2 PureTech", power: "110ch", years: "2012-2022", models: ["C3", "C4", "C4 Picasso"], symptoms: ["courroie distribution", "casse moteur"], severity: "critique", note: "Identique PSA.", wear_factor: 0.85 }
-      ]
-    },
-    "volkswagen": {
-      label: "Volkswagen",
-      engines: [
-        { code: "EA189 TDI", power: "105ch", years: "2009-2015", models: ["Golf", "Passat", "Tiguan"], symptoms: ["dieselgate", "logiciel", "NOx"], severity: "critique", note: "Tricherie pollution.", wear_factor: 1.0 },
-        { code: "DSG7 DQ200", power: "N/A", years: "2008-2016", models: ["Golf", "Polo"], symptoms: ["mecatronique HS", "patinage", "a-coups"], severity: "critique", note: "Double embrayage sec fragile.", wear_factor: 0.7 }
-      ]
-    },
-    "bmw": {
-      label: "BMW",
-      engines: [
-        { code: "N47 2.0d", power: "163ch", years: "2007-2015", models: ["Serie 1", "Serie 3", "X1"], symptoms: ["chaine distribution", "bruit crecelle", "casse chaine"], severity: "critique", note: "Chaine cote boite.", wear_factor: 0.8 }
-      ]
-    },
-    "ford": {
-      label: "Ford",
-      engines: [
-        { code: "PowerShift DPS6", power: "N/A", years: "2011-2016", models: ["Focus", "Fiesta"], symptoms: ["vibrations", "a-coups", "odeur brule"], severity: "critique", note: "Boite defaillante mondiale.", wear_factor: 0.8 },
-        { code: "Ecoboost 1.0L", power: "100ch", years: "2012-2018", models: ["Focus", "Fiesta"], symptoms: ["joint culasse", "surchauffe", "eau dans huile"], severity: "critique", note: "Defaut thermique.", wear_factor: 0.9 }
-      ]
-    }
-  };
-
+  
   function matchTechnicalDefects(marque, modele, annee, kilometrage, texteFaits) {
-    const brandKey = Object.keys(TECHNICAL_KNOWLEDGE_BASE).find(k => k.includes(normalize(marque)) || normalize(marque).includes(k));
+    const brandKey = Object.keys(technicalDatabase).find(k => k.includes(normalize(marque)) || normalize(marque).includes(k));
     if (!brandKey) return [];
 
-    const db = TECHNICAL_KNOWLEDGE_BASE[brandKey];
+    const db = technicalDatabase[brandKey];
     const yearNum = parseInt(annee) || 0;
     const kmNum = parseInt(String(kilometrage).replace(/\D/g,'')) || 0;
     const textLower = normalize(texteFaits);
@@ -414,6 +506,7 @@ document.addEventListener('DOMContentLoaded', function () {
         let confidenceLevel = "Haute";
         let wearWarning = "";
         
+        // Algorithme de pesée Usure vs Vice Caché
         if (kmNum > 150000 && engine.wear_factor < 0.6) {
            confidenceLevel = "Basse";
            wearWarning = "Km eleve : risque fort d'usure normale.";
@@ -460,7 +553,8 @@ document.addEventListener('DOMContentLoaded', function () {
 
     const text = $('#textInput').value.trim() || extractedText.trim();
     const context = $('#contextInfo').value.trim();
-    const objective = $('#objectiveInfo').value.trim();
+    const objective = $('#objectiveInfo').value || $('#goalSelect').value;
+    const sellerType = $('#sellerType').value;
 
     vehicleData = {
       marque: $('#vehicleBrand').value.trim(),
@@ -479,7 +573,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     setTimeout(() => {
       try {
-        runAnalysis(text, context, objective);
+        runAnalysis(text, context, objective, sellerType);
         incrementDaily();
         toast('Analyse generee.', 'success');
       } catch (err) {
@@ -492,11 +586,11 @@ document.addEventListener('DOMContentLoaded', function () {
     }, 1000);
   });
 
-  function runAnalysis(text, context, objective) {
+  function runAnalysis(text, context, objective, sellerType) {
     const allText = (text + ' ' + context).toLowerCase();
     const flags = {
-      professional: ['professionnel', 'garage', 'concession'].some(w => allText.includes(w)),
-      privateSeller: ['particulier', 'entre particuliers'].some(w => allText.includes(w)),
+      professional: sellerType === 'professional' || ['professionnel', 'garage', 'concession'].some(w => allText.includes(w)),
+      privateSeller: sellerType === 'private' || ['particulier', 'entre particuliers'].some(w => allText.includes(w)),
       defect: ['defaut', 'panne', 'bruit', 'fuite', 'a-coup'].some(w => allText.includes(w)),
       waterLeak: ['eau', 'humidite', 'infiltration', 'baie', 'pare brise'].some(w => allText.includes(w))
     };
@@ -671,13 +765,20 @@ document.addEventListener('DOMContentLoaded', function () {
   function renderAdmin() {
     renderRequests();
     renderUsers();
-    renderStats();
+    updateAdminStats();
   }
 
   function renderRequests() {
     const box = $('#pendingRequests');
     const pending = getRequests().filter(r => r.status === 'pending');
-    box.innerHTML = pending.length ? pending.map(r => `
+    $('#pendingCount').textContent = pending.length;
+    
+    if (pending.length === 0) {
+      box.innerHTML = '<p class="empty-state">Aucune demande.</p>';
+      return;
+    }
+
+    box.innerHTML = pending.map(r => `
       <div class="card pending">
         <strong>${escapeHtml(r.name)}</strong> <small>${escapeHtml(r.email)}</small>
         <p>${escapeHtml(r.reason)}</p>
@@ -686,32 +787,25 @@ document.addEventListener('DOMContentLoaded', function () {
           <button class="btn-no" data-action="refuse" data-id="${r.id}">Refuser</button>
         </div>
       </div>
-    `).join('') : '<p class="muted">Aucune demande.</p>';
+    `).join('');
   }
 
   function renderUsers() {
     const box = $('#authorizedUsers');
     const users = getUsers().filter(u => u.role !== 'admin');
-    box.innerHTML = users.length ? users.map(u => `
+    if (users.length === 0) {
+      box.innerHTML = '<p class="empty-state">Aucun tiers.</p>';
+      return;
+    }
+
+    box.innerHTML = users.map(u => `
       <div class="card ${u.status}">
         <strong>${escapeHtml(u.name)}</strong> <small>${escapeHtml(u.email)} • ${u.status}</small>
         <div class="actions">
           ${u.status === 'approved' ? `<button class="btn-warn" data-action="revoke" data-email="${u.email}" data-name="${u.name}">Révoquer</button>` : `<button class="btn-ok" data-action="restore" data-email="${u.email}" data-name="${u.name}">Rétablir</button>`}
         </div>
       </div>
-    `).join('') : '<p class="muted">Aucun tiers.</p>';
-  }
-
-  function renderStats() {
-    const users = getUsers();
-    const requests = getRequests();
-    const approved = users.filter(u => u.status === 'approved' && u.role !== 'admin').length;
-    const pending = requests.filter(r => r.status === 'pending').length;
-    $('#statsContent').innerHTML = `
-      <div class="stat"><span>Tiers actifs</span><b>${approved}</b></div>
-      <div class="stat"><span>En attente</span><b>${pending}</b></div>
-      <div class="stat"><span>Limite/jour</span><b>${MAX_DAILY_ANALYSES}</b></div>
-    `;
+    `).join('');
   }
 
   $('#adminPanel').addEventListener('click', (e) => {
@@ -748,6 +842,12 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
+  $('#forceSyncBtn').addEventListener('click', async () => {
+    toast("Tentative de resynchronisation...", "info");
+    await initTechnicalDB();
+    toast("Synchronisation terminée.", "success");
+  });
+
   // =====================================================
   // EXPORT / IMPORT / APK
   // =====================================================
@@ -778,7 +878,6 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 
   $('#apkBtn').addEventListener('click', () => {
-    // IMPORTANT: Doit etre sur https://...github.io pour que PWABuilder fonctionne
     window.open('https://www.pwabuilder.com/?url=' + encodeURIComponent(location.origin + location.pathname), '_blank');
   });
   
@@ -862,6 +961,8 @@ document.addEventListener('DOMContentLoaded', function () {
   // =====================================================
   // INIT
   // =====================================================
+  initTechnicalDB();
+  
   if (restoreSession()) {
     showApp();
   } else {
