@@ -1,4 +1,4 @@
-const CACHE_NAME = "arex-expert-v14";
+const CACHE_NAME = "arex-expert-v15-engine";
 
 const CORE_ASSETS = [
   "./",
@@ -37,7 +37,11 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (url.pathname.includes("/data/technical-updates.json")) {
+  if (
+    url.pathname.includes("/data/technical-updates.json") ||
+    url.pathname.includes("/data/engine-catalog.json") ||
+    url.pathname.includes("/data/motorisations.json")
+  ) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
