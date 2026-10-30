@@ -1,0 +1,18 @@
+{
+  "defects": [
+    {
+      "b": "Renault",
+      "m": "Trafic II|Master III",
+      "y": "2017-2024",
+      "e": "Baie de pare-brise / étanchéité",
+      "p": "N/A",
+      "s": "infiltration eau|court circuit|moisiure|panne électronique|voyants aléatoires",
+      "sev": "critique",
+      "wf": 0.95,
+      "n": "Défaut d'étanchéité de la baie de pare-brise.",
+      "law": "Vice caché 1641 C.civ.; sécurité L.423-1 C.consom.",
+      "rec": "Rappel conso / DGCCRF / forums",
+      "tg": "eau|electricite|court-circuit|securite"
+    }
+  ]
+}
