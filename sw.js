@@ -1,4 +1,4 @@
-const CACHE_NAME = "arex-expert-v13";
+const CACHE_NAME = "arex-expert-v14";
 
 const CORE_ASSETS = [
   "./",
@@ -37,8 +37,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Mise à jour technique : réseau d'abord, cache fallback.
-  if (url.pathname.endsWith("/data/technical-updates.json")) {
+  if (url.pathname.includes("/data/technical-updates.json")) {
     event.respondWith(
       fetch(event.request)
         .then((response) => {
@@ -53,7 +52,6 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Application : cache d'abord, réseau fallback, puis index.html hors-ligne.
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
