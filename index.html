@@ -4,9 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#1a1a2e" />
-  <title>Aide Rédactionnelle Expert</title>
+  <title>Aide Rédactionnelle Expert - Auto/Tech</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
+  <!-- Icônes -->
+  <link rel="apple-touch-icon" href="icon-192.png">
 </head>
 <body>
 
@@ -17,40 +19,47 @@
     <div class="login-card">
       <div class="login-head">
         <h1>📋 Aide Rédactionnelle Expert</h1>
-        <p>Analyse technique et juridique automobile — droit français</p>
+        <p>Analyse Technique & Juridique Automobile</p>
+        <small style="color:#666; display:block; margin-top:5px;">Version Offline/Hybrid v6.0</small>
       </div>
 
       <div class="auth-tabs">
         <button class="auth-tab active" data-auth-tab="admin">👑 Admin</button>
-        <button class="auth-tab" data-auth-tab="request">📨 Demande d’accès</button>
-        <button class="auth-tab" data-auth-tab="login">👤 Connexion tiers</button>
+        <button class="auth-tab" data-auth-tab="request">📨 Demande Accès</button>
+        <button class="auth-tab" data-auth-tab="login">👤 Connexion Tiers</button>
       </div>
 
-      <!-- Admin -->
+      <!-- Panneau Admin -->
       <div id="adminPane" class="auth-pane active">
-        <label for="adminPassword">Mot de passe administrateur</label>
-        <input type="password" id="adminPassword" placeholder="Entrez le mot de passe" />
-        <button id="adminLoginBtn" class="btn-primary">Se connecter</button>
+        <label for="adminPassword">Mot de Passe Administrateur</label>
+        <input type="password" id="adminPassword" placeholder="••••••••" autocomplete="off" />
+        
+        <div class="checkbox-group">
+          <input type="checkbox" id="rememberMe" checked>
+          <label for="rememberMe" style="margin:0; font-weight:normal; font-size:0.9rem;">Mémoriser ce mot de passe (Local)</label>
+        </div>
+
+        <button id="adminLoginBtn" class="btn-primary">Accéder au Tableau de Bord</button>
       </div>
 
-      <!-- Demande tiers -->
+      <!-- Panneau Demande d'accès -->
       <div id="requestPane" class="auth-pane">
-        <label for="reqName">Nom complet</label>
-        <input type="text" id="reqName" placeholder="Nom et prénom" />
+        <label for="reqName">Nom Complet</label>
+        <input type="text" id="reqName" placeholder="Jean Dupont" />
         <label for="reqEmail">Email</label>
-        <input type="email" id="reqEmail" placeholder="email@exemple.fr" />
+        <input type="email" id="reqEmail" placeholder="jean@example.com" />
         <label for="reqReason">Motif de la demande</label>
-        <textarea id="reqReason" placeholder="Expliquez brièvement votre besoin..."></textarea>
-        <button id="requestBtn" class="btn-secondary">Envoyer la demande</button>
+        <textarea id="reqReason" placeholder="Besoin d'analyse pour litige vente véhicule..."></textarea>
+        <button id="requestBtn" class="btn-secondary">Envoyer la Demande</button>
       </div>
 
-      <!-- Connexion tiers -->
+      <!-- Panneau Connexion Tiers -->
       <div id="loginPane" class="auth-pane">
-        <label for="loginName">Nom complet</label>
+        <label for="loginName">Nom Utilisateur</label>
         <input type="text" id="loginName" placeholder="Nom utilisé lors de la demande" />
         <label for="loginEmail">Email</label>
         <input type="email" id="loginEmail" placeholder="Email utilisé lors de la demande" />
-        <button id="thirdLoginBtn" class="btn-secondary">Se connecter</button>
+        <button id="thirdLoginBtn" class="btn-secondary">Se Connecter</button>
       </div>
 
       <div id="authMsg" class="auth-msg"></div>
@@ -63,70 +72,84 @@
   <div id="mainApp" class="container hidden">
     <header>
       <div class="header-top">
-        <h1>📋 Analyse Expert Auto</h1>
+        <h1>🚗 Analyse Expert Auto</h1>
         <div class="header-actions">
           <span id="userBadge" class="badge"></span>
-          <button id="installBtn" class="icon-btn hidden" title="Installer l’application">📲</button>
-          <button id="adminPanelBtn" class="icon-btn hidden" title="Panneau admin">⚙️</button>
+          <button id="installBtn" class="icon-btn hidden" title="Installer App">📲</button>
+          <button id="adminPanelBtn" class="icon-btn hidden" title="Admin Panel">⚙️</button>
           <button id="logoutBtn" class="icon-btn" title="Déconnexion">🚪</button>
         </div>
       </div>
-      <p class="subtitle">Analyse factuelle — niveau ingénieur / juriste</p>
+      <p class="subtitle">Ingénierie • Droit Civil • Consommation</p>
       <div id="dailyCounter" class="counter"></div>
+      <div id="dataStatus" class="data-status">Chargement base technique...</div>
     </header>
 
     <main>
       <section class="input-section">
         <div class="vehicle-box">
-          <h3>🚗 Véhicule</h3>
+          <h3>1. Identification Véhicule</h3>
           <div class="grid">
-            <div><label for="vehicleBrand">Marque</label><input id="vehicleBrand" type="text" placeholder="Renault, Peugeot..." /></div>
-            <div><label for="vehicleModel">Modèle</label><input id="vehicleModel" type="text" placeholder="Clio, 308..." /></div>
-            <div><label for="vehicleYear">Année</label><input id="vehicleYear" type="text" placeholder="2015" /></div>
-            <div><label for="vehicleKilometrage">Km</label><input id="vehicleKilometrage" type="text" placeholder="85000" /></div>
-            <div><label for="vehicleVin">VIN</label><input id="vehicleVin" type="text" placeholder="Numéro série" /></div>
+            <div><label>Marque</label><input id="vehicleBrand" type="text" placeholder="Renault, Peugeot..." /></div>
+            <div><label>Modèle</label><input id="vehicleModel" type="text" placeholder="Clio, 308, Trafic..." /></div>
+            <div><label>Année</label><input id="vehicleYear" type="number" placeholder="2015" /></div>
+            <div><label>Kilométrage</label><input id="vehicleKilometrage" type="number" placeholder="120000" /></div>
+            <div><label>VIN (Optionnel)</label><input id="vehicleVin" type="text" placeholder="VF1..." /></div>
           </div>
         </div>
 
         <div class="field">
-          <label for="textInput">Faits / Désordres / Symptômes</label>
-          <textarea id="textInput" placeholder="Décrivez précisément les pannes, bruits, fuites, à-coups..."></textarea>
+          <label for="textInput">2. Description des Faits / Symptômes Techniques</label>
+          <textarea id="textInput" placeholder="Décrivez précisément : bruits, fuites, voyants, comportement boîte, odeurs, contexte d'apparition..."></textarea>
         </div>
 
         <div class="field">
-          <label for="pdfUpload">Importer PDF (Optionnel)</label>
+          <label for="pdfUpload">3. Import Document (PDF Facture/Rapport)</label>
           <input id="pdfUpload" type="file" accept=".pdf" />
           <div id="pdfStatus" class="status"></div>
         </div>
 
-        <div class="field">
-          <label for="contextInfo">Contexte Vendeur/Date</label>
-          <textarea id="contextInfo" placeholder="Vendeur pro ou particulier ? Date d'achat ? Documents dispo ?"></textarea>
+        <div class="grid-2">
+          <div class="field">
+            <label for="contextInfo">4. Contexte Vendeur</label>
+            <select id="sellerType">
+              <option value="unknown">Inconnu / Préciser ci-dessous</option>
+              <option value="professional">Professionnel (Garage/Concession)</option>
+              <option value="private">Particulier</option>
+            </select>
+            <textarea id="contextInfo" placeholder="Date achat, garanties restantes, échanges antérieurs..."></textarea>
+          </div>
+          <div class="field">
+            <label for="objectiveInfo">5. Objectif Recherché</label>
+            <select id="goalSelect">
+              <option value="refund">Remboursement Total</option>
+              <option value="repair">Prise en charge Réparation</option>
+              <option value="reduction">Réduction Prix</option>
+              <option value="legal">Dossier Avocat/Jugement</option>
+            </select>
+          </div>
         </div>
 
-        <div class="field">
-          <label for="objectiveInfo">Objectif</label>
-          <textarea id="objectiveInfo" placeholder="Remboursement, réparation, dossier avocat..."></textarea>
-        </div>
-
-        <button id="analyzeBtn" class="btn-primary">🔍 Lancer l’analyse experte</button>
+        <button id="analyzeBtn" class="btn-primary">🔍 Lancer l'Analyse Croisée (Tech + Loi)</button>
       </section>
 
       <section id="analysisSection" class="analysis-section hidden">
-        <h2>📊 Rapport d'Analyse</h2>
+        <h2>📊 Rapport d'Expertise Préliminaire</h2>
         <div class="disclaimer">
-          <strong>⚠️ Avertissement :</strong> Document généré automatiquement. Ne remplace pas un conseil juridique officiel ni une expertise judiciaire contradictoire.
+          <strong>⚠️ Note :</strong> Ce rapport combine une base de données technique massive (défauts connus, rappels) et le droit français (Code Civil, Conso). Il sert d'aide à la rédaction pour un avocat ou un expert judiciaire.
         </div>
         <div id="analysisResult" class="analysis-result"></div>
         
         <div class="actions-row">
-          <button id="generatePdfBtn" class="btn-secondary">📄 Télécharger PDF</button>
-          <button id="shareBtn" class="btn-secondary">📤 Partager Texte</button>
+          <button id="generatePdfBtn" class="btn-secondary">📄 Générer PDF Officiel</button>
+          <button id="shareBtn" class="btn-secondary">📤 Partager Résumé</button>
         </div>
       </section>
     </main>
 
-    <footer>Droit Français - Outil d'aide à la rédaction.</footer>
+    <footer>
+      © 2026 Aide Rédactionnelle Expert - Base Locale Sécurisée
+    </footer>
   </div>
 
   <!-- ========================= -->
@@ -135,32 +158,44 @@
   <div id="adminPanel" class="modal hidden">
     <div class="modal-card">
       <div class="modal-head">
-        <h2>⚙️ Administration</h2>
+        <h2>⚙️ Administration Système</h2>
         <button id="closeAdminBtn" class="icon-btn dark">✖</button>
       </div>
 
       <div class="admin-tabs">
-        <button class="admin-tab active" data-admin-tab="requests">🔑 Demandes</button>
+        <button class="admin-tab active" data-admin-tab="requests">🔑 Demandes (<span id="pendingCount">0</span>)</button>
         <button class="admin-tab" data-admin-tab="users">👥 Utilisateurs</button>
-        <button class="admin-tab" data-admin-tab="stats">📈 Stats</button>
-        <button class="admin-tab" data-admin-tab="apk">📦 APK/Data</button>
+        <button class="admin-tab" data-admin-tab="db">💾 Base Technique</button>
+        <button class="admin-tab" data-admin-tab="apk">📦 APK / Data</button>
       </div>
 
-      <div id="requestsPane" class="admin-pane active"><h3>Demandes en attente</h3><div id="pendingRequests" class="list"></div></div>
-      <div id="usersPane" class="admin-pane"><h3>Tiers autorisés</h3><div id="authorizedUsers" class="list"></div></div>
-      <div id="statsPane" class="admin-pane"><h3>Statistiques</h3><div id="statsContent" class="stats"></div></div>
-      
-      <div id="apkPane" class="admin-pane">
-        <h3>Génération APK & Données</h3>
-        <p class="muted">Pour créer l'APK, cliquez ci-dessous. Assurez-vous que le site est bien en ligne (GitHub Pages).</p>
-        <div class="actions-row">
-          <button id="apkBtn" class="btn-secondary">📦 Ouvrir PWABuilder</button>
-          <button id="copyUrlBtn" class="btn-secondary">🔗 Copier URL</button>
+      <div id="requestsPane" class="admin-pane active">
+        <h3>Demandes en attente de validation</h3>
+        <div id="pendingRequests" class="list empty-state">Aucune demande.</div>
+      </div>
+
+      <div id="usersPane" class="admin-pane">
+        <h3>Tiers Autorisés</h3>
+        <div id="authorizedUsers" class="list empty-state">Aucun utilisateur actif.</div>
+      </div>
+
+      <div id="dbPane" class="admin-pane">
+        <h3>Gestion Base de Données Technique</h3>
+        <p class="muted">La base intègre automatiquement les données locales et tente une synchronisation avec les sources externes (si connectées).</p>
+        <div class="stats-grid">
+          <div class="stat-box"><span>Entrées Défauts</span><b id="statEntries">--</b></div>
+          <div class="stat-box"><span>Marques Couvertes</span><b id="statBrands">--</b></div>
+          <div class="stat-box"><span>Dernière Synchro</span><b id="statSync">Jamais</b></div>
         </div>
-        <hr style="margin: 20px 0; border: 0; border-top: 1px solid #eee;" />
+        <button id="forceSyncBtn" class="btn-secondary mt-2">🔄 Forcer Synchronisation Externe</button>
+      </div>
+
+      <div id="apkPane" class="admin-pane">
+        <h3>Génération APK & Sauvegarde</h3>
         <div class="actions-row">
-          <button id="exportDataBtn" class="btn-secondary">⬇️ Exporter JSON</button>
-          <button id="importDataBtn" class="btn-secondary">⬆️ Importer JSON</button>
+          <button id="apkBtn" class="btn-secondary">📦 Créer APK (PWABuilder)</button>
+          <button id="exportDataBtn" class="btn-secondary">⬇️ Export Config/Utilisateurs</button>
+          <button id="importDataBtn" class="btn-secondary">⬆️ Import Config</button>
         </div>
       </div>
     </div>
@@ -168,11 +203,11 @@
 
   <div id="toast" class="toast hidden"></div>
 
-  <!-- Scripts Externes -->
+  <!-- Libs -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   
-  <!-- Script Principal -->
+  <!-- Logique Principale -->
   <script src="app.js"></script>
 </body>
 </html>
