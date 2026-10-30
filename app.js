@@ -97,6 +97,16 @@
     return false;
   }
 
+  function unique(values) {
+    var seen = {};
+    return (values || []).filter(function (v) {
+      var k = norm(v);
+      if (!k || seen[k]) return false;
+      seen[k] = true;
+      return true;
+    });
+  }
+
   function parseKm(v) {
     return parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10) || 0;
   }
@@ -109,23 +119,35 @@
   function yearMatches(range, year) {
     if (!year) return true;
     var s = String(range || "").trim();
-    if (!s || s === "*" || s.toLowerCase().indexOf("tous") >= 0) return true;
+    if (!s || s === "*" || norm(s).indexOf("tous") >= 0) return true;
 
-    var m = s.match(/(\d{4})\D*(\d{4})?/);
-    if (!m) return true;
+    var parts = s.split("|");
+    for (var i = 0; i < parts.length; i++) {
+      var m = parts[i].match(/(\d{4})\D*(\d{4})?/);
+      if (!m) continue;
+      var a = parseInt(m[1], 10);
+      var b = m[2] ? parseInt(m[2], 10) : a;
+      if (year >= a && year <= b) return true;
+    }
 
-    var a = parseInt(m[1], 10);
-    var b = m[2] ? parseInt(m[2], 10) : a;
-    return year >= a && year <= b;
+    return false;
   }
 
-  function brandMatch(a, b) {
+  function brandMatches(a, b) {
     var na = normKey(a);
     var nb = normKey(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
+
+    var ba = catalog.brands[na];
+    if (ba && ba.aliasKeys && ba.aliasKeys[nb]) return true;
+
+    var bb = catalog.brands[nb];
+    if (bb && bb.aliasKeys && bb.aliasKeys[na]) return true;
+
     if (na.length > 3 && nb.indexOf(na) >= 0) return true;
     if (nb.length > 3 && na.indexOf(nb) >= 0) return true;
+
     return false;
   }
 
@@ -264,13 +286,20 @@
       });
   }
 
+  function fetchText(url) {
+    return fetch(url, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      });
+  }
+
   /* =========================================================
      CONFIGURATION
      ========================================================= */
   var CONFIG = {
     adminPassword: "Kevin83600",
     maxDailyAnalyses: 10,
-    updateIntervalDays: 30,
     pollAdminMs: 5000,
     catalog: {
       vehicleUrl: "./data/vehicle-catalog.json",
@@ -286,13 +315,40 @@
         "data/base.json",
         "data/pannes.json",
         "data/technical-updates.json",
+        "data/dtc.json",
         "db.json",
         "database.json"
+      ],
+      scriptUrls: [
+        "index.html",
+        "js/app.js",
+        "js/data.js",
+        "js/base.js",
+        "js/catalog.js",
+        "js/motorisations.js",
+        "js/models.js",
+        "js/brands.js",
+        "app.js",
+        "data.js",
+        "db.js",
+        "assets/db.js"
       ]
     }
   };
 
   var KEYS = {
+    SESSION: "arex_session_v18",
+    USERS: "arex_users_v18",
+    REQUESTS: "arex_requests_v18",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v18",
+    TECH_UPDATES: "arex_tech_updates_v18",
+    LAST_UPDATE: "arex_last_update_v18",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v18",
+    CATALOG_CFG: "arex_catalog_cfg_v18",
+    IMPORTED_RAW: "arex_imported_raw_v18"
+  };
+
+  var OLD_KEYS = {
     SESSION: "arex_session_v17",
     USERS: "arex_users_v17",
     REQUESTS: "arex_requests_v17",
@@ -302,18 +358,6 @@
     AUTO_LAST_SYNC: "arex_auto_last_sync_v17",
     CATALOG_CFG: "arex_catalog_cfg_v17",
     IMPORTED_RAW: "arex_imported_raw_v17"
-  };
-
-  var OLD_KEYS = {
-    SESSION: "arex_session_v16",
-    USERS: "arex_users_v16",
-    REQUESTS: "arex_requests_v16",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v16",
-    TECH_UPDATES: "arex_tech_updates_v16",
-    LAST_UPDATE: "arex_last_update_v16",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v16",
-    CATALOG_CFG: "arex_auto_cfg_v16",
-    IMPORTED_RAW: "arex_imported_raw_v16"
   };
 
   /* =========================================================
@@ -989,7 +1033,7 @@
   }
 
   /* =========================================================
-     CATALOGUE : MARQUES / MODELES / MOTORSATIONS
+     CATALOGUE : MARQUES / MODELES / MOTORSATIONS / DEFAUTS
      ========================================================= */
   var BASE_BRANDS = [
     "Renault", "Dacia", "Peugeot", "Citroen", "DS", "Volkswagen", "Audi", "Skoda", "Seat", "Cupra",
@@ -1006,31 +1050,31 @@
   ];
 
   var BRAND_ALIASES = {
-    "volkswagen": ["vw", "vag", "volkswagen group"],
-    "mercedes-benz": ["mercedes", "benz", "mb"],
-    "citroen": ["citroën"],
-    "land rover": ["landrover", "lr"],
-    "range rover": ["land rover", "range"],
-    "alfa romeo": ["alfa"],
-    "maserati": ["masa"],
-    "chevrolet": ["chevy"],
-    "bmw": ["bayerische motoren werke"],
-    "mini": ["mini cooper"],
-    "tesla": ["tesla motors"],
-    "byd": ["build your dreams"],
-    "mg": ["morris garages"],
-    "xpeng": ["x-peng"],
-    "nio": ["next ev"],
-    "gwm": ["great wall motor"],
-    "ldv": ["maxus"],
-    "jac": ["jianghuai automobile"],
-    "dfsk": ["dongfeng small truck"],
-    "iveco": ["iveco bus"],
-    "man": ["man truck"],
-    "scania": ["scania truck"]
+    volkswagen: ["vw", "vag", "volkswagen group"],
+    mercedesbenz: ["mercedes", "benz", "mb"],
+    citroen: ["citroen"],
+    landrover: ["landrover", "lr"],
+    rangerover: ["land rover", "range"],
+    alfaromeo: ["alfa"],
+    maserati: ["masa"],
+    chevrolet: ["chevy"],
+    bmw: ["bayerische motoren werke"],
+    mini: ["mini cooper"],
+    tesla: ["tesla motors"],
+    byd: ["build your dreams"],
+    mg: ["morris garages"],
+    xpeng: ["x peng"],
+    nio: ["next ev"],
+    gwm: ["great wall motor"],
+    ldv: ["maxus"],
+    jac: ["jianghuai automobile"],
+    dfsk: ["dongfeng small truck"],
+    iveco: ["iveco bus"],
+    man: ["man truck"],
+    scania: ["scania truck"]
   };
 
-  function addBrand(name, aliases, source) {
+  function addBrand(name, aliases, sourceLabel, sourceUrl) {
     name = String(name || "").trim();
     if (!name) return;
 
@@ -1040,7 +1084,8 @@
         name: name,
         aliases: [],
         aliasKeys: {},
-        source: source || "local"
+        source: sourceLabel || "local",
+        sourceUrl: sourceUrl || ""
       };
     }
 
@@ -1067,12 +1112,12 @@
     }
   }
 
-  function addModel(brand, name, years, source) {
+  function addModel(brand, name, years, sourceLabel, sourceUrl) {
     brand = String(brand || "").trim();
     name = String(name || "").trim();
     if (!brand || !name || name === "*") return;
 
-    addBrand(brand, null, source);
+    addBrand(brand, null, sourceLabel, sourceUrl);
 
     var k = normKey(brand) + "|" + normKey(name);
     if (catalog.modelKeys[k]) return;
@@ -1082,7 +1127,8 @@
       brand: brand,
       name: name,
       years: years || "",
-      source: source || "local"
+      source: sourceLabel || "local",
+      sourceUrl: sourceUrl || ""
     });
   }
 
@@ -1097,7 +1143,7 @@
 
     if (containsAny(t, [
       "48v", "mild hybrid", "micro-hybridation", "eq boost", "boosterjet",
-      "firefly hybrid", "hybrid 48", "e-torque", "etrone", "egmp"
+      "firefly hybrid", "hybrid 48", "e-torque", "egmp"
     ])) return "Hybride léger 48V";
 
     var hy = containsAny(t, [
@@ -1111,7 +1157,7 @@
       "tesla", "id.3", "id.4", "id.5", "id.7", "ioniq", "atto", "model 3",
       "model y", "e-tron", "e-cmp", "megane e-tech", "scenic e-tech",
       "austral e-tech", "captur e-tech", "spring", "500e", "e-corsa",
-      "e-208", "e-2008", "enyaq", "born", "taycan", "mach-e", "i-pace",
+      "e-208", "e-2008", "enyaq", "elroq", "born", "taycan", "mach-e", "i-pace",
       "ariya", "leaf", "mx-30", "eqs", "eqe", "eqb", "eqa", "q4 e-tron",
       "ev6", "ev9", "mg4", "seal", "dolphin", "bolt"
     ]);
@@ -1123,7 +1169,7 @@
     if (containsAny(t, [
       "diesel", "dci", "tdi", "hdi", "bluehdi", "bluemotion", "cdti",
       "ddis", "crdi", "k9k", "dv6", "om654", "b47", "ea288", "d-4d",
-      "gasoil", "multijet", "ecoblue", "bluedci"
+      "gasoil", "multijet", "ecoblue", "bluedci", "tdci"
     ])) return "Diesel";
 
     if (containsAny(t, [
@@ -1139,6 +1185,14 @@
     return "Non précisé / mixte";
   }
 
+  function isFuelType(f) {
+    f = norm(f || "");
+    return [
+      "essence", "diesel", "hybride", "hybride rechargeable",
+      "hybride leger 48v", "electrique", "gpl", "e85", "bioethanol"
+    ].some(function (x) { return f.indexOf(x) >= 0; });
+  }
+
   function isElectricLike(fuel) {
     var t = norm(fuel || "");
     return t.indexOf("electrique") >= 0 ||
@@ -1146,27 +1200,47 @@
            t.indexOf("48v") >= 0;
   }
 
-  function addEngine(o) {
+  function looksLikeMotorisation(text) {
+    var t = norm(text || "");
+    if (!t || t.length < 2) return false;
+
+    if (containsAny(t, [
+      "essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol",
+      "turbo", "tdi", "tsi", "tfsi", "hdi", "dci", "bluehdi", "bluedci",
+      "puretech", "firefly", "ecoboost", "skyactiv", "boostjet", "ecotorque",
+      "e-tech", "etech", "phev", "bev", "48v", "mild", "full hybrid",
+      "plug-in", "rechargeable", "electric", "hybrid", "multijet", "tdci",
+      "ecoblue", "d-4d", "thp", "tce", "t-gdi", "tgdi", "crdi", "mpi", "gdi",
+      "i-mmd", "e:hev", "e-power", "self-charging", "elroq", "enyaq"
+    ])) return true;
+
+    if (/\b\d\.\d\b/.test(t)) return true;
+    if (/\b\d{3,4}\b/.test(t) && /\b(ch|kw|kwh|hp|cv)\b/.test(t)) return true;
+    if (/^[a-z0-9 .,_-]{3,50}$/.test(t) && /\b[a-z]{1,4}\d{2,3}\b/.test(t)) return true;
+
+    return false;
+  }
+
+  function addEngine(o, sourceUrl, force, sourceLabel) {
     if (!o) return;
 
     var brand = valToString(firstVal(o, ["b", "brand", "marque", "constructeur"]));
     var model = valToString(firstVal(o, ["m", "model", "modele", "modèle"]));
-    var engine = valToString(firstVal(o, ["e", "engine", "motorisation", "moteur", "name"]));
-    var power = valToString(firstVal(o, ["p", "power", "puissance", "ch", "kw"]));
-    var fuel = valToString(firstVal(o, ["t", "type", "fuel", "energie", "énergie", "engineType"]));
-    var trans = valToString(firstVal(o, ["tr", "transmission", "boite", "boîte", "gearbox"]));
-    var years = valToString(firstVal(o, ["y", "years", "annee", "année", "period"]));
-    var source = valToString(firstVal(o, ["source", "src"])) || "catalogue";
-    var sourceUrl = valToString(firstVal(o, ["sourceUrl", "url", "lien", "link"]));
+    var engine = valToString(firstVal(o, ["e", "engine", "motorisation", "moteur", "powertrain", "name", "version", "variant"]));
+    var power = valToString(firstVal(o, ["p", "power", "puissance", "ch", "kw", "kwh"]));
+    var fuel = valToString(firstVal(o, ["t", "type", "fuel", "energie", "énergie", "engineType", "carburant"]));
+    var trans = valToString(firstVal(o, ["tr", "transmission", "boite", "boîte", "gearbox", "speed"]));
+    var years = valToString(firstVal(o, ["y", "years", "annee", "année", "period", "range"]));
+    var src = valToString(firstVal(o, ["source", "src"])) || sourceLabel || "catalogue";
 
     if (Array.isArray(o)) {
-      brand = o[0] || "";
-      model = o[1] || "";
-      years = o[2] || "";
-      engine = o[3] || "";
-      power = o[4] || "";
-      fuel = o[5] || "";
-      trans = o[6] || "";
+      brand = o[0] || brand;
+      model = o[1] || model;
+      years = o[2] || years;
+      engine = o[3] || engine;
+      power = o[4] || power;
+      fuel = o[5] || fuel;
+      trans = o[6] || trans;
     }
 
     brand = String(brand || "").trim();
@@ -1175,8 +1249,13 @@
 
     if (!brand || !model || !engine) return;
 
-    if (!fuel) fuel = inferFuel(engine + " " + power + " " + trans + " " + years);
-    if (!isFuelType(fuel)) fuel = inferFuel(engine + " " + trans);
+    if (!fuel || !isFuelType(fuel)) {
+      fuel = inferFuel(engine + " " + power + " " + trans + " " + model + " " + years);
+    }
+
+    if (!force && !isFuelType(fuel) && !looksLikeMotorisation(engine)) return;
+
+    if (!isFuelType(fuel)) fuel = "Non précisé / mixte";
 
     var k = normKey(brand) + "|" + normKey(model) + "|" + normKey(engine) + "|" + normKey(power) + "|" + normKey(fuel) + "|" + normKey(trans);
     if (catalog.engineKeys[k]) return;
@@ -1191,19 +1270,68 @@
       fuel: fuel,
       transmission: trans || "",
       years: years || "",
-      source: source,
-      sourceUrl: sourceUrl
+      source: src,
+      sourceUrl: sourceUrl || valToString(firstVal(o, ["sourceUrl", "url", "lien", "link"])) || ""
     });
 
-    addModel(brand, model, years, source);
+    addModel(brand, model, years, src, sourceUrl);
   }
 
-  function isFuelType(f) {
-    f = norm(f);
-    return [
-      "essence", "diesel", "hybride", "hybride rechargeable",
-      "hybride leger 48v", "electrique", "gpl", "e85", "bioethanol"
-    ].some(function (x) { return f.indexOf(x) >= 0; });
+  function normalizeDefect(d, sourceLabel, sourceUrl) {
+    if (!d) return null;
+
+    var out = {
+      b: valToString(firstVal(d, ["b", "brand", "marque", "constructeur"])),
+      m: valToString(firstVal(d, ["m", "models", "model", "modele", "modèle"])),
+      y: valToString(firstVal(d, ["y", "years", "annee", "année", "period", "range"])),
+      e: valToString(firstVal(d, ["e", "engine", "motorisation", "moteur", "system", "système", "name"])),
+      p: valToString(firstVal(d, ["p", "power", "puissance"])),
+      s: valToString(firstVal(d, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"])),
+      sev: valToString(firstVal(d, ["sev", "severity", "gravite", "gravité"])) || "moyen",
+      wf: typeof d.wf === "number" ? d.wf : (typeof d.wearFactor === "number" ? d.wearFactor : 0.5),
+      n: valToString(firstVal(d, ["n", "note", "description", "fiche", "detail"])),
+      law: valToString(firstVal(d, ["law", "legal", "baseLegale", "droit", "fondement"])),
+      rec: valToString(firstVal(d, ["rec", "recall", "rappel", "campagne", "source"])),
+      tg: valToString(firstVal(d, ["tg", "tags", "categorie", "category", "systeme"])),
+      dtc: valToString(firstVal(d, ["dtc", "codeDtc", "code", "codes"])),
+      source: valToString(firstVal(d, ["source", "src"])) || sourceLabel || "base locale",
+      sourceUrl: valToString(firstVal(d, ["sourceUrl", "url", "lien", "link"])) || sourceUrl || ""
+    };
+
+    out.et = valToString(firstVal(d, ["et", "engineType", "type", "fuel", "energie"])) || inferFuel(out.e + " " + out.tg + " " + out.s + " " + out.n);
+
+    if (!out.b || !out.s) return null;
+    return out;
+  }
+
+  function addDefect(d, sourceLabel, sourceUrl) {
+    var nd = normalizeDefect(d, sourceLabel, sourceUrl);
+    if (!nd) return;
+
+    catalog.defects.push(nd);
+    addBrand(nd.b, null, nd.source, nd.sourceUrl);
+
+    if (nd.m && nd.m !== "*") {
+      String(nd.m).split("|").forEach(function (m) {
+        addModel(nd.b, m, nd.y, nd.source, nd.sourceUrl);
+      });
+    }
+
+    if (nd.e && nd.m && nd.m !== "*" && looksLikeMotorisation(nd.e)) {
+      String(nd.m).split("|").forEach(function (m) {
+        addEngine({
+          b: nd.b,
+          m: m,
+          y: nd.y,
+          e: nd.e,
+          p: nd.p,
+          t: nd.et,
+          tr: "",
+          source: nd.source,
+          sourceUrl: nd.sourceUrl
+        }, nd.sourceUrl, true, nd.source);
+      });
+    }
   }
 
   function getAllBrands() {
@@ -1220,7 +1348,7 @@
     var out = [];
 
     catalog.models.forEach(function (m) {
-      if (!brandMatch(m.brand, brand)) return;
+      if (!brandMatches(m.brand, brand)) return;
       if (!yearMatches(m.years, year)) return;
       out.push({
         id: normKey(m.brand) + "|" + normKey(m.name),
@@ -1238,11 +1366,51 @@
     return out;
   }
 
+  function reinforceEnginesFromDefects(brand, model, year) {
+    catalog.defects.forEach(function (d) {
+      if (!brandMatches(d.b, brand)) return;
+      if (!yearMatches(d.y, year)) return;
+      if (!looksLikeMotorisation(d.e)) return;
+
+      if (d.m && d.m !== "*") {
+        String(d.m).split("|").forEach(function (m) {
+          if (!model || nameMatch(m, model)) {
+            addEngine({
+              b: d.b,
+              m: m,
+              y: d.y,
+              e: d.e,
+              p: d.p,
+              t: d.et,
+              tr: "",
+              source: d.source,
+              sourceUrl: d.sourceUrl
+            }, d.sourceUrl, true, d.source);
+          }
+        });
+      } else if (model) {
+        addEngine({
+          b: d.b,
+          m: model,
+          y: d.y,
+          e: d.e,
+          p: d.p,
+          t: d.et,
+          tr: "",
+          source: d.source,
+          sourceUrl: d.sourceUrl
+        }, d.sourceUrl, true, d.source);
+      }
+    });
+  }
+
   function getEngines(brand, model, year) {
+    reinforceEnginesFromDefects(brand, model, year);
+
     var out = [];
 
     catalog.engines.forEach(function (e) {
-      if (!brandMatch(e.brand, brand)) return;
+      if (!brandMatches(e.brand, brand)) return;
       if (!nameMatch(e.model, model)) return;
       if (!yearMatches(e.years, year)) return;
 
@@ -1277,47 +1445,975 @@
   }
 
   /* =========================================================
-     DEFAUTS TECHNIQUES
+     INGESTION JSON / AUTO-DIAGNOSTIC
      ========================================================= */
-  function normalizeDefect(d) {
-    if (!d) return null;
+  function getBrandField(o) {
+    return valToString(firstVal(o, ["b", "brand", "marque", "constructeur", "make"]));
+  }
 
-    var out = {
-      b: valToString(firstVal(d, ["b", "brand", "marque", "constructeur"])),
-      m: valToString(firstVal(d, ["m", "models", "model", "modele", "modèle"])),
-      y: valToString(firstVal(d, ["y", "years", "annee", "année", "period", "range"])),
-      e: valToString(firstVal(d, ["e", "engine", "motorisation", "moteur", "system", "système"])),
-      p: valToString(firstVal(d, ["p", "power", "puissance"])),
-      s: valToString(firstVal(d, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut"])),
-      sev: valToString(firstVal(d, ["sev", "severity", "gravite", "gravité"])) || "moyen",
-      wf: typeof d.wf === "number" ? d.wf : (typeof d.wearFactor === "number" ? d.wearFactor : 0.5),
-      n: valToString(firstVal(d, ["n", "note", "description", "fiche", "detail"])),
-      law: valToString(firstVal(d, ["law", "legal", "baseLegale", "droit", "fondement"])),
-      rec: valToString(firstVal(d, ["rec", "recall", "rappel", "campagne", "source"])),
-      tg: valToString(firstVal(d, ["tg", "tags", "categorie", "category", "systeme"])),
-      dtc: valToString(firstVal(d, ["dtc", "codeDtc", "code", "codes"])),
-      source: valToString(firstVal(d, ["source", "src"])) || "base locale",
-      sourceUrl: valToString(firstVal(d, ["sourceUrl", "url", "lien", "link"]))
-    };
+  function getModelField(o) {
+    return valToString(firstVal(o, ["m", "model", "modele", "modèle", "vehicle", "vehicule", "nom_modele"]));
+  }
 
-    out.et = valToString(firstVal(d, ["et", "engineType", "type", "fuel", "energie"])) || inferFuel(out.e + " " + out.tg + " " + out.s + " " + out.n);
+  function getEngineField(o) {
+    return valToString(firstVal(o, ["e", "engine", "motorisation", "moteur", "powertrain", "version", "variant"]));
+  }
 
-    if (!out.b || !out.s) return null;
+  function getPowerField(o) {
+    return valToString(firstVal(o, ["p", "power", "puissance", "ch", "kw", "kwh"]));
+  }
+
+  function getSymptomsField(o) {
+    return valToString(firstVal(o, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"]));
+  }
+
+  function getYearsField(o) {
+    return valToString(firstVal(o, ["y", "years", "annee", "année", "period", "range", "from", "start"]));
+  }
+
+  function addEngineFromItem(item, brandFallback, modelFallback, sourceLabel, sourceUrl, force) {
+    if (!item) return;
+
+    if (typeof item === "string") {
+      if (brandFallback && modelFallback) {
+        addEngine({
+          b: brandFallback,
+          m: modelFallback,
+          e: item,
+          source: sourceLabel,
+          sourceUrl: sourceUrl
+        }, sourceUrl, force === true, sourceLabel);
+      }
+      return;
+    }
+
+    if (Array.isArray(item)) {
+      if (item.length >= 7) {
+        addEngine({
+          b: item[0],
+          m: item[1],
+          y: item[2],
+          e: item[3],
+          p: item[4],
+          t: item[5],
+          tr: item[6],
+          source: sourceLabel,
+          sourceUrl: sourceUrl
+        }, sourceUrl, true, sourceLabel);
+        return;
+      }
+
+      if (brandFallback && modelFallback && item.length >= 1) {
+        addEngine({
+          b: brandFallback,
+          m: modelFallback,
+          y: item[4] || "",
+          e: item[0] || "",
+          p: item[1] || "",
+          t: item[2] || "",
+          tr: item[3] || "",
+          source: sourceLabel,
+          sourceUrl: sourceUrl
+        }, sourceUrl, force === true, sourceLabel);
+      }
+      return;
+    }
+
+    if (typeof item === "object") {
+      var b = getBrandField(item) || brandFallback;
+      var m = getModelField(item) || modelFallback;
+      var e = getEngineField(item) || item.name || "";
+
+      if (b && m && e) {
+        addEngine({
+          b: b,
+          m: m,
+          y: getYearsField(item),
+          e: e,
+          p: getPowerField(item),
+          t: valToString(firstVal(item, ["t", "type", "fuel", "energie", "énergie", "engineType"])),
+          tr: valToString(firstVal(item, ["tr", "transmission", "boite", "boîte", "gearbox"])),
+          source: sourceLabel,
+          sourceUrl: sourceUrl
+        }, sourceUrl, force === true, sourceLabel);
+      }
+    }
+  }
+
+  function addModelFromItem(item, brandFallback, sourceLabel, sourceUrl) {
+    if (!item) return;
+
+    if (typeof item === "string") {
+      if (brandFallback) addModel(brandFallback, item, "", sourceLabel, sourceUrl);
+      return;
+    }
+
+    if (Array.isArray(item)) {
+      if (item.length >= 2) {
+        var b = item[0];
+        var m = item[1];
+        var y = item[2] || "";
+        if (brandFallback && !getBrandField({ b: b })) {
+          b = brandFallback;
+          m = item[0];
+          y = item[1] || "";
+        }
+        addModel(b, m, y, sourceLabel, sourceUrl);
+      }
+      return;
+    }
+
+    if (typeof item === "object") {
+      var brand = getBrandField(item) || brandFallback;
+      var model = getModelField(item) || item.name || "";
+      if (brand && model) addModel(brand, model, getYearsField(item), sourceLabel, sourceUrl);
+    }
+  }
+
+  function ingestContainer(val, kind, brandFallback, modelFallback, sourceLabel, sourceUrl, depth, seen) {
+    if (!val || depth > 7) return;
+
+    if (Array.isArray(val)) {
+      val.forEach(function (item) {
+        if (kind === "brand") {
+          if (typeof item === "string") addBrand(item, null, sourceLabel, sourceUrl);
+          else if (item && typeof item === "object") {
+            var n = item.name || getBrandField(item);
+            if (n) addBrand(n, item.aliases, sourceLabel, sourceUrl);
+          }
+        } else if (kind === "model") {
+          addModelFromItem(item, brandFallback, sourceLabel, sourceUrl);
+        } else if (kind === "engine") {
+          addEngineFromItem(item, brandFallback, modelFallback, sourceLabel, sourceUrl, true);
+        } else if (kind === "defect") {
+          if (item && typeof item === "object") addDefect(item, sourceLabel, sourceUrl);
+        }
+      });
+      return;
+    }
+
+    if (typeof val === "object") {
+      Object.keys(val).forEach(function (key) {
+        var child = val[key];
+
+        if (kind === "brand") {
+          addBrand(key, null, sourceLabel, sourceUrl);
+          if (Array.isArray(child)) {
+            child.forEach(function (m) { addModelFromItem(m, key, sourceLabel, sourceUrl); });
+          } else if (child && typeof child === "object") {
+            ingestJson(child, sourceLabel, sourceUrl, depth + 1, seen);
+          }
+        } else if (kind === "model") {
+          addBrand(key, null, sourceLabel, sourceUrl);
+          if (Array.isArray(child)) {
+            child.forEach(function (m) { addModelFromItem(m, key, sourceLabel, sourceUrl); });
+          } else if (child && typeof child === "object") {
+            ingestJson(child, sourceLabel, sourceUrl, depth + 1, seen);
+          }
+        } else if (kind === "engine") {
+          if (Array.isArray(child)) {
+            child.forEach(function (e) { addEngineFromItem(e, key, modelFallback, sourceLabel, sourceUrl, true); });
+          } else if (child && typeof child === "object") {
+            if (getEngineField(child) || child.name) {
+              addEngineFromItem(child, key, modelFallback, sourceLabel, sourceUrl, true);
+            } else {
+              Object.keys(child).forEach(function (modelKey) {
+                addModel(key, modelKey, "", sourceLabel, sourceUrl);
+                var ev = child[modelKey];
+                if (Array.isArray(ev)) {
+                  ev.forEach(function (e) { addEngineFromItem(e, key, modelKey, sourceLabel, sourceUrl, true); });
+                } else if (ev && typeof ev === "object") {
+                  ingestJson(ev, sourceLabel, sourceUrl, depth + 1, seen);
+                }
+              });
+            }
+          }
+        } else if (kind === "defect") {
+          if (child && typeof child === "object") addDefect(child, sourceLabel, sourceUrl);
+        }
+      });
+    }
+  }
+
+  function ingestJson(json, sourceLabel, sourceUrl, depth, seen) {
+    depth = depth || 0;
+    seen = seen || (typeof WeakSet !== "undefined" ? new WeakSet() : null);
+
+    if (!json || depth > 7) return;
+
+    if (Array.isArray(json)) {
+      json.forEach(function (item) {
+        ingestJson(item, sourceLabel, sourceUrl, depth + 1, seen);
+      });
+      return;
+    }
+
+    if (typeof json !== "object") return;
+
+    if (seen) {
+      if (seen.has(json)) return;
+      seen.add(json);
+    }
+
+    var brand = getBrandField(json);
+    var model = getModelField(json);
+    var engine = getEngineField(json);
+    var symptoms = getSymptomsField(json);
+
+    if (!brand && json.name && (json.models || json.modeles || json.engines || json.motorisations)) {
+      brand = String(json.name || "").trim();
+    }
+
+    if (!model && brand && json.name && !engine && !symptoms && (json.years || json.y || json.period)) {
+      model = String(json.name || "").trim();
+    }
+
+    ingestContainer(json.brands || json.marques, "brand", brand, model, sourceLabel, sourceUrl, depth + 1, seen);
+    ingestContainer(json.models || json.modeles || json.vehicles || json.vehicules, "model", brand, model, sourceLabel, sourceUrl, depth + 1, seen);
+    ingestContainer(json.engines || json.motorisations || json.powertrains || json.versions || json.variants, "engine", brand, model, sourceLabel, sourceUrl, depth + 1, seen);
+    ingestContainer(json.defects || json.pannes || json.faults || json.rappels || json.problems, "defect", brand, model, sourceLabel, sourceUrl, depth + 1, seen);
+
+    if (brand && model && engine) {
+      addEngine({
+        b: brand,
+        m: model,
+        y: getYearsField(json),
+        e: engine,
+        p: getPowerField(json),
+        t: valToString(firstVal(json, ["t", "type", "fuel", "energie", "énergie", "engineType"])),
+        tr: valToString(firstVal(json, ["tr", "transmission", "boite", "boîte", "gearbox"])),
+        source: sourceLabel,
+        sourceUrl: sourceUrl
+      }, sourceUrl, false, sourceLabel);
+    } else if (brand && model) {
+      addModel(brand, model, getYearsField(json), sourceLabel, sourceUrl);
+    }
+
+    if (brand && symptoms) {
+      addDefect(json, sourceLabel, sourceUrl);
+    }
+
+    if (brand && !model && !engine && !symptoms) {
+      addBrand(brand, json.aliases, sourceLabel, sourceUrl);
+    }
+
+    Object.keys(json).forEach(function (k) {
+      var v = json[k];
+      if (v && typeof v === "object") {
+        ingestJson(v, sourceLabel, sourceUrl, depth + 1, seen);
+      }
+    });
+  }
+
+  function parseBalanced(text, start) {
+    var open = text.charAt(start);
+    if (open !== "[" && open !== "{") return null;
+
+    var stack = [open];
+    var inString = false;
+    var escape = false;
+    var max = Math.min(text.length, start + 2000000);
+
+    for (var i = start + 1; i < max; i++) {
+      var ch = text.charAt(i);
+
+      if (escape) {
+        escape = false;
+        continue;
+      }
+
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+
+      if (ch === '"') {
+        inString = !inString;
+        continue;
+      }
+
+      if (inString) continue;
+
+      if (ch === "[" || ch === "{") {
+        stack.push(ch);
+      } else if (ch === "]" || ch === "}") {
+        var expected = ch === "]" ? "[" : "{";
+        if (stack.pop() !== expected) return null;
+        if (stack.length === 0) return text.substring(start, i + 1);
+      }
+    }
+
+    return null;
+  }
+
+  function tryParseJsonish(raw) {
+    try {
+      return JSON.parse(raw);
+    } catch (e) {}
+
+    var s = String(raw || "");
+
+    s = s.replace(/\/\*[\s\S]*?\*\//g, "");
+    s = s.replace(/(^|[^:])\/\/.*$/gm, "$1");
+    s = s.replace(/'((?:[^'\\]|\\.)*)'/g, function (m, p) {
+      return '"' + String(p).replace(/"/g, '\\"') + '"';
+    });
+    s = s.replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":');
+    s = s.replace(/,(\s*[}\]])/g, "$1");
+
+    try {
+      return JSON.parse(s);
+    } catch (e2) {
+      return null;
+    }
+  }
+
+  function extractJsonCandidates(text) {
+    var out = [];
+    if (!text) return out;
+
+    var keywordRe = /marque|brand|modele|model|motorisation|engine|panne|defaut|dtc|symptom|rappel|recall|puissance|power|energie|fuel/i;
+    var max = Math.min(text.length, 2500000);
+    var attempts = 0;
+
+    for (var i = 0; i < max && attempts < 250; i++) {
+      var ch = text.charAt(i);
+      if (ch !== "[" && ch !== "{") continue;
+
+      var snippet = text.substr(i, 500).toLowerCase();
+      if (!keywordRe.test(snippet)) continue;
+
+      attempts++;
+      var raw = parseBalanced(text, i);
+      if (!raw) continue;
+
+      var parsed = tryParseJsonish(raw);
+      if (parsed) {
+        out.push(parsed);
+        i += raw.length;
+      }
+    }
+
     return out;
   }
 
-  function addDefect(d) {
-    var nd = normalizeDefect(d);
-    if (!nd) return;
+  function loadCatalogConfig() {
+    var cfg = loadWithMigration(KEYS.CATALOG_CFG, OLD_KEYS.CATALOG_CFG, null);
+    if (cfg) {
+      CONFIG.catalog = Object.assign({}, CONFIG.catalog, cfg);
+    }
+  }
 
-    catalog.defects.push(nd);
-    addBrand(nd.b, null, nd.source);
+  function saveCatalogConfigFromUi() {
+    CONFIG.catalog.vehicleUrl = (q("#vehicleCatalogUrl") || {}).value || CONFIG.catalog.vehicleUrl;
+    CONFIG.catalog.engineUrl = (q("#engineCatalogUrl") || {}).value || CONFIG.catalog.engineUrl;
+    CONFIG.catalog.autoBaseUrl = (q("#autoBaseUrl") || {}).value || CONFIG.catalog.autoBaseUrl;
+    CONFIG.catalog.nhtsaEnabled = !!(q("#nhtsaEnabled") || {}).checked;
 
-    if (nd.m && nd.m !== "*") {
-      String(nd.m).split("|").forEach(function (m) {
-        addModel(nd.b, m, nd.y, nd.source);
+    var eps = (q("#autoEndpoints") || {}).value || "";
+    CONFIG.catalog.endpoints = String(eps)
+      .split(/[\n,]+/)
+      .map(function (s) { return s.trim(); })
+      .filter(function (s) { return s; });
+
+    save(KEYS.CATALOG_CFG, CONFIG.catalog);
+    toast("Configuration catalogue enregistrée.", "success");
+  }
+
+  function renderCatalogConfig() {
+    if (q("#vehicleCatalogUrl")) q("#vehicleCatalogUrl").value = CONFIG.catalog.vehicleUrl || "";
+    if (q("#engineCatalogUrl")) q("#engineCatalogUrl").value = CONFIG.catalog.engineUrl || "";
+    if (q("#autoBaseUrl")) q("#autoBaseUrl").value = CONFIG.catalog.autoBaseUrl || "";
+    if (q("#autoEndpoints")) q("#autoEndpoints").value = (CONFIG.catalog.endpoints || []).join("\n");
+    if (q("#nhtsaEnabled")) q("#nhtsaEnabled").checked = !!CONFIG.catalog.nhtsaEnabled;
+  }
+
+  function seedBaseCatalog() {
+    BASE_BRANDS.forEach(function (b) { addBrand(b, BRAND_ALIASES[normKey(b)], "base locale", ""); });
+
+    [
+      {
+        b: "Skoda", m: "Elroq|Enyaq", y: "2021-2026",
+        e: "Batterie haute tension / BMS / autonomie", p: "55 kWh|63 kWh|77 kWh",
+        s: "autonomie reduite|soh|charge lente|charge impossible|deséquilibre cellules|erreur BMS|temperature batterie|voyant batterie|perte autonomie|batterie froide|chauffe batterie|gonflement batterie|odeur brulee|fumee",
+        sev: "critique", wf: 0.92,
+        n: "Plateforme MEB : surveillance BMS, cellules, gestion thermique, dégradation d'autonomie et cohérence entre capacité annoncée et usage réel.",
+        law: "Sécurité L.423-1 C.consom.; conformité L.217-4 C.consom.; produits défectueux art. 1245 C.civ.; vice caché art. 1641 C.civ.",
+        rec: "Rappels EV/MEB; DGCCRF; KBA; NHTSA; fiches auto-diagnostic; vérification VIN; lecture SOH/BMS.",
+        tg: "batterie|charge|autonomie|electricite|securite|logiciel|MEB",
+        dtc: "P0Axx|U1xxx|P1xxx|B1xxx", et: "Électrique"
+      },
+      {
+        b: "Skoda", m: "Elroq|Enyaq", y: "2021-2026",
+        e: "Recharge AC/DC / port de charge / isolation haute tension", p: "N/A",
+        s: "charge AC|charge DC|cable|port de charge|verrou|recharge impossible|charge lente|ISO|isolation HV|erreur recharge|thermal derating|echauffement prise|odeur brulee|fumee",
+        sev: "critique", wf: 0.9,
+        n: "Défaut possible de charge AC/DC, verrouillage, câble, port, isolation haute tension ou bridage thermique.",
+        law: "Sécurité L.423-1 C.consom.; conformité L.217-4 C.consom.; produits défectueux art. 1245 C.civ.; tromperie L.213-1 C.consom.",
+        rec: "Rappels recharge EV; DGCCRF; KBA; NHTSA; essais de charge documentés.",
+        tg: "charge|batterie|electricite|securite|HV|recharge",
+        dtc: "U1xxx|P0Axx|C1xxx", et: "Électrique"
+      },
+      {
+        b: "Skoda", m: "Elroq|Enyaq", y: "2021-2026",
+        e: "Logiciel / OTA / calculateurs / ADAS / Travel Assist", p: "N/A",
+        s: "logiciel|OTA|mise a jour|freeze|redemarrage|voyant multiple|erreur software|Travel Assist|ADAS|camera|radar|lane keeping|emergency brake|calibration|phantom braking",
+        sev: "critique", wf: 0.88,
+        n: "Les véhicules MEB reposent fortement sur logiciels, calculateurs, ADAS, caméra, radar et mises à jour OTA.",
+        law: "Conformité L.217-4 C.consom.; sécurité L.423-1 C.consom.; produits défectueux art. 1245 C.civ.",
+        rec: "TSB logiciels; rappels ADAS/OTA; DGCCRF; KBA; NHTSA; Euro NCAP.",
+        tg: "logiciel|OTA|ADAS|camera|radar|securite|electricite",
+        dtc: "U0xxx|U1xxx|P1xxx|C2xxx", et: "Électrique"
+      },
+      {
+        b: "Renault", m: "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", y: "2017-2022",
+        e: "K9K / 1.5 dCi", p: "75ch-110ch",
+        s: "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
+        sev: "critique", wf: 0.9,
+        n: "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
+        law: "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
+        rec: "Programme technique Renault K9K; TSB; jurisprudences",
+        tg: "moteur|huile|bielle|pompe|bruit|critique", et: "Diesel"
+      },
+      {
+        b: "Peugeot", m: "208|2008|308|3008|5008|Partner|Rifter|Boxer", y: "2017-2024",
+        e: "EB2 / 1.2 PureTech", p: "100ch-155ch",
+        s: "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
+        sev: "critique", wf: 0.85,
+        n: "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
+        law: "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
+        rec: "Extension garantie Stellantis PureTech; TSB; DGCCRF",
+        tg: "moteur|distribution|courroie|huile|pompe|critique", et: "Essence"
+      },
+      {
+        b: "Tesla", m: "Model 3|Model Y|Model S|Model X", y: "2017-2027",
+        e: "Électrique", p: "283ch-1020ch",
+        s: "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
+        sev: "critique", wf: 0.92,
+        n: "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
+        law: "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
+        rec: "NHTSA Tesla recalls; DGCCRF; SafetyGate",
+        tg: "ADAS|batterie|charge|logiciel|securite", et: "Électrique"
+      }
+    ].forEach(function (d) { addDefect(d, "base locale", ""); });
+  }
+
+  function loadStoredTechnicalUpdates() {
+    var oldTech = loadWithMigration(KEYS.TECH_UPDATES, OLD_KEYS.TECH_UPDATES, []) || [];
+    oldTech.forEach(function (d) { addDefect(d, "base locale stockée", ""); });
+  }
+
+  function loadImportedCatalog() {
+    var raw = loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [];
+    raw.forEach(function (json) {
+      try { ingestJson(json, "import-admin", "import", 0); } catch (e) {}
+    });
+  }
+
+  function catalogSnapshot() {
+    return {
+      brands: Object.keys(catalog.brands).length,
+      models: catalog.models.length,
+      engines: catalog.engines.length,
+      defects: catalog.defects.length
+    };
+  }
+
+  function loadLocalCatalogs() {
+    var tasks = [];
+
+    tasks.push(
+      fetchJson(CONFIG.catalog.vehicleUrl)
+        .then(function (json) { ingestJson(json, "catalogue local", CONFIG.catalog.vehicleUrl, 0); })
+        .catch(function () {})
+    );
+
+    tasks.push(
+      fetchJson(CONFIG.catalog.engineUrl)
+        .then(function (json) { ingestJson(json, "catalogue local", CONFIG.catalog.engineUrl, 0); })
+        .catch(function () {})
+    );
+
+    tasks.push(
+      fetchJson(CONFIG.catalog.technicalUrl)
+        .then(function (json) {
+          ingestJson(json, "mise à jour JSON", CONFIG.catalog.technicalUrl, 0);
+          save(KEYS.LAST_UPDATE, Date.now());
+        })
+        .catch(function () {})
+    );
+
+    return Promise.all(tasks);
+  }
+
+  function nhtsaMake(brand) {
+    var s = String(brand || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
+    var map = {
+      "RANGE ROVER": "LAND ROVER",
+      "MERCEDES BENZ": "MERCEDES-BENZ",
+      "CITROEN": "CITROEN",
+      "SKODA": "SKODA",
+      "VOLKSWAGEN": "VOLKSWAGEN"
+    };
+    return map[s] || s;
+  }
+
+  function fetchNhtsaModels(brand) {
+    if (!CONFIG.catalog.nhtsaEnabled || !window.fetch || !brand) return Promise.resolve([]);
+
+    var make = nhtsaMake(brand);
+    var url = "https://vpic.nhtsa.dot.gov/api/vehicles/getmodelsformake/" + encodeURIComponent(make) + "?format=json";
+
+    return fetch(url, { cache: "no-store" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (data) {
+        var results = (data && data.Results) || [];
+        return results.map(function (r) {
+          return {
+            id: normKey(brand) + "|" + normKey(r.Model_Name),
+            brand: brand,
+            name: r.Model_Name,
+            years: "1990-2026",
+            source: "NHTSA vPIC"
+          };
+        }).filter(function (x) { return x.name; });
+      })
+      .catch(function () {
+        return [];
+      });
+  }
+
+  function ingestAutoText(url, text, sourceLabel) {
+    var candidates = extractJsonCandidates(text);
+    candidates.forEach(function (c) {
+      ingestJson(c, sourceLabel || "auto-diagnostic", url, 0);
+    });
+    return candidates.length > 0;
+  }
+
+  function loadAutoDiagnostic(manual) {
+    if (!window.fetch) return Promise.resolve(false);
+
+    updateDataStatus(manual ? "Synchronisation auto-diagnostic..." : "Auto-diagnostic en arrière-plan...");
+
+    var before = catalogSnapshot();
+    var baseUrl = CONFIG.catalog.autoBaseUrl;
+    var endpoints = CONFIG.catalog.endpoints || [];
+    var scriptUrls = CONFIG.catalog.scriptUrls || [];
+    var tasks = [];
+
+    endpoints.forEach(function (ep) {
+      var url = resolveUrl(baseUrl, ep);
+      tasks.push(
+        fetchJson(url)
+          .then(function (json) {
+            ingestJson(json, "auto-diagnostic", url, 0);
+            return true;
+          })
+          .catch(function () {
+            return fetchText(url)
+              .then(function (text) {
+                return ingestAutoText(url, text, "auto-diagnostic");
+              })
+              .catch(function () {
+                return false;
+              });
+          })
+      );
+    });
+
+    scriptUrls.forEach(function (sp) {
+      var url = resolveUrl(baseUrl, sp);
+      tasks.push(
+        fetchText(url)
+          .then(function (text) {
+            return ingestAutoText(url, text, "auto-diagnostic");
+          })
+          .catch(function () {
+            return false;
+          })
+      );
+    });
+
+    return Promise.all(tasks).then(function () {
+      autoLastSync = Date.now();
+      save(KEYS.AUTO_LAST_SYNC, autoLastSync);
+
+      var after = catalogSnapshot();
+      var added = {
+        models: Math.max(0, after.models - before.models),
+        engines: Math.max(0, after.engines - before.engines),
+        defects: Math.max(0, after.defects - before.defects)
+      };
+
+      updateAdminStats();
+      refreshSelectorsFromCatalog();
+
+      var ok = added.models + added.engines + added.defects > 0;
+      updateDataStatus(ok
+        ? "Auto-diagnostic synchronisé • +modèles: " + added.models + " • +motorisations: " + added.engines + " • +fiches: " + added.defects
+        : "Auto-diagnostic : aucune nouvelle donnée exploitable trouvée");
+
+      if (manual) {
+        toast(ok
+          ? "Auto-diagnostic renforcé : +" + added.engines + " motorisation(s), +" + added.defects + " fiche(s)."
+          : "Aucune nouvelle donnée auto-diagnostic exploitable trouvée.",
+          ok ? "success" : "warning");
+      }
+
+      return ok;
+    }).catch(function (err) {
+      console.warn("[AR-EXPERT] Sync auto-diagnostic impossible:", err);
+      updateDataStatus("Auto-diagnostic indisponible — base locale conservée");
+      if (manual) toast("Synchronisation auto-diagnostic impossible.", "warning");
+      return false;
+    });
+  }
+
+  function loadCatalogs(manual) {
+    updateDataStatus(manual ? "Chargement des catalogues..." : "Chargement des catalogues en arrière-plan...");
+
+    return loadLocalCatalogs()
+      .then(function () {
+        return loadAutoDiagnostic(manual);
+      })
+      .then(function () {
+        updateAdminStats();
+        refreshSelectorsFromCatalog();
+        updateDataStatus("Catalogue chargé • Marques: " + getAllBrands().length + " • Modèles: " + catalog.models.length + " • Motorisations: " + catalog.engines.length + " • Fiches: " + catalog.defects.length);
+        if (manual) toast("Catalogues rechargés et renforcés.", "success");
+      })
+      .catch(function (err) {
+        console.warn("[AR-EXPERT] Chargement catalogue impossible:", err);
+        updateDataStatus("Mode autonome : catalogue local partiel");
+        if (manual) toast("Chargement catalogue impossible. Base locale conservée.", "warning");
+      });
+  }
+
+  function refreshSelectorsFromCatalog() {
+    if (selection.brand) {
+      loadModelsForBrand(selection.brand.name, false);
+    } else {
+      renderBrandPanel();
+    }
+  }
+
+  /* =========================================================
+     UI DROPDOWN
+     ========================================================= */
+  function closeAllCombos(exceptId) {
+    ["brandPanel", "modelPanel", "enginePanel"].forEach(function (id) {
+      if (id === exceptId) return;
+      var el = q("#" + id);
+      if (el) el.classList.add("hidden");
+    });
+  }
+
+  function renderBrandPanel() {
+    var input = q("#brandInput");
+    var panel = q("#brandPanel");
+    if (!input || !panel) return;
+
+    var val = norm(input.value);
+    var brands = getAllBrands().filter(function (b) {
+      if (!val) return true;
+      if (norm(b.name).indexOf(val) >= 0) return true;
+      return b.aliases.some(function (a) { return norm(a).indexOf(val) >= 0; });
+    }).slice(0, 50);
+
+    if (!brands.length) {
+      panel.innerHTML = '<div class="combo-empty">Aucune marque trouvée.</div>';
+      panel.classList.remove("hidden");
+      return;
+    }
+
+    panel.innerHTML = brands.map(function (b) {
+      return '<button type="button" class="suggest-item" data-brand="' + esc(b.name) + '">' + esc(b.name) + '</button>';
+    }).join("");
+
+    panel.classList.remove("hidden");
+  }
+
+  function selectBrand(name) {
+    selection.brand = { name: name };
+    selection.model = null;
+    selection.engine = null;
+
+    var input = q("#brandInput");
+    if (input) input.value = name;
+
+    closeAllCombos();
+    updateModelButton();
+    updateEngineButton();
+    updateSelectionSummary();
+    loadModelsForBrand(name, true);
+  }
+
+  function updateModelButton() {
+    var btn = q("#modelButton");
+    if (!btn) return;
+
+    if (!selection.brand) {
+      btn.disabled = true;
+      btn.textContent = "Choisir d’abord une marque";
+      return;
+    }
+
+    if (selection.model) {
+      btn.disabled = false;
+      btn.textContent = selection.model.name + (selection.model.years ? " • " + selection.model.years : "");
+    } else {
+      btn.disabled = false;
+      btn.textContent = "Choisir un modèle";
+    }
+  }
+
+  function updateEngineButton() {
+    var btn = q("#engineButton");
+    if (!btn) return;
+
+    if (!selection.brand || !selection.model) {
+      btn.disabled = true;
+      btn.textContent = !selection.brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle";
+      return;
+    }
+
+    if (selection.engine) {
+      btn.disabled = false;
+      btn.textContent = engineLabel(selection.engine);
+    } else {
+      btn.disabled = false;
+      btn.textContent = "Choisir une motorisation";
+    }
+  }
+
+  function engineLabel(o) {
+    var parts = [];
+    if (o.fuel) parts.push(o.fuel);
+    if (o.engine) parts.push(o.engine);
+    if (o.power && o.power !== "N/A") parts.push(o.power);
+    if (o.transmission) parts.push(o.transmission);
+    if (o.years) parts.push(o.years);
+    if (o.source && o.source !== "catalogue local") parts.push(o.source);
+    return parts.join(" • ");
+  }
+
+  function modelLabel(o) {
+    var parts = [o.name];
+    if (o.years) parts.push(o.years);
+    if (o.source && o.source !== "catalogue local") parts.push(o.source);
+    return parts.join(" • ");
+  }
+
+  function renderModelList(filter) {
+    var list = q("#modelList");
+    if (!list) return;
+
+    var f = norm(filter || "");
+    currentModelOptions = modelOptions.filter(function (o) {
+      if (!f) return true;
+      return norm(modelLabel(o)).indexOf(f) >= 0;
+    });
+
+    if (!currentModelOptions.length) {
+      list.innerHTML = '<div class="combo-empty">Aucun modèle trouvé.</div>';
+      return;
+    }
+
+    list.innerHTML = currentModelOptions.map(function (o, i) {
+      return '<button type="button" class="combo-option" data-model-index="' + i + '">' + esc(modelLabel(o)) + '</button>';
+    }).join("");
+  }
+
+  function renderEngineList(filter) {
+    var list = q("#engineList");
+    if (!list) return;
+
+    var f = norm(filter || "");
+    currentEngineOptions = engineOptions.filter(function (o) {
+      if (!f) return true;
+      return norm(engineLabel(o)).indexOf(f) >= 0;
+    });
+
+    if (!currentEngineOptions.length) {
+      list.innerHTML = '<div class="combo-empty">Aucune motorisation trouvée.</div>';
+      return;
+    }
+
+    list.innerHTML = currentEngineOptions.map(function (o, i) {
+      return '<button type="button" class="combo-option" data-engine-index="' + i + '">' + esc(engineLabel(o)) + '</button>';
+    }).join("");
+  }
+
+  function loadModelsForBrand(brand, showLoading) {
+    var token = ++modelLoadToken;
+    var year = parseYear((q("#vehicleYear") || {}).value);
+    var local = getModels(brand, year);
+
+    if (showLoading && local.length < 5) {
+      modelOptions = local.concat([{
+        id: "__loading__",
+        brand: brand,
+        name: "Chargement des modèles...",
+        years: "",
+        source: "auto-diagnostic / NHTSA"
+      }]);
+      renderModelList("");
+      updateModelButton();
+    } else {
+      modelOptions = local;
+      renderModelList("");
+      updateModelButton();
+    }
+
+    if (CONFIG.catalog.nhtsaEnabled && local.length < 10) {
+      fetchNhtsaModels(brand).then(function (remote) {
+        if (token !== modelLoadToken) return;
+
+        var merged = local.slice();
+        var seen = {};
+        merged.forEach(function (m) { seen[m.id] = true; });
+
+        remote.forEach(function (m) {
+          if (!seen[m.id]) {
+            seen[m.id] = true;
+            merged.push(m);
+          }
+        });
+
+        merged.sort(function (a, b) {
+          return norm(a.name).localeCompare(norm(b.name));
+        });
+
+        modelOptions = merged;
+        renderModelList((q("#modelSearch") || {}).value || "");
+        updateModelButton();
+        updateAdminStats();
       });
     }
+
+    refreshEngineOptions();
+  }
+
+  function selectModel(opt) {
+    if (!opt || opt.id === "__loading__") return;
+
+    selection.model = opt;
+    selection.engine = null;
+
+    closeAllCombos();
+    updateModelButton();
+    refreshEngineOptions();
+    updateSelectionSummary();
+  }
+
+  function refreshEngineOptions() {
+    if (!selection.brand || !selection.model) {
+      engineOptions = [];
+      currentEngineOptions = [];
+      updateEngineButton();
+      return;
+    }
+
+    var year = parseYear((q("#vehicleYear") || {}).value);
+    var engines = getEngines(selection.brand.name, selection.model.name, year);
+
+    if (!engines.length) {
+      engines.push({
+        id: "__unknown_engine__",
+        brand: selection.brand.name,
+        model: selection.model.name,
+        engine: "Autre / non précisée",
+        power: "N/A",
+        fuel: "Non précisé / mixte",
+        transmission: "",
+        years: year ? String(year) : "",
+        source: "manuel",
+        sourceUrl: ""
+      });
+    }
+
+    engineOptions = engines;
+    renderEngineList("");
+    updateEngineButton();
+  }
+
+  function selectEngine(opt) {
+    if (!opt) return;
+
+    selection.engine = opt;
+
+    closeAllCombos();
+    updateEngineButton();
+    updateSelectionSummary();
+  }
+
+  function updateSelectionSummary() {
+    var el = q("#selectionSummary");
+    if (!el) return;
+
+    var v = getSelectedVehicleData();
+
+    if (!v.marque && !v.modele && !v.annee && !v.engine) {
+      el.textContent = "Aucune sélection véhicule complète.";
+      return;
+    }
+
+    var parts = [];
+    if (v.marque) parts.push(v.marque);
+    if (v.modele) parts.push(v.modele);
+    if (v.annee) parts.push(v.annee);
+    if (v.engine) parts.push(v.engine);
+    if (v.power && v.power !== "N/A") parts.push(v.power);
+    if (v.fuel) parts.push(v.fuel);
+    if (v.transmission) parts.push(v.transmission);
+
+    el.textContent = "Sélection retenue : " + parts.join(" • ");
+  }
+
+  function getSelectedVehicleData() {
+    var brandEl = q("#brandInput");
+    var yearEl = q("#vehicleYear");
+    var kmEl = q("#vehicleKilometrage");
+    var vinEl = q("#vehicleVin");
+
+    return {
+      marque: selection.brand ? selection.brand.name : (brandEl ? brandEl.value.trim() : ""),
+      modele: selection.model ? selection.model.name : "",
+      annee: yearEl ? yearEl.value.trim() : "",
+      engine: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.engine : "",
+      power: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.power : "",
+      fuel: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.fuel : "",
+      transmission: selection.engine ? selection.engine.transmission : "",
+      engineSource: selection.engine ? selection.engine.source : "",
+      engineSourceUrl: selection.engine ? selection.engine.sourceUrl : "",
+      kilometrage: kmEl ? kmEl.value.trim() : "",
+      vin: vinEl ? vinEl.value.trim() : ""
+    };
+  }
+
+  /* =========================================================
+     ANALYSE / RAPPORT
+     ========================================================= */
+  function addTerm() {
+    var args = Array.prototype.slice.call(arguments);
+    args.forEach(function (t) { termesMobilises.add(t); });
+    return '<span class="termes-juridiques">(' + args.join(", ") + ")</span>";
+  }
+
+  function extractDtcCodes(text) {
+    var m = String(text || "").match(/\b[PCBU][0-9A-F]{4}\b/gi) || [];
+    return unique(m.map(function (x) { return x.toUpperCase(); }));
+  }
+
+  function powerTokens(p) {
+    return String(p || "")
+      .split(/[^a-z0-9]+/i)
+      .map(function (x) { return norm(x); })
+      .filter(function (x) { return x.length > 1; });
   }
 
   function legalForDefect(d) {
@@ -1395,10 +2491,11 @@
     var txt = norm(text);
     var yr = parseYear(v.annee);
     var km = parseKm(v.kilometrage);
+    var dtcCodes = extractDtcCodes(text);
     var results = [];
 
     catalog.defects.forEach(function (d) {
-      if (v.marque && !brandMatch(d.b, v.marque)) return;
+      if (v.marque && !brandMatches(d.b, v.marque)) return;
       if (!yearMatches(d.y, yr)) return;
       if (v.modele && d.m && d.m !== "*" && !modelListContains(d.m, v.modele)) return;
 
@@ -1414,9 +2511,28 @@
 
       score += tagBoost(txt, d.tg);
 
-      if (v.engine && nameMatch(d.e, v.engine)) score += 4;
-      if (v.power && String(d.p || "").toLowerCase().indexOf(norm(v.power)) >= 0) score += 1;
+      if (v.modele && d.m && d.m !== "*" && modelListContains(d.m, v.modele)) score += 2;
+      if (yr && yearMatches(d.y, yr)) score += 1;
+
+      if (v.engine && d.e) {
+        if (normKey(v.engine) === normKey(d.e)) score += 5;
+        else if (norm(d.e).indexOf(norm(v.engine)) >= 0 || norm(v.engine).indexOf(norm(d.e)) >= 0) score += 3;
+      }
+
+      if (v.power && d.p) {
+        var sel = powerTokens(v.power);
+        var def = powerTokens(d.p);
+        if (sel.some(function (x) { return def.indexOf(x) >= 0; })) score += 2;
+      }
+
       if (v.fuel && norm(d.et) === norm(v.fuel)) score += 3;
+
+      if (v.transmission && containsAny(d.tg + " " + d.e + " " + d.n, [v.transmission])) score += 1;
+
+      if (dtcCodes.length && d.dtc) {
+        var dd = norm(d.dtc);
+        if (dtcCodes.some(function (c) { return dd.indexOf(norm(c)) >= 0; })) score += 3;
+      }
 
       if (v.fuel && isElectricLike(v.fuel) && containsAny(d.tg + " " + d.s, ["batterie", "charge", "autonomie", "electricite", "hybride", "48v"])) {
         score += 2;
@@ -1475,711 +2591,6 @@
     return results.sort(function (a, b) { return b.score - a.score; }).slice(0, 12);
   }
 
-  /* =========================================================
-     SEED DEFECTS
-     ========================================================= */
-  var SEED_DEFECTS = [
-    {
-      b: "Renault", m: "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", y: "2017-2022",
-      e: "K9K / 1.5 dCi", p: "75ch-110ch",
-      s: "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
-      sev: "critique", wf: 0.9,
-      n: "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
-      law: "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
-      rec: "Programme technique Renault K9K; TSB; jurisprudences",
-      tg: "moteur|huile|bielle|pompe|bruit|critique", et: "Diesel"
-    },
-    {
-      b: "Renault", m: "Trafic II|Master III|Espace V|Talisman", y: "2017-2027",
-      e: "Baie de pare-brise / étanchéité", p: "N/A",
-      s: "infiltration eau|court circuit|moisiure|panne electronique|voyants aleatoires|erreur ABS|erreur ESP|corrosion|odeur humidite",
-      sev: "critique", wf: 0.95,
-      n: "Défaut d’étanchéité de la baie de pare-brise. Eau vers calculateurs et faisceaux. Indépendant du km.",
-      law: "Vice caché 1641 C.civ.; sécurité L.423-1 C.consom.; produits défectueux 1245 C.civ.",
-      rec: "Campagnes Renault; forums; DGCCRF",
-      tg: "eau|electricite|court-circuit|securite|carrosserie", et: "Non précisé / mixte"
-    },
-    {
-      b: "Peugeot", m: "208|2008|308|3008|5008|Partner|Rifter|Boxer", y: "2017-2024",
-      e: "EB2 / 1.2 PureTech", p: "100ch-155ch",
-      s: "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
-      sev: "critique", wf: 0.85,
-      n: "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
-      law: "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
-      rec: "Extension garantie Stellantis PureTech; TSB; DGCCRF",
-      tg: "moteur|distribution|courroie|huile|pompe|critique", et: "Essence"
-    },
-    {
-      b: "Volkswagen", m: "Golf|Polo|T-Cross|Taigo|Tiguan|Touran", y: "2017-2024",
-      e: "DSG DQ200 / DQ381", p: "N/A boite",
-      s: "a-coups|mecatronique|patinage|bruit claquement|voyant boite|mode degrade|blocage vitesse|odeur brulee",
-      sev: "critique", wf: 0.7,
-      n: "Boîtes DSG : mécatronique, embrayage, convertisseur, logiciel boîte.",
-      law: "Vice caché 1641; conformité L.217-4; tromperie L.213-1.",
-      rec: "Rappels/TSB VAG DSG; class actions",
-      tg: "boite|DSG|mecatronique|embrayage", et: "Non précisé / mixte"
-    },
-    {
-      b: "Volkswagen", m: "ID.3|ID.4|ID.5|ID.7", y: "2020-2027",
-      e: "MEB électrique", p: "145ch-286ch",
-      s: "autonomie|charge AC|charge DC|BMS|cellules|logiciel|software|ADAS|Travel Assist|camera|radar|12V|DC-DC|thermal derating",
-      sev: "critique", wf: 0.92,
-      n: "Plateforme MEB : logiciel, charge, batterie, autonomie, ADAS, batterie 12V, DC-DC.",
-      law: "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
-      rec: "Rappels VW ID; KBA Allemagne; NHTSA; DGCCRF",
-      tg: "batterie|charge|autonomie|adas|logiciel|electricite", et: "Électrique"
-    },
-    {
-      b: "Tesla", m: "Model 3|Model Y|Model S|Model X", y: "2017-2027",
-      e: "Électrique", p: "283ch-1020ch",
-      s: "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
-      sev: "critique", wf: 0.92,
-      n: "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
-      law: "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
-      rec: "NHTSA Tesla recalls; DGCCRF; SafetyGate",
-      tg: "ADAS|batterie|charge|logiciel|securite", et: "Électrique"
-    },
-    {
-      b: "Toyota", m: "Yaris|Corolla|Camry|RAV4|C-HR|Prius|Hilux|Land Cruiser", y: "2017-2027",
-      e: "Hybride THS / Dynamic Force / D-4D", p: "100ch-309ch",
-      s: "batterie hybride|refroidissement batterie|CVT|bruit|vibration|12V|Toyota Safety Sense|camera|radar|ADAS|consommation|mode degrade",
-      sev: "critique", wf: 0.65,
-      n: "Hybrides Toyota : batterie, ventilation, CVT, 12V, ADAS Toyota Safety Sense.",
-      law: "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      rec: "Rappels Toyota hybride/ADAS; NHTSA",
-      tg: "hybride|batterie|CVT|ADAS|12V", et: "Hybride"
-    },
-    {
-      b: "Ford", m: "Fiesta|Focus|Puma|Kuga|Explorer|Transit", y: "2017-2027",
-      e: "EcoBoost 1.0 / 1.5 / 2.3 / PowerShift", p: "95ch-280ch",
-      s: "joint culasse|surchauffe|refroidissement|pompe a eau|eau dans huile|fumee blanche|PowerShift|a-coups|embrayage|vibrations|odeur brulee",
-      sev: "critique", wf: 0.85,
-      n: "EcoBoost 1.0 : refroidissement/joint culasse. PowerShift : embrayage sec fragile.",
-      law: "Vice caché 1641; tromperie L.213-1; conformité L.217-4.",
-      rec: "Class actions PowerShift; TSB Ford EcoBoost",
-      tg: "moteur|refroidissement|culasse|boite|embrayage", et: "Essence"
-    },
-    {
-      b: "Chevrolet", m: "Bolt EV|Bolt EUV|Lyriq|Equinox EV", y: "2017-2027",
-      e: "Électrique Ultium / Bolt", p: "204ch-1000ch",
-      s: "incendie|batterie|thermal runaway|charge|recall|BMS|software|ADAS|Super Cruise|autonomie|12V",
-      sev: "critique", wf: 1.0,
-      n: "Bolt : rappel mondial incendie batterie. Ultium/Super Cruise : logiciel, charge, ADAS.",
-      law: "Sécurité L.423-1; produits défectueux 1245; pénal si accident; conformité L.217-4.",
-      rec: "NHTSA Bolt recall; GM recalls; DGCCRF",
-      tg: "incendie|batterie|charge|ADAS|logiciel", et: "Électrique"
-    }
-  ];
-
-  /* =========================================================
-     INGESTION JSON
-     ========================================================= */
-  function ingestBrandItem(item, source) {
-    if (!item) return;
-
-    if (typeof item === "string") {
-      addBrand(item, null, source);
-      return;
-    }
-
-    if (typeof item === "object") {
-      var name = valToString(firstVal(item, ["name", "b", "brand", "marque", "constructeur"]));
-      var aliases = item.aliases || item.alias || [];
-      if (typeof aliases === "string") aliases = aliases.split("|");
-      addBrand(name, aliases, source);
-    }
-  }
-
-  function ingestModelItem(item, source) {
-    if (!item) return;
-
-    if (Array.isArray(item)) {
-      addModel(item[0], item[1], item[2], source);
-      return;
-    }
-
-    if (typeof item === "object") {
-      addModel(
-        valToString(firstVal(item, ["b", "brand", "marque", "constructeur"])),
-        valToString(firstVal(item, ["m", "model", "modele", "modèle", "name"])),
-        valToString(firstVal(item, ["y", "years", "annee", "année", "period"])),
-        source
-      );
-    }
-  }
-
-  function ingestEngineItem(item, source) {
-    if (!item) return;
-
-    if (Array.isArray(item)) {
-      addEngine({
-        b: item[0],
-        m: item[1],
-        y: item[2],
-        e: item[3],
-        p: item[4],
-        t: item[5],
-        tr: item[6],
-        source: source
-      });
-      return;
-    }
-
-    if (typeof item === "object") {
-      item.source = item.source || source;
-      addEngine(item);
-    }
-  }
-
-  function ingestDefectItem(item, source) {
-    if (!item) return;
-    if (typeof item === "object") {
-      item.source = item.source || source;
-      addDefect(item);
-    }
-  }
-
-  function ingestCatalogJson(json, sourceUrl) {
-    if (!json) return;
-
-    var source = sourceUrl || "json";
-
-    if (Array.isArray(json)) {
-      json.forEach(function (item) {
-        if (Array.isArray(item)) {
-          if (item.length >= 7) ingestEngineItem(item, source);
-          else if (item.length >= 3) ingestModelItem(item, source);
-          else if (item.length === 1) ingestBrandItem(item[0], source);
-        } else if (item && typeof item === "object") {
-          if (item.b && item.m && item.e) ingestEngineItem(item, source);
-          else if (item.b && item.m) ingestModelItem(item, source);
-          else if (item.b && item.s) ingestDefectItem(item, source);
-          else if (item.name || item.brand || item.marque) ingestBrandItem(item, source);
-        }
-      });
-      return;
-    }
-
-    if (typeof json !== "object") return;
-
-    (json.brands || []).forEach(function (x) { ingestBrandItem(x, source); });
-    (json.marques || []).forEach(function (x) { ingestBrandItem(x, source); });
-
-    (json.models || []).forEach(function (x) { ingestModelItem(x, source); });
-    (json.modeles || []).forEach(function (x) { ingestModelItem(x, source); });
-
-    (json.engines || []).forEach(function (x) { ingestEngineItem(x, source); });
-    (json.motorisations || []).forEach(function (x) { ingestEngineItem(x, source); });
-
-    (json.defects || []).forEach(function (x) { ingestDefectItem(x, source); });
-    (json.pannes || []).forEach(function (x) { ingestDefectItem(x, source); });
-
-    if (json.data && typeof json.data === "object") {
-      ingestCatalogJson(json.data, source);
-    }
-  }
-
-  function loadCatalogConfig() {
-    var cfg = loadWithMigration(KEYS.CATALOG_CFG, OLD_KEYS.CATALOG_CFG, null);
-    if (cfg) {
-      CONFIG.catalog = Object.assign({}, CONFIG.catalog, cfg);
-    }
-  }
-
-  function saveCatalogConfigFromUi() {
-    CONFIG.catalog.vehicleUrl = (q("#vehicleCatalogUrl") || {}).value || CONFIG.catalog.vehicleUrl;
-    CONFIG.catalog.engineUrl = (q("#engineCatalogUrl") || {}).value || CONFIG.catalog.engineUrl;
-    CONFIG.catalog.autoBaseUrl = (q("#autoBaseUrl") || {}).value || CONFIG.catalog.autoBaseUrl;
-    CONFIG.catalog.nhtsaEnabled = !!(q("#nhtsaEnabled") || {}).checked;
-
-    var eps = (q("#autoEndpoints") || {}).value || "";
-    CONFIG.catalog.endpoints = String(eps)
-      .split(/[\n,]+/)
-      .map(function (s) { return s.trim(); })
-      .filter(function (s) { return s; });
-
-    save(KEYS.CATALOG_CFG, CONFIG.catalog);
-    toast("Configuration catalogue enregistrée.", "success");
-  }
-
-  function renderCatalogConfig() {
-    if (q("#vehicleCatalogUrl")) q("#vehicleCatalogUrl").value = CONFIG.catalog.vehicleUrl || "";
-    if (q("#engineCatalogUrl")) q("#engineCatalogUrl").value = CONFIG.catalog.engineUrl || "";
-    if (q("#autoBaseUrl")) q("#autoBaseUrl").value = CONFIG.catalog.autoBaseUrl || "";
-    if (q("#autoEndpoints")) q("#autoEndpoints").value = (CONFIG.catalog.endpoints || []).join("\n");
-    if (q("#nhtsaEnabled")) q("#nhtsaEnabled").checked = !!CONFIG.catalog.nhtsaEnabled;
-  }
-
-  function seedBaseCatalog() {
-    BASE_BRANDS.forEach(function (b) { addBrand(b, BRAND_ALIASES[normKey(b)], "base locale"); });
-    SEED_DEFECTS.forEach(function (d) { addDefect(d); });
-  }
-
-  function loadImportedCatalog() {
-    var raw = loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [];
-    raw.forEach(function (json) {
-      try { ingestCatalogJson(json, "import-admin"); } catch (e) {}
-    });
-  }
-
-  function loadStoredTechnicalUpdates() {
-    var oldTech = loadWithMigration(KEYS.TECH_UPDATES, OLD_KEYS.TECH_UPDATES, []) || [];
-    oldTech.forEach(function (d) { addDefect(d); });
-  }
-
-  function loadLocalCatalogs() {
-    var tasks = [];
-
-    tasks.push(
-      fetchJson(CONFIG.catalog.vehicleUrl)
-        .then(function (json) { ingestCatalogJson(json, CONFIG.catalog.vehicleUrl); })
-        .catch(function () {})
-    );
-
-    tasks.push(
-      fetchJson(CONFIG.catalog.engineUrl)
-        .then(function (json) { ingestCatalogJson(json, CONFIG.catalog.engineUrl); })
-        .catch(function () {})
-    );
-
-    tasks.push(
-      fetchJson(CONFIG.catalog.technicalUrl)
-        .then(function (json) { ingestCatalogJson(json, CONFIG.catalog.technicalUrl); save(KEYS.LAST_UPDATE, Date.now()); })
-        .catch(function () {})
-    );
-
-    return Promise.all(tasks);
-  }
-
-  function loadAutoDiagnostic(manual) {
-    if (!window.fetch) return Promise.resolve(false);
-
-    updateDataStatus(manual ? "Synchronisation auto-diagnostic..." : "Auto-diagnostic en arrière-plan...");
-
-    var baseUrl = CONFIG.catalog.autoBaseUrl;
-    var endpoints = CONFIG.catalog.endpoints || [];
-
-    var tasks = endpoints.map(function (ep) {
-      var url = resolveUrl(baseUrl, ep);
-      return fetchJson(url)
-        .then(function (json) {
-          ingestCatalogJson(json, url);
-          return true;
-        })
-        .catch(function () {
-          return false;
-        });
-    });
-
-    return Promise.all(tasks).then(function (results) {
-      var ok = results.some(Boolean);
-      autoLastSync = Date.now();
-      save(KEYS.AUTO_LAST_SYNC, autoLastSync);
-      updateAdminStats();
-      updateDataStatus(ok ? "Auto-diagnostic synchronisé" : "Auto-diagnostic : aucune donnée JSON exploitable trouvée");
-      if (manual) toast(ok ? "Auto-diagnostic synchronisé." : "Aucune donnée auto-diagnostic exploitable trouvée.", ok ? "success" : "warning");
-      return ok;
-    }).catch(function () {
-      updateDataStatus("Auto-diagnostic indisponible — base locale conservée");
-      if (manual) toast("Synchronisation auto-diagnostic impossible.", "warning");
-      return false;
-    });
-  }
-
-  function nhtsaMake(brand) {
-    var s = String(brand || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
-    var map = {
-      "RANGE ROVER": "LAND ROVER",
-      "MERCEDES BENZ": "MERCEDES-BENZ",
-      "CITROEN": "CITROEN",
-      "SKODA": "SKODA",
-      "VOLKSWAGEN": "VOLKSWAGEN"
-    };
-    return map[s] || s;
-  }
-
-  function fetchNhtsaModels(brand) {
-    if (!CONFIG.catalog.nhtsaEnabled || !window.fetch || !brand) return Promise.resolve([]);
-
-    var make = nhtsaMake(brand);
-    var url = "https://vpic.nhtsa.dot.gov/api/vehicles/getmodelsformake/" + encodeURIComponent(make) + "?format=json";
-
-    return fetch(url, { cache: "no-store" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-      })
-      .then(function (data) {
-        var results = (data && data.Results) || [];
-        return results.map(function (r) {
-          return {
-            id: normKey(brand) + "|" + normKey(r.Model_Name),
-            brand: brand,
-            name: r.Model_Name,
-            years: "1990-2026",
-            source: "NHTSA vPIC"
-          };
-        }).filter(function (x) { return x.name; });
-      })
-      .catch(function () {
-        return [];
-      });
-  }
-
-  function loadCatalogs(manual) {
-    updateDataStatus(manual ? "Chargement des catalogues..." : "Chargement des catalogues en arrière-plan...");
-
-    return loadLocalCatalogs()
-      .then(function () {
-        return loadAutoDiagnostic(manual);
-      })
-      .then(function () {
-        updateAdminStats();
-        refreshSelectorsFromCatalog();
-        updateDataStatus("Catalogue chargé • Marques: " + getAllBrands().length + " • Modèles: " + catalog.models.length + " • Motorisations: " + catalog.engines.length);
-        if (manual) toast("Catalogues rechargés.", "success");
-      })
-      .catch(function (err) {
-        console.warn("[AR-EXPERT] Chargement catalogue impossible:", err);
-        updateDataStatus("Mode autonome : catalogue local partiel");
-        if (manual) toast("Chargement catalogue impossible. Base locale conservée.", "warning");
-      });
-  }
-
-  function refreshSelectorsFromCatalog() {
-    if (selection.brand) {
-      loadModelsForBrand(selection.brand.name, false);
-    } else {
-      renderBrandPanel();
-    }
-  }
-
-  /* =========================================================
-     UI DROPDOWN
-     ========================================================= */
-  function closeAllCombos(exceptId) {
-    ["brandPanel", "modelPanel", "enginePanel"].forEach(function (id) {
-      if (id === exceptId) return;
-      var el = q("#" + id);
-      if (el) el.classList.add("hidden");
-    });
-  }
-
-  function renderBrandPanel() {
-    var input = q("#brandInput");
-    var panel = q("#brandPanel");
-    if (!input || !panel) return;
-
-    var val = norm(input.value);
-    var brands = getAllBrands().filter(function (b) {
-      if (!val) return true;
-      if (norm(b.name).indexOf(val) >= 0) return true;
-      return b.aliases.some(function (a) { return norm(a).indexOf(val) >= 0; });
-    }).slice(0, 40);
-
-    if (!brands.length) {
-      panel.innerHTML = '<div class="combo-empty">Aucune marque trouvée.</div>';
-      panel.classList.remove("hidden");
-      return;
-    }
-
-    panel.innerHTML = brands.map(function (b) {
-      return '<button type="button" class="suggest-item" data-brand="' + esc(b.name) + '">' + esc(b.name) + '</button>';
-    }).join("");
-
-    panel.classList.remove("hidden");
-  }
-
-  function selectBrand(name) {
-    selection.brand = { name: name };
-    selection.model = null;
-    selection.engine = null;
-
-    var input = q("#brandInput");
-    if (input) input.value = name;
-
-    closeAllCombos();
-    updateModelButton();
-    updateEngineButton();
-    updateSelectionSummary();
-    loadModelsForBrand(name, true);
-  }
-
-  function updateModelButton() {
-    var btn = q("#modelButton");
-    if (!btn) return;
-
-    if (!selection.brand) {
-      btn.disabled = true;
-      btn.textContent = "Choisir d’abord une marque";
-      return;
-    }
-
-    if (selection.model) {
-      btn.disabled = false;
-      btn.textContent = selection.model.name + (selection.model.years ? " • " + selection.model.years : "");
-    } else {
-      btn.disabled = false;
-      btn.textContent = "Choisir un modèle";
-    }
-  }
-
-  function updateEngineButton() {
-    var btn = q("#engineButton");
-    if (!btn) return;
-
-    if (!selection.brand || !selection.model) {
-      btn.disabled = true;
-      btn.textContent = !selection.brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle";
-      return;
-    }
-
-    if (selection.engine) {
-      btn.disabled = false;
-      btn.textContent = engineLabel(selection.engine);
-    } else {
-      btn.disabled = false;
-      btn.textContent = "Choisir une motorisation";
-    }
-  }
-
-  function engineLabel(o) {
-    var parts = [];
-    if (o.fuel) parts.push(o.fuel);
-    if (o.engine) parts.push(o.engine);
-    if (o.power && o.power !== "N/A") parts.push(o.power);
-    if (o.transmission) parts.push(o.transmission);
-    if (o.years) parts.push(o.years);
-    return parts.join(" • ");
-  }
-
-  function modelLabel(o) {
-    return o.name + (o.years ? " • " + o.years : "") + (o.source ? " • " + o.source : "");
-  }
-
-  function renderModelList(filter) {
-    var list = q("#modelList");
-    if (!list) return;
-
-    var f = norm(filter || "");
-    currentModelOptions = modelOptions.filter(function (o) {
-      if (!f) return true;
-      return norm(modelLabel(o)).indexOf(f) >= 0;
-    });
-
-    if (!currentModelOptions.length) {
-      list.innerHTML = '<div class="combo-empty">Aucun modèle trouvé.</div>';
-      return;
-    }
-
-    list.innerHTML = currentModelOptions.map(function (o, i) {
-      return '<button type="button" class="combo-option" data-model-index="' + i + '">' + esc(modelLabel(o)) + '</button>';
-    }).join("");
-  }
-
-  function renderEngineList(filter) {
-    var list = q("#engineList");
-    if (!list) return;
-
-    var f = norm(filter || "");
-    currentEngineOptions = engineOptions.filter(function (o) {
-      if (!f) return true;
-      return norm(engineLabel(o)).indexOf(f) >= 0;
-    });
-
-    if (!currentEngineOptions.length) {
-      list.innerHTML = '<div class="combo-empty">Aucune motorisation trouvée.</div>';
-      return;
-    }
-
-    list.innerHTML = currentEngineOptions.map(function (o, i) {
-      return '<button type="button" class="combo-option" data-engine-index="' + i + '">' + esc(engineLabel(o)) + '</button>';
-    }).join("");
-  }
-
-  function loadModelsForBrand(brand, showLoading) {
-    var token = ++modelLoadToken;
-    var year = parseYear((q("#vehicleYear") || {}).value);
-    var local = getModels(brand, year);
-
-    if (showLoading && local.length < 5) {
-      modelOptions = local.concat([{
-        id: "__loading__",
-        brand: brand,
-        name: "Chargement des modèles...",
-        years: "",
-        source: "NHTSA / catalogue"
-      }]);
-      renderModelList("");
-      updateModelButton();
-    } else {
-      modelOptions = local;
-      renderModelList("");
-      updateModelButton();
-    }
-
-    if (CONFIG.catalog.nhtsaEnabled && local.length < 10) {
-      fetchNhtsaModels(brand).then(function (remote) {
-        if (token !== modelLoadToken) return;
-
-        var merged = local.slice();
-        var seen = {};
-        merged.forEach(function (m) { seen[m.id] = true; });
-
-        remote.forEach(function (m) {
-          if (!seen[m.id]) {
-            seen[m.id] = true;
-            merged.push(m);
-          }
-        });
-
-        merged.sort(function (a, b) {
-          return norm(a.name).localeCompare(norm(b.name));
-        });
-
-        modelOptions = merged;
-        renderModelList((q("#modelSearch") || {}).value || "");
-        updateModelButton();
-        updateAdminStats();
-      });
-    }
-
-    refreshEngineOptions();
-  }
-
-  function selectModel(opt) {
-    if (!opt || opt.id === "__loading__") return;
-
-    if (opt.id === "__other__") {
-      selection.model = {
-        id: "__other__",
-        brand: selection.brand ? selection.brand.name : "",
-        name: "Modèle non listé",
-        years: "",
-        source: "manuel"
-      };
-    } else {
-      selection.model = opt;
-    }
-
-    selection.engine = null;
-    closeAllCombos();
-    updateModelButton();
-    refreshEngineOptions();
-    updateSelectionSummary();
-  }
-
-  function refreshEngineOptions() {
-    if (!selection.brand || !selection.model) {
-      engineOptions = [];
-      currentEngineOptions = [];
-      updateEngineButton();
-      return;
-    }
-
-    var year = parseYear((q("#vehicleYear") || {}).value);
-    var engines = getEngines(selection.brand.name, selection.model.name, year);
-
-    if (!engines.length) {
-      engines.push({
-        id: "__other_engine__",
-        brand: selection.brand.name,
-        model: selection.model.name,
-        engine: "Motorisation à confirmer",
-        power: "N/A",
-        fuel: inferFuel(selection.model.name + " " + ((q("#textInput") || {}).value || "")),
-        transmission: "",
-        years: year ? String(year) : "",
-        source: "manuel",
-        sourceUrl: ""
-      });
-    }
-
-    engines.push({
-      id: "__unknown_engine__",
-      brand: selection.brand.name,
-      model: selection.model.name,
-      engine: "Autre / non précisée",
-      power: "N/A",
-      fuel: "Non précisé / mixte",
-      transmission: "",
-      years: year ? String(year) : "",
-      source: "manuel",
-      sourceUrl: ""
-    });
-
-    engineOptions = engines;
-    renderEngineList("");
-    updateEngineButton();
-  }
-
-  function selectEngine(opt) {
-    if (!opt) return;
-
-    if (opt.id === "__other_engine__" || opt.id === "__unknown_engine__") {
-      selection.engine = opt;
-    } else {
-      selection.engine = opt;
-    }
-
-    closeAllCombos();
-    updateEngineButton();
-    updateSelectionSummary();
-  }
-
-  function updateSelectionSummary() {
-    var el = q("#selectionSummary");
-    if (!el) return;
-
-    var v = getSelectedVehicleData();
-
-    if (!v.marque && !v.modele && !v.annee && !v.engine) {
-      el.textContent = "Aucune sélection véhicule complète.";
-      return;
-    }
-
-    var parts = [];
-    if (v.marque) parts.push(v.marque);
-    if (v.modele) parts.push(v.modele);
-    if (v.annee) parts.push(v.annee);
-    if (v.engine) parts.push(v.engine);
-    if (v.power && v.power !== "N/A") parts.push(v.power);
-    if (v.fuel) parts.push(v.fuel);
-    if (v.transmission) parts.push(v.transmission);
-
-    el.textContent = "Sélection retenue : " + parts.join(" • ");
-  }
-
-  function getSelectedVehicleData() {
-    var brandEl = q("#brandInput");
-    var yearEl = q("#vehicleYear");
-    var kmEl = q("#vehicleKilometrage");
-    var vinEl = q("#vehicleVin");
-
-    return {
-      marque: selection.brand ? selection.brand.name : (brandEl ? brandEl.value.trim() : ""),
-      modele: selection.model ? selection.model.name : "",
-      annee: yearEl ? yearEl.value.trim() : "",
-      engine: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.engine : "",
-      power: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.power : "",
-      fuel: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.fuel : "",
-      transmission: selection.engine ? selection.engine.transmission : "",
-      engineSource: selection.engine ? selection.engine.source : "",
-      engineSourceUrl: selection.engine ? selection.engine.sourceUrl : "",
-      kilometrage: kmEl ? kmEl.value.trim() : "",
-      vin: vinEl ? vinEl.value.trim() : ""
-    };
-  }
-
-  /* =========================================================
-     ANALYSE / RAPPORT
-     ========================================================= */
-  function addTerm() {
-    var args = Array.prototype.slice.call(arguments);
-    args.forEach(function (t) { termesMobilises.add(t); });
-    return '<span class="termes-juridiques">(' + args.join(", ") + ")</span>";
-  }
-
   function engineAngle(flags) {
     var h = "";
 
@@ -2189,6 +2600,7 @@
       h += "<p><strong>Puissance :</strong> " + esc(flags.power || "non précisée") + "</p>";
       h += "<p><strong>Énergie :</strong> " + esc(flags.fuel || "non précisée") + "</p>";
       h += "<p><strong>Transmission / boîte :</strong> " + esc(flags.transmission || "non précisée") + "</p>";
+      h += "<p><strong>Source motorisation :</strong> " + esc(flags.engineSource || "non précisée") + "</p>";
       h += "<p>La motorisation est prise en compte comme critère technique et juridique : elle oriente le diagnostic, la présomption d’antériorité, la gravité, les rappels applicables et les fondements de responsabilité.</p>";
       h += "</div>";
     }
@@ -2236,6 +2648,7 @@
       power: vehicleData.power || "",
       fuel: vehicleData.fuel || "",
       transmission: vehicleData.transmission || "",
+      engineSource: vehicleData.engineSource || "",
       professional: sellerType === "professional" || containsAny(all, ["professionnel", "garage", "concession", "revendeur", "automobile", "commercial"]),
       privateSeller: sellerType === "private" || containsAny(all, ["particulier", "entre particuliers", "leboncoin", "lavitrine"]),
       waterLeak: containsAny(all, ["eau", "humidité", "infiltration", "baie", "pare brise", "pare-brise", "moisiure", "court circuit", "traces d’eau", "flaque", "égouttement"]),
@@ -2267,7 +2680,7 @@
     };
 
     var S = [];
-    S.push(["I. IDENTIFICATION DU VÉHICULE ET SÉLECTIONS PRISES EN COMPTE", secIdentification(text, context)]);
+    S.push(["I. IDENTIFICATION DU VÉHICULE ET SÉLECTIONS RENFORCÉES", secIdentification(text, context)]);
     S.push(["II. ANALYSE TECHNIQUE — MOTORISATION, DÉFAUTS CONNUS, USURE, SÉCURITÉ", secTechnique(matches, flags, vehicleData)]);
     S.push(["III. APPUI AUTO-DIAGNOSTIC ET FICHES CORRÉLÉES", secAuto(matches, flags)]);
     S.push(["IV. QUALIFICATION JURIDIQUE, RISQUES ET RÉGIMES DE GARANTIE", secJuridique(flags, matches, vehicleData)]);
@@ -2300,6 +2713,11 @@
   function secIdentification(text, context) {
     var h = "<p><strong>Objet :</strong> recensement des éléments fournis " + addTerm("éléments factuels", "faits allégués") + ".</p>";
 
+    var availableEngines = [];
+    if (vehicleData.marque && vehicleData.modele) {
+      availableEngines = getEngines(vehicleData.marque, vehicleData.modele, parseYear(vehicleData.annee));
+    }
+
     h += "<h4>A. Véhicule sélectionné</h4><ul>";
     h += "<li><strong>Marque :</strong> " + esc(vehicleData.marque || "non précisée") + "</li>";
     h += "<li><strong>Modèle :</strong> " + esc(vehicleData.modele || "non précisé") + "</li>";
@@ -2308,6 +2726,7 @@
     h += "<li><strong>Puissance :</strong> " + esc(vehicleData.power || "non précisée") + "</li>";
     h += "<li><strong>Énergie :</strong> " + esc(vehicleData.fuel || "non précisée") + "</li>";
     h += "<li><strong>Transmission / boîte :</strong> " + esc(vehicleData.transmission || "non précisée") + "</li>";
+    h += "<li><strong>Motorisations renforcées disponibles pour ce modèle/année :</strong> " + availableEngines.length + "</li>";
     h += "<li><strong>Kilométrage :</strong> " + esc(vehicleData.kilometrage || "non précisé") + " km " + addTerm("kilométrage", "usure normale", "vétusté") + "</li>";
     h += "<li><strong>VIN :</strong> " + esc(vehicleData.vin || "non communiqué") + " " + addTerm("VIN", "numéro de série", "traçabilité") + "</li>";
     h += "</ul>";
@@ -2411,20 +2830,21 @@
       return m.source === "auto-diagnostic";
     });
 
+    var autoCount = catalog.defects.filter(function (d) { return d.source === "auto-diagnostic"; }).length;
+    var autoEngineCount = catalog.engines.filter(function (e) { return e.source === "auto-diagnostic"; }).length;
+
     var h = "<p><strong>Objet :</strong> appui technique issu de la base auto-diagnostic, corrélé au contexte du litige et à la motorisation " + addTerm("appui technique", "corrélation auto-diagnostic", "fiche expert", "DTC", "motorisation") + ".</p>";
 
-    var autoCount = catalog.defects.filter(function (d) { return d.source === "auto-diagnostic"; }).length;
+    h += "<p><strong>Entrées auto-diagnostic disponibles :</strong> " + autoCount + " fiche(s) / " + autoEngineCount + " motorisation(s) renforcée(s).</p>";
 
     if (!autoCount) {
       h += '<div class="verification-needed">';
-      h += "<p>La base auto-diagnostic n’est pas encore synchronisée localement ou n’a pas exposé de JSON exploitable.</p>";
+      h += "<p>La base auto-diagnostic n’a pas encore exposé de données exploitables via JSON ou extraction HTML/JS.</p>";
       h += "<p>URL configurée : <code>" + esc(CONFIG.catalog.autoBaseUrl) + "</code></p>";
       h += "<p>Déposer un export JSON dans l’un des endpoints configurés, ou utiliser : Admin → Base technique → Importer JSON.</p>";
       h += "</div>";
       return h;
     }
-
-    h += "<p><strong>Entrées auto-diagnostic disponibles localement :</strong> " + autoCount + ".</p>";
 
     if (!autoMatches.length) {
       h += '<div class="certainty-medium">';
@@ -2999,6 +3419,28 @@
   /* =========================================================
      EVENEMENTS UI
      ========================================================= */
+  function shareTextUrl(text, url, title) {
+    if (navigator.share) {
+      navigator.share({ title: title, text: text, url: url }).catch(function () {
+        copyFallback(url);
+      });
+    } else {
+      copyFallback(url);
+    }
+  }
+
+  function copyFallback(url) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        toast("Lien copié.", "success");
+      }).catch(function () {
+        toast("Copie impossible.", "error");
+      });
+    } else {
+      toast("Partage/copie non supporté.", "warning");
+    }
+  }
+
   function bindUi() {
     qa(".auth-tab").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -3596,7 +4038,7 @@
     on("#forceUpdateBtn", "click", function () {
       fetchJson(CONFIG.catalog.technicalUrl)
         .then(function (json) {
-          ingestCatalogJson(json, CONFIG.catalog.technicalUrl);
+          ingestJson(json, "mise à jour JSON", CONFIG.catalog.technicalUrl, 0);
           save(KEYS.LAST_UPDATE, Date.now());
           updateAdminStats();
           refreshSelectorsFromCatalog();
@@ -3624,7 +4066,7 @@
       var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       var a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "aide-redactionnelle-expert-data-v17.json";
+      a.download = "aide-redactionnelle-expert-data-v18.json";
       a.click();
       toast("Données exportées.", "success");
     });
@@ -3650,7 +4092,7 @@
             imported.push(data);
             save(KEYS.IMPORTED_RAW, imported);
 
-            ingestCatalogJson(data, "import-manuel");
+            ingestJson(data, "import-admin", "import", 0);
 
             updateAdminStats();
             refreshSelectorsFromCatalog();
@@ -3784,28 +4226,6 @@
     });
   }
 
-  function shareTextUrl(text, url, title) {
-    if (navigator.share) {
-      navigator.share({ title: title, text: text, url: url }).catch(function () {
-        copyFallback(url);
-      });
-    } else {
-      copyFallback(url);
-    }
-  }
-
-  function copyFallback(url) {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(function () {
-        toast("Lien copié.", "success");
-      }).catch(function () {
-        toast("Copie impossible.", "error");
-      });
-    } else {
-      toast("Partage/copie non supporté.", "warning");
-    }
-  }
-
   /* =========================================================
      INIT
      ========================================================= */
@@ -3844,7 +4264,7 @@
 
     loadCatalogs(false);
 
-    toast("Application prête. Catalogue intelligent + auto-diagnostic chargés.", "success");
+    toast("Application prête. Motorisations renforcées depuis auto-diagnostic.", "success");
   }
 
   function boot() {
