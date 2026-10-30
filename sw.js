@@ -1,4 +1,4 @@
-const CACHE_NAME = "arex-expert-v19-complete-engines";
+const CACHE_NAME = "arex-expert-v20-universal-filters";
 
 const CORE_ASSETS = [
   "./",
