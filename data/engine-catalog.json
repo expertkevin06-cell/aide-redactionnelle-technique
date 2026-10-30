@@ -1,52 +1,161 @@
 {
   "motorisations": [
-    {
-      "b": "Peugeot",
-      "m": "208|2008|308|3008|5008",
-      "y": "2019-2024",
-      "e": "1.2 PureTech EB2",
-      "p": "100ch|130ch",
-      "t": "Essence"
-    },
-    {
-      "b": "Peugeot",
-      "m": "208|2008|308|3008|5008",
-      "y": "2020-2024",
-      "e": "e-CMP électrique",
-      "p": "100kW|136ch",
-      "t": "Électrique"
-    },
-    {
-      "b": "Renault",
-      "m": "Clio V|Captur II|Megane IV",
-      "y": "2019-2024",
-      "e": "1.0 TCe / 1.3 TCe",
-      "p": "90ch|140ch|160ch",
-      "t": "Essence"
-    },
-    {
-      "b": "Renault",
-      "m": "Clio|Captur|Megane|Scenic",
-      "y": "2017-2023",
-      "e": "1.5 dCi K9K",
-      "p": "75ch|90ch|110ch",
-      "t": "Diesel"
-    },
-    {
-      "b": "Volkswagen",
-      "m": "ID.3|ID.4|ID.5",
-      "y": "2020-2027",
-      "e": "MEB électrique",
-      "p": "145ch|174ch|204ch|286ch",
-      "t": "Électrique"
-    },
-    {
-      "b": "Tesla",
-      "m": "Model 3|Model Y",
-      "y": "2019-2027",
-      "e": "Standard Range / Long Range / Performance",
-      "p": "283ch|351ch|534ch",
-      "t": "Électrique"
-    }
+    ["Renault", "Clio V", "2019-2026", "1.0 TCe", "65ch|90ch", "Essence", "BVM6"],
+    ["Renault", "Clio V", "2019-2026", "1.3 TCe", "100ch|130ch|140ch", "Essence", "BVM6|EDC"],
+    ["Renault", "Clio V", "2019-2026", "1.5 dCi", "75ch|100ch|115ch", "Diesel", "BVM6|EDC"],
+    ["Renault", "Clio V", "2019-2026", "E-Tech Hybrid", "140ch|145ch", "Hybride", "automatique"],
+    ["Renault", "Clio V", "2019-2026", "E-Tech Plug-in Hybrid", "160ch", "Hybride rechargeable", "automatique"],
+
+    ["Renault", "Captur II", "2020-2026", "1.0 TCe", "90ch|100ch", "Essence", "BVM6"],
+    ["Renault", "Captur II", "2020-2026", "1.3 TCe", "130ch|155ch", "Essence", "EDC"],
+    ["Renault", "Captur II", "2020-2026", "1.5 Blue dCi", "100ch", "Diesel", "BVM6|EDC"],
+    ["Renault", "Captur II", "2020-2026", "E-Tech Hybrid", "140ch|160ch", "Hybride", "automatique"],
+    ["Renault", "Captur II", "2020-2026", "E-Tech Plug-in Hybrid", "165ch", "Hybride rechargeable", "automatique"],
+
+    ["Renault", "Megane IV", "2016-2024", "1.3 TCe", "100ch|140ch|160ch", "Essence", "BVM6|EDC"],
+    ["Renault", "Megane IV", "2016-2024", "1.5 dCi", "90ch|115ch", "Diesel", "BVM6|EDC"],
+    ["Renault", "Megane IV", "2016-2024", "1.6 dCi", "130ch", "Diesel", "BVM6"],
+    ["Renault", "Megane IV", "2016-2024", "E-Tech Hybrid", "160ch|205ch", "Hybride", "automatique"],
+
+    ["Renault", "Austral", "2022-2026", "1.2 TCe 130", "130ch", "Essence", "BVM6"],
+    ["Renault", "Austral", "2022-2026", "1.2 TCe 160", "160ch", "Essence", "BVM6"],
+    ["Renault", "Austral", "2022-2026", "E-Tech Hybrid 160", "160ch", "Hybride", "automatique"],
+    ["Renault", "Austral", "2022-2026", "E-Tech Hybrid 200", "200ch", "Hybride", "automatique"],
+    ["Renault", "Austral", "2022-2026", "E-Tech Plug-in Hybrid 200", "200ch", "Hybride rechargeable", "automatique"],
+    ["Renault", "Austral", "2022-2026", "E-Tech Plug-in Hybrid 260", "260ch", "Hybride rechargeable", "automatique"],
+
+    ["Renault", "Megane E-Tech", "2022-2026", "Evolution 60 kWh", "130ch|220ch", "Électrique", "réducteur"],
+    ["Renault", "Megane E-Tech", "2022-2026", "Techno 60 kWh", "130ch|220ch", "Électrique", "réducteur"],
+    ["Renault", "Megane E-Tech", "2022-2026", "Iconic 60 kWh", "220ch", "Électrique", "réducteur"],
+
+    ["Dacia", "Sandero III", "2020-2026", "1.0 SCe", "65ch|75ch", "Essence", "BVM5"],
+    ["Dacia", "Sandero III", "2020-2026", "1.0 TCe", "90ch|100ch", "Essence", "BVM5|BVM6"],
+    ["Dacia", "Sandero III", "2020-2026", "1.0 ECO-G 100", "100ch", "GPL", "BVM6"],
+    ["Dacia", "Sandero III", "2020-2026", "1.5 Blue dCi", "100ch", "Diesel", "BVM6"],
+    ["Dacia", "Sandero III", "2020-2026", "Hybrid 140", "140ch", "Hybride", "automatique"],
+
+    ["Dacia", "Spring", "2021-2026", "45 ch", "45ch", "Électrique", "réducteur"],
+    ["Dacia", "Spring", "2021-2026", "65 ch", "65ch", "Électrique", "réducteur"],
+
+    ["Peugeot", "208 II", "2019-2026", "1.2 PureTech 75", "75ch", "Essence", "BVM5"],
+    ["Peugeot", "208 II", "2019-2026", "1.2 PureTech 100", "100ch", "Essence", "BVM6"],
+    ["Peugeot", "208 II", "2019-2026", "1.2 PureTech 130", "130ch", "Essence", "EAT8"],
+    ["Peugeot", "208 II", "2019-2026", "1.5 BlueHDi 100", "100ch", "Diesel", "BVM6"],
+    ["Peugeot", "208 II", "2019-2026", "e-208", "100kW|115kW|156ch", "Électrique", "réducteur"],
+
+    ["Peugeot", "2008 II", "2019-2026", "1.2 PureTech 100", "100ch", "Essence", "BVM6"],
+    ["Peugeot", "2008 II", "2019-2026", "1.2 PureTech 130", "130ch", "Essence", "EAT8"],
+    ["Peugeot", "2008 II", "2019-2026", "1.5 BlueHDi 100|130", "100ch|130ch", "Diesel", "BVM6|EAT8"],
+    ["Peugeot", "2008 II", "2019-2026", "e-2008", "100kW|115kW|156ch", "Électrique", "réducteur"],
+
+    ["Peugeot", "308 III", "2021-2026", "1.2 PureTech 110", "110ch", "Essence", "BVM6"],
+    ["Peugeot", "308 III", "2021-2026", "1.2 PureTech 130", "130ch", "Essence", "EAT8"],
+    ["Peugeot", "308 III", "2021-2026", "1.5 BlueHDi 130", "130ch", "Diesel", "EAT8"],
+    ["Peugeot", "308 III", "2021-2026", "Hybrid 180", "180ch", "Hybride rechargeable", "EAT8"],
+    ["Peugeot", "308 III", "2021-2026", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8"],
+    ["Peugeot", "308 III", "2021-2026", "e-308", "115kW|150kW", "Électrique", "réducteur"],
+
+    ["Peugeot", "3008 III", "2024-2026", "1.6 Hybrid 130", "130ch", "Hybride", "automatique"],
+    ["Peugeot", "3008 III", "2024-2026", "1.6 Hybrid 180", "180ch", "Hybride", "automatique"],
+    ["Peugeot", "3008 III", "2024-2026", "1.6 Hybrid 225", "225ch", "Hybride rechargeable", "automatique"],
+    ["Peugeot", "3008 III", "2024-2026", "1.6 Hybrid 320 4x4", "320ch", "Hybride rechargeable", "automatique"],
+    ["Peugeot", "3008 III", "2024-2026", "e-3008", "210ch", "Électrique", "réducteur"],
+
+    ["Peugeot", "5008 III", "2024-2026", "1.6 Hybrid 130", "130ch", "Hybride", "automatique"],
+    ["Peugeot", "5008 III", "2024-2026", "1.6 Hybrid 180", "180ch", "Hybride", "automatique"],
+    ["Peugeot", "5008 III", "2024-2026", "1.6 Hybrid 225", "225ch", "Hybride rechargeable", "automatique"],
+    ["Peugeot", "5008 III", "2024-2026", "1.6 Hybrid 320 4x4", "320ch", "Hybride rechargeable", "automatique"],
+    ["Peugeot", "5008 III", "2024-2026", "e-5008", "210ch", "Électrique", "réducteur"],
+
+    ["Citroen", "C3 III", "2016-2026", "1.2 PureTech", "82ch|100ch|110ch|130ch", "Essence", "BVM5|BVM6|EAT6"],
+    ["Citroen", "C3 III", "2016-2026", "1.5 BlueHDi", "100ch", "Diesel", "BVM6"],
+    ["Citroen", "C3 III", "2016-2026", "ë-C3", "94ch|118ch", "Électrique", "réducteur"],
+
+    ["Citroen", "C4", "2020-2026", "1.2 PureTech", "100ch|130ch", "Essence", "BVM6|EAT8"],
+    ["Citroen", "C4", "2020-2026", "1.5 BlueHDi", "130ch", "Diesel", "EAT8"],
+    ["Citroen", "C4", "2020-2026", "ë-C4", "100kW|115kW|156ch", "Électrique", "réducteur"],
+
+    ["Citroen", "C5 Aircross", "2018-2026", "1.2 PureTech", "130ch|180ch", "Essence", "EAT8"],
+    ["Citroen", "C5 Aircross", "2018-2026", "1.5 BlueHDi", "130ch", "Diesel", "EAT8"],
+    ["Citroen", "C5 Aircross", "2018-2026", "2.0 BlueHDi", "160ch|180ch", "Diesel", "EAT8"],
+    ["Citroen", "C5 Aircross", "2018-2026", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8"],
+    ["Citroen", "C5 Aircross", "2018-2026", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8"],
+
+    ["Volkswagen", "Golf VIII", "2020-2026", "1.0 eTSI", "110ch", "Hybride léger 48V", "DSG"],
+    ["Volkswagen", "Golf VIII", "2020-2026", "1.5 eTSI", "130ch|150ch", "Hybride léger 48V", "DSG"],
+    ["Volkswagen", "Golf VIII", "2020-2026", "2.0 TSI", "245ch|320ch", "Essence", "DSG"],
+    ["Volkswagen", "Golf VIII", "2020-2026", "2.0 TDI", "115ch|150ch", "Diesel", "DSG|BVM6"],
+    ["Volkswagen", "Golf VIII", "2020-2026", "eHybrid", "204ch|245ch", "Hybride rechargeable", "DSG"],
+
+    ["Volkswagen", "ID.3", "2020-2026", "Pure Performance", "145ch|174ch|204ch", "Électrique", "réducteur"],
+    ["Volkswagen", "ID.3", "2020-2026", "Pro", "204ch", "Électrique", "réducteur"],
+    ["Volkswagen", "ID.3", "2020-2026", "Pro S", "204ch", "Électrique", "réducteur"],
+    ["Volkswagen", "ID.3", "2020-2026", "GTX", "204ch", "Électrique", "réducteur"],
+
+    ["Volkswagen", "ID.4", "2021-2026", "Pure", "174ch", "Électrique", "réducteur"],
+    ["Volkswagen", "ID.4", "2021-2026", "Pro", "204ch", "Électrique", "réducteur"],
+    ["Volkswagen", "ID.4", "2021-2026", "Pro Performance", "204ch", "Électrique", "réducteur"],
+    ["Volkswagen", "ID.4", "2021-2026", "GTX", "299ch", "Électrique", "réducteur"],
+
+    ["Audi", "A3", "2020-2026", "30 TFSI", "110ch", "Essence", "S tronic"],
+    ["Audi", "A3", "2020-2026", "35 TFSI", "150ch", "Essence", "S tronic"],
+    ["Audi", "A3", "2020-2026", "40 TFSI", "204ch", "Essence", "S tronic"],
+    ["Audi", "A3", "2020-2026", "35 TDI", "150ch", "Diesel", "S tronic"],
+    ["Audi", "A3", "2020-2026", "40 TDI", "204ch", "Diesel", "S tronic"],
+    ["Audi", "A3", "2020-2026", "Sportback 45 TFSI e", "245ch|310ch", "Hybride rechargeable", "S tronic"],
+
+    ["BMW", "Serie 3", "2019-2026", "320i", "170ch|184ch", "Essence", "BVM8|Steptronic"],
+    ["BMW", "Serie 3", "2019-2026", "330i", "245ch|258ch", "Essence", "Steptronic"],
+    ["BMW", "Serie 3", "2019-2026", "M340i", "374ch", "Essence", "Steptronic"],
+    ["BMW", "Serie 3", "2019-2026", "320d", "163ch|190ch", "Diesel", "BVM6|Steptronic"],
+    ["BMW", "Serie 3", "2019-2026", "330d", "286ch|292ch", "Diesel", "Steptronic"],
+    ["BMW", "Serie 3", "2019-2026", "330e", "292ch", "Hybride rechargeable", "Steptronic"],
+
+    ["Mercedes-Benz", "Classe C", "2021-2026", "C200", "204ch", "Essence", "9G-Tronic"],
+    ["Mercedes-Benz", "Classe C", "2021-2026", "C300", "258ch", "Essence", "9G-Tronic"],
+    ["Mercedes-Benz", "Classe C", "2021-2026", "C220d", "200ch", "Diesel", "9G-Tronic"],
+    ["Mercedes-Benz", "Classe C", "2021-2026", "C300de", "313ch", "Hybride rechargeable", "9G-Tronic"],
+
+    ["Tesla", "Model 3", "2017-2026", "Standard Range Plus", "283ch", "Électrique", "réducteur"],
+    ["Tesla", "Model 3", "2017-2026", "Long Range", "351ch|442ch", "Électrique", "réducteur"],
+    ["Tesla", "Model 3", "2017-2026", "Performance", "513ch|534ch", "Électrique", "réducteur"],
+
+    ["Tesla", "Model Y", "2020-2026", "Standard Range", "299ch", "Électrique", "réducteur"],
+    ["Tesla", "Model Y", "2020-2026", "Long Range", "442ch|534ch", "Électrique", "réducteur"],
+    ["Tesla", "Model Y", "2020-2026", "Performance", "534ch|615ch", "Électrique", "réducteur"],
+
+    ["Toyota", "Yaris", "2020-2026", "1.5 Hybrid", "116ch|130ch", "Hybride", "e-CVT"],
+    ["Toyota", "Yaris", "2020-2026", "1.0", "72ch", "Essence", "BVM5"],
+    ["Toyota", "Yaris", "2020-2026", "GR Yaris", "261ch|280ch", "Essence", "BVM6"],
+
+    ["Toyota", "RAV4", "2018-2026", "2.5 Hybrid", "218ch|222ch", "Hybride", "e-CVT"],
+    ["Toyota", "RAV4", "2018-2026", "2.5 Plug-in Hybrid", "306ch|320ch", "Hybride rechargeable", "e-CVT"],
+    ["Toyota", "RAV4", "2018-2026", "2.0", "171ch", "Essence", "BVM6|Direct Shift"],
+    ["Toyota", "RAV4", "2018-2026", "2.5 D-4D", "150ch|200ch", "Diesel", "BVM6|Direct Shift"],
+
+    ["Hyundai", "Tucson", "2021-2026", "1.6 TGDI", "150ch|177ch", "Essence", "BVM6|DCT"],
+    ["Hyundai", "Tucson", "2021-2026", "1.6 TGDI 48V", "150ch|177ch", "Hybride léger 48V", "DCT"],
+    ["Hyundai", "Tucson", "2021-2026", "1.6 CRDi 48V", "115ch|136ch", "Diesel", "BVM6|DCT"],
+    ["Hyundai", "Tucson", "2021-2026", "1.6 Hybrid", "215ch|230ch", "Hybride", "automatique"],
+    ["Hyundai", "Tucson", "2021-2026", "1.6 Plug-in Hybrid", "253ch|265ch", "Hybride rechargeable", "automatique"],
+
+    ["Kia", "EV6", "2021-2026", "Light", "151ch", "Électrique", "réducteur"],
+    ["Kia", "EV6", "2021-2026", "Standard", "151ch|228ch", "Électrique", "réducteur"],
+    ["Kia", "EV6", "2021-2026", "Long Range", "228ch|325ch", "Électrique", "réducteur"],
+    ["Kia", "EV6", "2021-2026", "GT", "430ch|585ch", "Électrique", "réducteur"],
+
+    ["MG", "MG4", "2022-2026", "Standard Range", "170ch", "Électrique", "réducteur"],
+    ["MG", "MG4", "2022-2026", "Long Range", "170ch|204ch", "Électrique", "réducteur"],
+    ["MG", "MG4", "2022-2026", "XPOWER", "435ch", "Électrique", "réducteur"],
+
+    ["BYD", "Atto 3", "2022-2026", "Comfort", "204ch", "Électrique", "réducteur"],
+    ["BYD", "Atto 3", "2022-2026", "Design", "204ch", "Électrique", "réducteur"],
+
+    ["BYD", "Seal", "2023-2026", "Comfort", "204ch", "Électrique", "réducteur"],
+    ["BYD", "Seal", "2023-2026", "Design", "313ch", "Électrique", "réducteur"],
+    ["BYD", "Seal", "2023-2026", "AWD Performance", "530ch", "Électrique", "réducteur"],
+
+    ["Chevrolet", "Bolt EV", "2017-2026", "Bolt EV", "204ch", "Électrique", "réducteur"],
+    ["Chevrolet", "Bolt EUV", "2021-2026", "Bolt EUV", "204ch", "Électrique", "réducteur"]
   ]
 }
