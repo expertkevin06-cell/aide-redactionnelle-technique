@@ -1,17 +1,26 @@
-const CACHE_NAME = "arex-expert-v16-smart-selection";
+const CACHE_NAME = "arex-expert-v17-catalog";
 
 const CORE_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./manifest.json"
+  "./manifest.json",
+  "./data/vehicle-catalog.json",
+  "./data/engine-catalog.json",
+  "./data/technical-updates.json"
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(CORE_ASSETS);
+      return Promise.all(
+        CORE_ASSETS.map((url) => {
+          return cache.add(url).catch(() => {
+            console.warn("Asset absent ou non caché :", url);
+          });
+        })
+      );
     })
   );
   self.skipWaiting();
@@ -40,7 +49,9 @@ self.addEventListener("fetch", (event) => {
   if (
     url.pathname.includes("/data/technical-updates.json") ||
     url.pathname.includes("/data/engine-catalog.json") ||
-    url.pathname.includes("/data/motorisations.json")
+    url.pathname.includes("/data/vehicle-catalog.json") ||
+    url.pathname.includes("/data/motorisations.json") ||
+    url.pathname.includes("/data/models.json")
   ) {
     event.respondWith(
       fetch(event.request)
