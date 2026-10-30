@@ -1,9 +1,6 @@
 (function () {
   "use strict";
 
-  /* =========================================================
-     PROTECTION GLOBALE : AUCUNE ERREUR NE BLOQUE LE DEMARRAGE
-     ========================================================= */
   window.addEventListener("error", function (event) {
     console.error("[AR-EXPERT] Erreur globale:", event.message);
     try { toast("Erreur interceptée: " + event.message, "error"); } catch (e) {}
@@ -17,9 +14,6 @@
     if (event.preventDefault) event.preventDefault();
   });
 
-  /* =========================================================
-     HELPERS
-     ========================================================= */
   function q(sel) { return document.querySelector(sel); }
   function qa(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
 
@@ -105,58 +99,73 @@
     }, 4500);
   }
 
-  function notify(title, body) {
-    try {
-      if ("Notification" in window && Notification.permission === "granted") {
-        new Notification(title, { body: body });
-      }
-    } catch (e) {}
-  }
-
-  function askNotification() {
-    try {
-      if ("Notification" in window && Notification.permission === "default") {
-        Notification.requestPermission();
-      }
-    } catch (e) {}
+  function simpleHash(str) {
+    var hash = 5381;
+    for (var i = 0; i < str.length; i++) {
+      hash = ((hash << 5) + hash) + str.charCodeAt(i);
+      hash = hash & hash;
+    }
+    return "simple:" + (hash >>> 0).toString(16);
   }
 
   function sha256(text) {
     if (!window.crypto || !crypto.subtle || typeof TextEncoder === "undefined") {
-      return Promise.resolve("fallback:" + text);
+      return Promise.resolve(simpleHash(String(text || "")));
     }
-    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)).then(function (buf) {
+    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text || ""))).then(function (buf) {
       return Array.prototype.map.call(new Uint8Array(buf), function (b) {
         return b.toString(16).padStart(2, "0");
       }).join("");
+    }).catch(function () {
+      return simpleHash(String(text || ""));
     });
   }
 
-  function addTerm() {
-    for (var i = 0; i < arguments.length; i++) {
-      termesMobilises.add(arguments[i]);
-    }
-    return '<span class="termes-juridiques">(' + Array.prototype.slice.call(arguments).join(", ") + ")</span>";
+  function utf8ToB64Url(str) {
+    var binary = encodeURIComponent(String(str || "")).replace(/%([0-9A-F]{2})/g, function (m, p1) {
+      return String.fromCharCode(parseInt(p1, 16));
+    });
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
-  /* =========================================================
-     CONFIGURATION
-     ========================================================= */
+  function b64UrlToUtf8(str) {
+    var s = String(str || "").replace(/-/g, "+").replace(/_/g, "/");
+    while (s.length % 4) s += "=";
+    var binary = atob(s);
+    var percent = binary.split("").map(function (c) {
+      return "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2);
+    }).join("");
+    return decodeURIComponent(percent);
+  }
+
+  function getQueryParam(name) {
+    var search = location.search || "";
+    if (search.charAt(0) === "?") search = search.substring(1);
+    var parts = search.split("&");
+    for (var i = 0; i < parts.length; i++) {
+      var pair = parts[i].split("=");
+      if (decodeURIComponent(pair[0] || "") === name) {
+        return decodeURIComponent(pair[1] || "");
+      }
+    }
+    return null;
+  }
+
   var CONFIG = {
     adminPassword: "Kevin83600",
     maxDailyAnalyses: 10,
     updateIntervalDays: 30,
-    updateUrl: "./data/technical-updates.json"
+    updateUrl: "./data/technical-updates.json",
+    pollAdminMs: 5000
   };
 
   var KEYS = {
-    SESSION: "arex_session_v11",
-    USERS: "arex_users_v11",
-    REQUESTS: "arex_requests_v11",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v11",
-    TECH_UPDATES: "arex_tech_updates_v11",
-    LAST_UPDATE: "arex_last_update_v11",
-    LAST_BOOT: "arex_last_boot_v11"
+    SESSION: "arex_session_v12",
+    USERS: "arex_users_v12",
+    REQUESTS: "arex_requests_v12",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v12",
+    TECH_UPDATES: "arex_tech_updates_v12",
+    LAST_UPDATE: "arex_last_update_v12"
   };
 
   var currentUser = null;
@@ -166,6 +175,10 @@
   var termesMobilises = new Set();
   var deferredPrompt = null;
   var techUpdates = [];
+  var swRegistration = null;
+  var adminPollTimer = null;
+  var lastPendingSignature = "";
+  var lastSharedAccessRequest = null;
   var broadcast = null;
 
   try {
@@ -176,176 +189,208 @@
     broadcast = null;
   }
 
-  /* =========================================================
-     BASE TECHNIQUE LOCALE MASSIVE 2017-2027
-     Format compact :
-     D(brand, models, years, engine, power, symptoms, severity, wearFactor, note, legal, recall, tags)
-     ========================================================= */
   function D(b, m, y, e, p, s, sev, wf, n, law, rec, tg) {
-    return {
-      b: b,
-      m: m,
-      y: y,
-      e: e,
-      p: p,
-      s: s,
-      sev: sev,
-      wf: wf,
-      n: n,
-      law: law,
-      rec: rec,
-      tg: tg
-    };
+    return { b: b, m: m, y: y, e: e, p: p, s: s, sev: sev, wf: wf, n: n, law: law, rec: rec, tg: tg };
   }
 
-  var SEED_DEFECTS = [
-    /* -----------------------------
-       RENAULT / DACIA / FRANCE
-       ----------------------------- */
-    D("Renault", "Clio V|Captur II|Megane IV|Arkane|Scenic|Austral", "2017-2027", "1.0 TCe / 1.3 TCe H5Ht", "90ch-160ch",
-      "consommation huile|turbo|wastegate|bruit chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe",
+  var BRAND_LIST = [
+    "Renault", "Dacia", "Peugeot", "Citroen", "DS", "Volkswagen", "Audi", "Skoda", "Seat", "Cupra",
+    "BMW", "Mini", "Mercedes-Benz", "Volvo", "Porsche", "Land Rover", "Range Rover", "Jaguar",
+    "Opel", "Fiat", "Alfa Romeo", "Ford", "Tesla", "Jeep", "Toyota", "Lexus", "Honda", "Nissan",
+    "Mazda", "Subaru", "Suzuki", "Mitsubishi", "Hyundai", "Kia", "Genesis", "MG", "BYD",
+    "Leapmotor", "XPeng", "NIO", "Aiways", "Ora", "Chery", "Omoda", "Jaecoo", "Geely", "Smart",
+    "Lotus", "Maxus", "GWM", "Chevrolet", "GMC", "Cadillac", "Ram", "Chrysler", "Dodge",
+    "Toutes marques"
+  ];
+
+  var CATEGORY_TEMPLATES = [
+    ["Essence turbo downsizing", "consommation huile|turbo|chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe|huile|preignition|LSPI|carbonisation", "critique", 0.72, "Moteur essence turbo à cylindrée réduite : surveillance huile, turbo, distribution, encrassement, pré-allumage, perte de puissance.", "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.; tromperie L.213-1 si dissimulation.", "TSB constructeurs; forums; rappel.conso; NHTSA", "moteur|turbo|huile|distribution|puissance|combustion"],
+    ["Diesel dépollution", "EGR|FAP|DPF|AdBlue|NOx|injecteur|turbo|regeneration|voyant antipollution|fumee noire|puissance reduite|cristallisation|conso gasoil", "moyen", 0.55, "Chaîne de dépollution diesel : EGR, FAP/DPF, AdBlue, NOx, injecteurs, turbo, régénération.", "Vice caché 1641 C.civ.; usure normale à écarter; tromperie L.213-1 si logiciel.", "Rappels diesel; CJUE; DGCCRF; KBA", "diesel|EGR|FAP|AdBlue|NOx|pollution|turbo"],
+    ["Boîte automatique / robotisée", "a-coups|patinage|embrayage|mecatronique|convertisseur|voyant boite|mode degrade|surchauffe|odeur brulee|bruit boite|blocage vitesse", "critique", 0.7, "Boîte automatique ou robotisée : mécatronique, embrayage, convertisseur, logiciel, surchauffe urbaine.", "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.", "TSB boîtes; rappels constructeurs", "boite|embrayage|mecatronique|convertisseur|logiciel"],
+    ["Boîte manuelle / embrayage", "embrayage|boite|synchro|bruit|vibration|patinage|difficile passer vitesse|pedale embrayage", "moyen", 0.5, "Transmission manuelle : embrayage, synchroniseurs, bruit, vibration, difficulté de passage.", "Vice caché 1641 C.civ.; usure normale possible.", "Forums; TSB", "boite|embrayage|transmission"],
+    ["Hybride / électrique batterie", "batterie|BMS|autonomie|charge|cellule|SOH|thermal|incendie|12V|DC-DC|software|recharge|deséquilibre", "critique", 0.92, "Batterie haute tension, BMS, cellules, autonomie, batterie 12V, DC-DC, logiciel, risque thermique.", "Sécurité L.423-1 C.consom.; produits défectueux 1245 C.civ.; conformité L.217-4.", "Rappels EV/hybride; NHTSA; DGCCRF; KBA", "batterie|charge|autonomie|electricite|securite|logiciel"],
+    ["Charge électrique", "charge AC|charge DC|port de charge|cable|verrou|recharge impossible|charge lente|thermal derating|ISO|isolation HV", "critique", 0.9, "Recharge AC/DC, port, câble, verrouillage, isolation haute tension, bridage thermique.", "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245.", "Rappels EV; constructeurs; NHTSA", "charge|batterie|electricite|securite"],
+    ["ADAS / conduite assistée", "ADAS|camera|radar|lidar|phantom braking|lane keeping|emergency brake|calibration|autopilot|Travel Assist|Pilot Assist|ProPILOT|Toyota Safety Sense|BlueCruise", "critique", 0.95, "Capteurs ADAS, calibration, caméra, radar, lidar, freinage fantôme, assistance autoroute, logiciel.", "Sécurité L.423-1; produits défectueux 1245; conformité L.217-4; pénal si accident.", "NHTSA ADAS; Euro NCAP; DGCCRF; SafetyGate", "ADAS|logiciel|securite|capteurs|camera|radar"],
+    ["Électricité / infiltration eau", "infiltration eau|court circuit|moisiure|corrosion|faisceau|boitier fusibles|calculateurs|voyants aleatoires|incendie electrique|odeur brulee", "critique", 0.93, "Infiltration d’eau, corrosion, courts-circuits, faisceaux, calculateurs, voyants aléatoires, risque incendie électrique.", "Sécurité L.423-1; vice caché 1641; produits défectueux 1245.", "Rappels électriques; forums; NHTSA; DGCCRF", "eau|electricite|court-circuit|incendie|securite"],
+    ["Fuite de fluides", "fuite carburant|fuite huile|fuite liquide refroidissement|fuite frein|incendie|odeur|niveau bas|voyant", "critique", 0.88, "Fuite de carburant, huile, liquide de refroidissement ou frein : risque incendie, surchauffe, perte de freinage.", "Sécurité L.423-1; vice caché 1641; pénal si accident.", "Rappels fluides; NHTSA; DGCCRF", "fuite|incendie|frein|refroidissement|securite"],
+    ["Refroidissement moteur", "surchauffe|thermostat|radiateur|pompe a eau|ventilateur|liquide refroidissement|joint culasse|fumee blanche", "critique", 0.8, "Circuit de refroidissement : pompe à eau, thermostat, radiateur, ventilateur, joint de culasse.", "Vice caché 1641; conformité L.217-4.", "TSB refroidissement; forums", "moteur|refroidissement|culasse|surchauffe"],
+    ["Freinage / ABS / ESP", "frein|ABS|ESP|plaquettes|disques|etrier|pedale molle|vibration freinage|bruit frein|perte freinage", "critique", 0.85, "Freinage, ABS, ESP, plaquettes, disques, étriers, pédale, perte de freinage.", "Sécurité L.423-1; vice caché 1641; pénal si accident.", "Rappels freinage; NHTSA; DGCCRF", "frein|ABS|ESP|securite"],
+    ["Direction / assistance", "direction|cremaillere|assistance electrique|jeu|bruit|vibration|volant|perte direction", "critique", 0.85, "Direction mécanique ou électrique, crémaillère, assistance, jeu, bruit, perte de direction.", "Sécurité L.423-1; vice caché 1641.", "Rappels direction; NHTSA", "direction|securite|chassis"],
+    ["Suspension / train roulant", "suspension|amortisseur|silentbloc|bruit|claquement|usure|train roulage|roue", "moyen", 0.55, "Suspension, amortisseurs, silentblocs, bruit, claquaient, usure train roulant.", "Vice caché 1641; usure normale possible.", "Forums; TSB", "suspension|chassis|usure"],
+    ["Pneumatiques / TPMS", "TPMS|pneu|pression pneu|capteur|runflat|usure pneu|voyant pression", "moyen", 0.5, "Capteurs TPMS, pression pneus, runflat, usure pneumatiques.", "Conformité L.217-4; vice caché 1641 si capteur défaillant.", "Rappels TPMS; NHTSA", "pneu|TPMS|securite"],
+    ["Climatisation / chauffage", "climatisation|chauffage|blower|compresseur|gaz|odeur|humidite|vitrage|air conditionne", "moyen", 0.5, "Climatisation, chauffage, blower, compresseur, gaz, odeur, humidité, désembuage.", "Conformité L.217-4; vice caché 1641.", "TSB HVAC; forums", "confort|climatisation|chauffage"],
+    ["Infodivertissement / caméra", "ecran|GPS|Bluetooth|CarPlay|Android Auto|son|camera recul|logiciel|freeze|redemarrage|tactile", "moyen", 0.6, "Écran, GPS, Bluetooth, CarPlay/Android Auto, caméra de recul, logiciel, freeze.", "Conformité L.217-4; vice caché 1641 si sécurité caméra.", "Rappels multimédia; TSB", "logiciel|camera|confort|ADAS"],
+    ["Logiciel / OTA / calculateurs", "logiciel|OTA|mise a jour|calculateur|module|brick|erreur software|reinitialisation|voyant multiple", "critique", 0.88, "Mise à jour OTA, calculateurs, modules, briquage, erreurs logicielles, voyants multiples.", "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.", "Rappels logiciels; NHTSA; DGCCRF", "logiciel|OTA|electricite|securite"],
+    ["Corrosion / carrosserie / étanchéité", "corrosion|rouille|carrosserie|peinture|joint|etancheite|porte|coffre|capot|infiltration", "moyen", 0.7, "Corrosion, carrosserie, peinture, joints, étanchéité, portes, coffre, capot.", "Vice caché 1641; conformité L.217-4.", "Rappels carrosserie; forums", "carrosserie|corrosion|eau|securite"]
+  ];
+
+  function buildGeneratedDefects() {
+    var out = [];
+    BRAND_LIST.forEach(function (brand) {
+      CATEGORY_TEMPLATES.forEach(function (t) {
+        out.push(D(
+          brand,
+          "*",
+          "2017-2027",
+          t[0],
+          "N/A",
+          t[1],
+          t[2],
+          t[3],
+          t[4],
+          t[5],
+          t[6],
+          t[7]
+        ));
+      });
+    });
+    return out;
+  }
+
+  var GENERATED_DEFECTS = buildGeneratedDefects();
+
+  var SPECIFIC_DEFECTS = [
+    D("Renault", "Clio V|Captur II|Megane IV|Austral|Scenic", "2017-2027", "1.0 TCe / 1.3 TCe", "90ch-160ch",
+      "consommation huile|turbo|chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe|huile",
       "critique", 0.75,
-      "Petits essence turbo : surconsommation huile, turbo, chaine de distribution, PCV, perte de puissance et mode degrade.",
-      "Vice cache art. 1641 C.civ.; defaut de conformite L.217-4 C.consom.; tromperie L.213-1 C.consom.",
-      "TSB Renault TCe; forums proprietaires; rappel.conso",
-      "moteur|turbo|conso|huile|puissance|distribution"),
+      "Downsizing turbo : surconsommation huile, turbo, chaîne, PCV, perte de puissance.",
+      "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.; tromperie L.213-1.",
+      "TSB Renault; forums; rappel.conso",
+      "moteur|turbo|huile|distribution|puissance"),
 
     D("Renault", "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", "2017-2022", "K9K / 1.5 dCi", "75ch-110ch",
       "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
       "critique", 0.9,
-      "Risque de casse bielle/coussinets lie a la lubrification et a la pompe a huile. Defaut chronique documente.",
-      "Vice cache art. 1641 C.civ.; tromperie L.213-1; responsabilite contractuelle 1231-1 C.civ.",
+      "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
+      "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
       "Programme technique Renault K9K; TSB; jurisprudences",
       "moteur|huile|bielle|pompe|bruit|critique"),
 
     D("Renault", "Clio IV|Captur|Megane III|Kadjar|Austral", "2017-2024", "EDC6 / double embrayage", "N/A boite",
       "a-coups boite|blocage rapport|patinage|voyant boite|odeur brulee|vibrations|mode degrade|perte traction",
       "critique", 0.7,
-      "Boite EDC : module mecatronique fragile, surchauffe embrayage en ville, reparation couteuse.",
-      "Vice cache 1641 C.civ.; conformite L.217-4 C.consom.",
-      "Programme qualite EDC Renault; forums",
+      "Boîte EDC : module mécatronique fragile, surchauffe embrayage en ville.",
+      "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.",
+      "Programme qualité EDC Renault; forums",
       "boite|embrayage|mecatronique|a-coups"),
 
-    D("Renault", "Trafic II|Master III|Espace V|Talisman", "2017-2027", "Carrosserie / electricite", "N/A",
-      "infiltration eau|baie pare-brise|court circuit|moisiure|panne electronique|voyants aleatoires|erreur ABS|erreur ESP|corrosion|oeuf humidite",
+    D("Renault", "Trafic II|Master III|Espace V|Talisman", "2017-2027", "Baie de pare-brise / étanchéité", "N/A",
+      "infiltration eau|court circuit|moisiure|panne electronique|voyants aleatoires|erreur ABS|erreur ESP|corrosion|odeur humidite",
       "critique", 0.95,
-      "Defaut d'etancheite de la baie de pare-brise ou des evaicuations. L'eau atteint calculateurs, boitiers fusibles, faisceaux. Independant du kilometrage.",
-      "Vice cache 1641 C.civ.; defaut de securite L.423-1 C.consom.; produits defectueux 1245 C.civ.",
-      "Campagnes techniques Renault; forums Trafic/Master; DGCCRF",
-      "eau|electricite|court-circuit|adas|securite|carrosserie"),
+      "Défaut d’étanchéité de la baie de pare-brise. Eau vers calculateurs et faisceaux. Indépendant du km.",
+      "Vice caché 1641 C.civ.; sécurité L.423-1 C.consom.; produits défectueux 1245 C.civ.",
+      "Campagnes Renault; forums; DGCCRF",
+      "eau|electricite|court-circuit|securite|carrosserie"),
 
-    D("Renault", "Megane E-Tech|Scenic E-Tech|Austral E-Tech|Captur E-Tech", "2022-2027", "E-Tech hybride / Full E-Tech electrique", "145ch-220ch",
+    D("Renault", "Megane E-Tech|Scenic E-Tech|Austral E-Tech|Captur E-Tech", "2022-2027", "E-Tech hybride / électrique", "145ch-220ch",
       "autonomie reduite|voyant batterie|charge lente|charge DC|DC-DC|batterie 12V|BMS|software|ADAS|camera|radar|mode degrade",
       "critique", 0.9,
-      "Plateformes electrifiees recentes : BMS, batterie 12V, charge, logiciel, capteurs ADAS, autonomie reelle.",
-      "Conformite L.217-4 C.consom.; securite L.423-1; produits defectueux 1245 C.civ.",
-      "Rappels Renault EV/hybride; DGCCRF; NHTSA si importe",
+      "Plateformes électrifiées récentes : BMS, batterie 12V, charge, logiciel, capteurs ADAS, autonomie réelle.",
+      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245 C.civ.",
+      "Rappels Renault EV/hybride; DGCCRF; NHTSA si import",
       "batterie|charge|autonomie|adas|logiciel|electricite"),
 
-    D("Dacia", "Sandero|Duster|Logan|Lodgy|Jogger|Spring", "2017-2027", "K9K 1.5 dCi / EDC / LPG / Electric", "75ch-110ch",
+    D("Dacia", "Sandero|Duster|Logan|Lodgy|Jogger|Spring", "2017-2027", "K9K 1.5 dCi / EDC / Spring électrique", "75ch-110ch",
       "casse bielle|pompe huile|bruit moteur|a-coups|patinage|voyant boite|autonomie|charge|batterie 12V",
       "critique", 0.85,
       "Base Renault K9K/EDC pour thermique; Spring : batterie, charge, autonomie, logiciel.",
-      "Vice cache 1641 C.civ.; conformite L.217-4 si pro.",
+      "Vice caché 1641 C.civ.; conformité L.217-4 si pro.",
       "TSB Dacia/Renault; forums",
       "moteur|boite|batterie|charge"),
 
     D("Peugeot", "208|2008|308|3008|5008|Partner|Rifter|Boxer", "2017-2024", "EB2 / 1.2 PureTech", "100ch-155ch",
       "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
       "critique", 0.85,
-      "Courroie humide qui se desagrege, bouche la crepine de pompe a huile et peut casser le moteur.",
-      "Vice cache 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
+      "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
+      "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
       "Extension garantie Stellantis PureTech; TSB; DGCCRF",
       "moteur|distribution|courroie|huile|pompe|critique"),
 
     D("Peugeot", "308|3008|508|Expert|Boxer", "2017-2024", "DV6 / 1.6 BlueHDi", "92ch-130ch",
       "EGR encrasse|FAP colmate|turbo HS|AdBlue|cristallisation|voyant antipollution|puissance reduite|mode degrade|fumee noire|conso gasoil",
       "moyen", 0.5,
-      "Systemes de depollution sensibles aux trajets courts, a-froids, qualite carburant et entretien.",
-      "Vice cache 1641 C.civ.; usure normale a ecarter par expertise.",
+      "Systèmes de dépollution sensibles aux trajets courts, à-froids, qualité carburant et entretien.",
+      "Vice caché 1641 C.civ.; usure normale à écarter par expertise.",
       "TSB PSA/Stellantis; forums",
       "diesel|EGR|FAP|AdBlue|turbo|pollution"),
 
-    D("Peugeot", "308|3008|5008|e-208|e-2008", "2017-2027", "EAT8 / e-CMP electrique", "N/A",
+    D("Peugeot", "308|3008|5008|e-208|e-2008", "2017-2027", "EAT8 / e-CMP électrique", "N/A",
       "a-coups|convertisseur|vibrations|patinage|voyant boite|autonomie|charge|BMS|batterie 12V|software|ADAS",
       "critique", 0.65,
-      "Boite EAT8 et plateformes electriques e-CMP : convertisseur, logiciel, batterie, charge, ADAS.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
-      "Programme qualite Stellantis; rappels EV",
+      "Boîte EAT8 et plateformes électriques e-CMP : convertisseur, logiciel, batterie, charge, ADAS.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
+      "Programme qualité Stellantis; rappels EV",
       "boite|batterie|charge|adas|logiciel"),
 
     D("Citroen", "C3|C3 Aircross|C4|C4 Cactus|C5 Aircross|Berlingo|Jumper", "2017-2024", "EB2 1.2 PureTech / BlueHDi", "100ch-130ch",
       "courroie distribution|casse moteur|bruit metallique|EGR|FAP|turbo|consommation huile|voyant moteur|surchauffe",
       "critique", 0.85,
-      "Memes architectures PSA/Stellantis : wet belt, depollution, turbo, huile.",
-      "Vice cache 1641 C.civ.; tromperie L.213-1.",
+      "Mêmes architectures PSA/Stellantis : wet belt, dépollution, turbo, huile.",
+      "Vice caché 1641 C.civ.; tromperie L.213-1.",
       "TSB Stellantis; forums",
       "moteur|distribution|diesel|turbo|huile"),
 
-    D("Citroen", "e-C3|e-C4|C5 Aircross Hybrid", "2020-2027", "Electrique / hybride rechargeable", "N/A",
+    D("Citroen", "e-C3|e-C4|C5 Aircross Hybrid", "2020-2027", "Électrique / hybride rechargeable", "N/A",
       "autonomie|charge AC|charge DC|batterie|BMS|12V|software|ADAS|camera|radar|chauffage|climatisation",
       "critique", 0.9,
-      "Batterie, charge, logiciel, autonomie reelle, capteurs ADAS, confort thermique.",
-      "Conformite L.217-4; securite L.423-1; produits defectueux 1245.",
+      "Batterie, charge, logiciel, autonomie réelle, capteurs ADAS, confort thermique.",
+      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels Stellantis EV; DGCCRF",
       "batterie|charge|autonomie|adas|logiciel"),
 
-    D("DS Automobiles", "DS 3 Crossback E-Tense|DS 4|DS 7 Crossback E-Tense", "2019-2027", "PureTech / BlueHDi / E-Tense 4x4", "130ch-360ch",
+    D("DS", "DS 3 Crossback E-Tense|DS 4|DS 7 Crossback E-Tense", "2019-2027", "PureTech / BlueHDi / E-Tense 4x4", "130ch-360ch",
       "courroie|EGR|FAP|AdBlue|hybride|batterie|charge|software|ADAS|voyant moteur|perte puissance",
       "critique", 0.8,
-      "Combine defectes PSA thermiques et plateformes hybrides rechargeables complexes.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Combine défauts PSA thermiques et plateformes hybrides rechargeables complexes.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "TSB Stellantis; forums DS",
       "moteur|hybride|batterie|adas|logiciel"),
 
-    /* -----------------------------
-       VOLKSWAGEN GROUP
-       ----------------------------- */
     D("Volkswagen", "Golf 8|Polo|T-Cross|Taigo|Tiguan|Touran|Caddy", "2017-2027", "EA211 1.0 TSI / 1.5 TSI", "95ch-150ch",
       "consommation huile|turbo|chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe|carbonisation",
       "moyen", 0.6,
-      "Moteurs downsizing turbo : surveillance huile, turbo, chaine, encrassement, logiciel moteur.",
-      "Vice cache 1641; conformite L.217-4 si pro.",
+      "Moteurs downsizing turbo : surveillance huile, turbo, chaîne, encrassement, logiciel moteur.",
+      "Vice caché 1641; conformité L.217-4 si pro.",
       "TSB VAG; forums Golf 8",
       "moteur|turbo|huile|distribution"),
 
     D("Volkswagen", "Golf|Passat|Tiguan|Touran|Sharan|Caddy", "2017-2024", "EA288 Evo 2.0 TDI", "115ch-200ch",
       "AdBlue|cristallisation|pompe AdBlue|NOx|EGR|FAP|capteur NOx|voyant antipollution|mode degrade|impossibilite redemarrer",
       "moyen", 0.45,
-      "Chaine de depollution diesel : AdBlue, NOx, EGR, FAP, logiciel moteur.",
-      "Vice cache 1641; tromperie L.213-1 si dissimulation; conformite L.217-4.",
+      "Chaîne de dépollution diesel : AdBlue, NOx, EGR, FAP, logiciel moteur.",
+      "Vice caché 1641; tromperie L.213-1 si dissimulation; conformité L.217-4.",
       "Rappels VAG diesel; CJUE; DGCCRF",
       "diesel|AdBlue|NOx|EGR|FAP|pollution"),
 
     D("Volkswagen", "Golf|Polo|T-Cross|Taigo|Tiguan|Touran", "2017-2024", "DSG DQ200 / DQ381", "N/A boite",
       "a-coups|mecatronique|patinage|bruit claquement|voyant boite|mode degrade|blocage vitesse|odeur brulee",
       "critique", 0.7,
-      "Boites DSG : mecatronique, embrayage, convertisseur, logiciel boite.",
-      "Vice cache 1641; conformite L.217-4; tromperie L.213-1.",
+      "Boîtes DSG : mécatronique, embrayage, convertisseur, logiciel boîte.",
+      "Vice caché 1641; conformité L.217-4; tromperie L.213-1.",
       "Rappels/TSB VAG DSG; class actions",
       "boite|DSG|mecatronique|embrayage"),
 
-    D("Volkswagen", "ID.3|ID.4|ID.5|ID.7", "2020-2027", "MEB electrique", "145ch-286ch",
-      "autonomie|charge AC|charge DC|BMS|cellules|logiciel|software|ADAS|Travel Assist|camera|radar|12V|DC-DC|porte de charge|thermal derating",
+    D("Volkswagen", "ID.3|ID.4|ID.5|ID.7", "2020-2027", "MEB électrique", "145ch-286ch",
+      "autonomie|charge AC|charge DC|BMS|cellules|logiciel|software|ADAS|Travel Assist|camera|radar|12V|DC-DC|thermal derating",
       "critique", 0.92,
       "Plateforme MEB : logiciel, charge, batterie, autonomie, ADAS, batterie 12V, DC-DC.",
-      "Conformite L.217-4; securite L.423-1; produits defectueux 1245.",
+      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels VW ID; KBA Allemagne; NHTSA; DGCCRF",
       "batterie|charge|autonomie|adas|logiciel|electricite"),
 
     D("Audi", "A1|A3|A4|A5|Q2|Q3|Q5", "2017-2027", "EA211 / EA888 / DSG", "110ch-265ch",
       "consommation huile|turbo|chaine|DSG|mecatronique|a-coups|voyant moteur|mode degrade|AdBlue|FAP",
       "critique", 0.7,
-      "Groupe VAG : moteurs turbo, DSG, depollution diesel, logiciel.",
-      "Vice cache 1641; conformite L.217-4; tromperie L.213-1.",
+      "Groupe VAG : moteurs turbo, DSG, dépollution diesel, logiciel.",
+      "Vice caché 1641; conformité L.217-4; tromperie L.213-1.",
       "TSB Audi/VAG; rappels",
       "moteur|boite|DSG|diesel|turbo"),
 
-    D("Audi", "Q4 e-tron|e-tron GT|A6 e-tron|Q6 e-tron", "2021-2027", "Electrique PPE/MEB", "204ch-544ch",
+    D("Audi", "Q4 e-tron|e-tron GT|A6 e-tron|Q6 e-tron", "2021-2027", "Électrique PPE/MEB", "204ch-544ch",
       "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|DC-DC|thermal|logiciel",
       "critique", 0.92,
-      "Modeles electriques Audi : batterie, charge rapide, logiciel, ADAS, gestion thermique.",
-      "Conformite L.217-4; securite L.423-1; produits defectueux 1245.",
+      "Modèles électriques Audi : batterie, charge rapide, logiciel, ADAS, gestion thermique.",
+      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels Audi e-tron; KBA; NHTSA",
       "batterie|charge|ADAS|logiciel|electricite"),
 
@@ -353,101 +398,119 @@
       "consommation huile|turbo|DSG|AdBlue|FAP|batterie|charge|autonomie|software|ADAS",
       "critique", 0.7,
       "Base VAG : TSI/TDI, DSG, Enyaq MEB, logiciel et ADAS.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Vice caché 1641; conformité L.217-4.",
       "TSB Skoda/VAG; rappels Enyaq",
       "moteur|boite|batterie|ADAS|logiciel"),
 
-    D("SEAT / Cupra", "Ibiza|Leon|Ateca|Arona|Toledo|Born|Tavascan", "2017-2027", "TSI / TDI / DSG / MEB", "95ch-326ch",
+    D("Seat", "Ibiza|Leon|Ateca|Arona|Toledo|Born|Tavascan", "2017-2027", "TSI / TDI / DSG / MEB", "95ch-326ch",
       "DSG|mecatronique|a-coups|consommation huile|turbo|batterie|charge|autonomie|software|ADAS",
       "critique", 0.7,
       "Groupe VAG : DSG, moteurs turbo, Cupra Born/Tavascan sur base MEB.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "TSB Seat/Cupra; rappels VAG",
       "boite|DSG|batterie|ADAS|logiciel"),
 
-    /* -----------------------------
-       BMW / MERCEDES / VOLVO / PORSCHE / JLR
-       ----------------------------- */
+    D("Cupra", "Leon|Ateca|Arona|Born|Tavascan|Formentor", "2018-2027", "TSI / DSG / MEB", "150ch-340ch",
+      "DSG|mecatronique|a-coups|turbo|batterie|charge|autonomie|software|ADAS",
+      "critique", 0.7,
+      "Marque sportive du groupe VAG : DSG, turbo, plateformes électriques MEB.",
+      "Vice caché 1641; conformité L.217-4.",
+      "TSB Cupra/VAG",
+      "boite|DSG|batterie|ADAS|logiciel"),
+
     D("BMW", "Serie 1|Serie 2|Serie 3|Serie 4|X1|X2|X3|X4", "2017-2027", "B38 / B46 / B48 / B58", "136ch-387ch",
       "consommation huile|turbo|vanne PCV|refroidissement|pompe a eau|voyant moteur|perte puissance|surchauffe|fuite liquide|fuite huile",
       "critique", 0.75,
-      "Moteurs BMW turbo : PCV, refroidissement, pompes a eau, fuites huile/liquide, logiciel moteur.",
-      "Vice cache 1641; defaut de securite L.423-1 si fuite sur echappement; conformite L.217-4.",
-      "TSB BMW; rappels pompe a eau; forums",
+      "Moteurs BMW turbo : PCV, refroidissement, pompes à eau, fuites huile/liquide, logiciel moteur.",
+      "Vice caché 1641; défaut de sécurité L.423-1 si fuite sur échappement; conformité L.217-4.",
+      "TSB BMW; rappels pompe à eau; forums",
       "moteur|turbo|huile|liquide|refroidissement|fuite"),
 
     D("BMW", "Serie 3|Serie 5|X3|X5|X7", "2017-2027", "B47 / 2.0d / 3.0d", "150ch-400ch",
       "chaine distribution|tensionneur|bruit crecelle|claquement|voyant moteur|mode degrade|AdBlue|NOx|FAP",
       "critique", 0.8,
-      "Chaines de distribution diesel/essence, tensionneurs, depollution AdBlue/NOx.",
-      "Vice cache 1641; tromperie L.213-1 si dissimulation.",
-      "Rappels BMW chaine; TSB diesel",
+      "Chaînes de distribution diesel/essence, tensionneurs, dépollution AdBlue/NOx.",
+      "Vice caché 1641; tromperie L.213-1 si dissimulation.",
+      "Rappels BMW chaîne; TSB diesel",
       "distribution|chaine|diesel|AdBlue|bruit"),
 
-    D("BMW", "iX1|iX3|i4|iX|i7", "2021-2027", "Electrique / PHEV", "204ch-650ch",
+    D("BMW", "iX1|iX3|i4|iX|i7", "2021-2027", "Électrique / PHEV", "204ch-650ch",
       "batterie|charge AC|charge DC|autonomie|BMS|software|iDrive|ADAS|camera|radar|12V|DC-DC|thermal",
       "critique", 0.9,
-      "Plateformes electrifiees BMW : batterie, charge, logiciel, ADAS, gestion thermique.",
-      "Conformite L.217-4; securite L.423-1; produits defectueux 1245.",
+      "Plateformes électrifiées BMW : batterie, charge, logiciel, ADAS, gestion thermique.",
+      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels BMW i; KBA; NHTSA",
       "batterie|charge|ADAS|logiciel|electricite"),
+
+    D("Mini", "Cooper|Cooper S|Countryman|Clubman|Aceman", "2017-2027", "B38 / B48 / Getrag / Aisin / Électrique", "136ch-306ch",
+      "chaine distribution|consommation huile|turbo|water pump|boite|a-coups|patinage|batterie|charge|software|ADAS",
+      "critique", 0.8,
+      "Moteurs BMW/PSA Prince puis BMW : chaîne, huile, turbo, boîtes, électrification.",
+      "Vice caché 1641; conformité L.217-4.",
+      "Rappels MINI/BMW; TSB",
+      "distribution|huile|turbo|boite|batterie"),
 
     D("Mercedes-Benz", "Classe A|Classe B|CLA|GLA|Classe C|Classe E|GLC|GLE", "2017-2027", "M254 / OM654 / 48V", "120ch-435ch",
       "turbo|AdBlue|NOx|capteur|voyant moteur|mode degrade|consommation huile|fuite|48V|batterie secondaire|EQ Boost",
       "critique", 0.7,
-      "Motorisations recentrees : turbo, AdBlue, NOx, micro-hybridation 48V, fuites, logiciel.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Motorisations récentes : turbo, AdBlue, NOx, micro-hybridation 48V, fuites, logiciel.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "TSB Mercedes; rappels diesel/48V",
       "moteur|turbo|AdBlue|48V|fuite|logiciel"),
 
-    D("Mercedes-Benz", "Classe C|Classe E|GLC|GLE|EQE|EQS|EQB|EQA", "2017-2027", "9G-Tronic / EQ electrique", "N/A",
+    D("Mercedes-Benz", "Classe C|Classe E|GLC|GLE|EQE|EQS|EQB|EQA", "2017-2027", "9G-Tronic / EQ électrique", "N/A",
       "a-coups|convertisseur|calculateur boite|voyant boite|batterie|charge|autonomie|MBUX|software|ADAS|Distance Pilot|Active Brake",
       "critique", 0.65,
-      "Boites 9G et plateformes EQ : logiciel, ADAS, batterie, charge, autonomie.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Boîtes 9G et plateformes EQ : logiciel, ADAS, batterie, charge, autonomie.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Mercedes EQ/ADAS; KBA",
       "boite|batterie|ADAS|logiciel|charge"),
 
     D("Volvo", "XC40|XC60|XC90|V60|V90|S60|S90|C40|EX30|EX40|EC40", "2017-2027", "Drive-E / 48V / PHEV / Recharge", "150ch-455ch",
       "consommation huile|turbo|compresseur|chaine|48V|batterie PHEV|charge|autonomie|Pilot Assist|camera|radar|software",
       "critique", 0.8,
-      "Drive-E essence : huile/turbo/chaine. Electrification : 48V, PHEV, batterie, ADAS Pilot Assist.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Drive-E essence : huile/turbo/chaîne. Électrification : 48V, PHEV, batterie, ADAS Pilot Assist.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Volvo; TSB Drive-E; DGCCRF",
       "moteur|huile|turbo|batterie|ADAS|logiciel"),
 
-    D("Porsche", "Macan|Cayenne|Panamera|Taycan|911", "2017-2027", "PDK / Turbo / Taycan electrique", "245ch-761ch",
+    D("Porsche", "Macan|Cayenne|Panamera|Taycan|911", "2017-2027", "PDK / Turbo / Taycan électrique", "245ch-761ch",
       "PDK|a-coups|embrayage|volant moteur|batterie|charge|autonomie|software|ADAS|thermal|12V",
       "critique", 0.7,
       "PDK, hybrides, Taycan : batterie, charge, logiciel, gestion thermique, ADAS.",
-      "Vice cache 1641; conformite L.217-4; produits defectueux 1245.",
+      "Vice caché 1641; conformité L.217-4; produits défectueux 1245.",
       "Rappels Porsche; TSB Taycan",
       "boite|PDK|batterie|charge|ADAS"),
 
-    D("Land Rover / Jaguar", "Defender|Discovery|Range Rover|Evoque|Velar|F-Pace|E-Pace|I-Pace", "2017-2027", "Ingenium / PHEV / I-Pace", "163ch-550ch",
+    D("Land Rover", "Defender|Discovery|Range Rover|Evoque|Velar", "2017-2027", "Ingenium / PHEV / électrique", "163ch-550ch",
       "consommation huile|turbo|refroidissement|fuite liquide|incendie|PHEV|batterie|charge|software|Pivi|ADAS|camera|radar",
       "critique", 0.8,
-      "Ingenium : huile/refroidissement/fuites. PHEV/EV : batterie, charge, logiciel, ADAS.",
-      "Vice cache 1641; securite L.423-1; produits defectueux 1245.",
+      "Ingenium : huile/refroidissement/fuites. PHEV/électrique : batterie, charge, logiciel, ADAS.",
+      "Vice caché 1641; sécurité L.423-1; produits défectueux 1245.",
       "Rappels JLR; incendie Ingenium; forums",
       "moteur|fuite|incendie|batterie|ADAS|logiciel"),
 
-    /* -----------------------------
-       OPEL / FIAT / ALFA / MINI / FORD / TESLA / JEEP
-       ----------------------------- */
+    D("Jaguar", "F-Pace|E-Pace|I-Pace|XF|XE", "2017-2027", "Ingenium / I-Pace électrique", "163ch-400ch",
+      "consommation huile|refroidissement|fuite liquide|incendie|batterie|charge|software|Pivi Pro|ADAS",
+      "critique", 0.8,
+      "Moteurs Ingenium et plateforme I-Pace : fuites, incendie, batterie, logiciel, ADAS.",
+      "Vice caché 1641; sécurité L.423-1.",
+      "Rappels JLR; forums",
+      "moteur|fuite|incendie|batterie|ADAS"),
+
     D("Opel", "Corsa|Astra|Mokka|Grandland|Zafira|Combo", "2017-2027", "PureTech / BlueHDi / e-Corsa", "75ch-130ch",
       "courroie distribution|EGR|FAP|AdBlue|batterie|charge|autonomie|software|ADAS",
       "critique", 0.8,
-      "Base PSA/Stellantis : wet belt, depollution, e-Corsa batterie/charge.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Base PSA/Stellantis : wet belt, dépollution, e-Corsa batterie/charge.",
+      "Vice caché 1641; conformité L.217-4.",
       "TSB Opel/Stellantis",
       "moteur|distribution|diesel|batterie"),
 
-    D("Fiat", "500|500e|Panda|Tipo|Tonale|Doblo", "2017-2027", "FireFly / Hybrid / 500e electrique", "70ch-150ch",
+    D("Fiat", "500|500e|Panda|Tipo|Tonale|Doblo", "2017-2027", "FireFly / Hybrid / 500e électrique", "70ch-150ch",
       "hybridation 48V|batterie 12V|charge|autonomie|software|Dualogic|a-coups|embrayage|robot",
       "critique", 0.75,
-      "Micro-hybridation 48V, 500e electrique, boites robotisees Dualogic/EDC selon modeles.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Micro-hybridation 48V, 500e électrique, boîtes robotisées Dualogic/EDC selon modèles.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Fiat 500e/Hybrid; TSB Stellantis",
       "48V|batterie|charge|boite|logiciel"),
 
@@ -455,58 +518,47 @@
       "turbo|consommation huile|refroidissement|PHEV|batterie|charge|software|ADAS|boite ZF",
       "critique", 0.75,
       "2.0 turbo, plateforme Giorgio, Tonale PHEV : batterie, charge, logiciel, ADAS.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Vice caché 1641; conformité L.217-4.",
       "TSB Alfa/Stellantis; forums",
       "moteur|turbo|PHEV|batterie|ADAS"),
-
-    D("MINI", "Cooper|Cooper S|Countryman|Clubman|Aceman", "2017-2027", "B38 / B48 / Getrag / Aisin / Electrique", "136ch-306ch",
-      "chaine distribution|consommation huile|turbo|water pump|boite|a-coups|patinage|batterie|charge|software|ADAS",
-      "critique", 0.8,
-      "Moteurs BMW/PSA Prince puis BMW : chaine, huile, turbo, boites, electrification.",
-      "Vice cache 1641; conformite L.217-4.",
-      "Rappels MINI/BMW; TSB",
-      "distribution|huile|turbo|boite|batterie"),
 
     D("Ford", "Fiesta|Focus|Puma|Kuga|Explorer|Transit", "2017-2027", "EcoBoost 1.0 / 1.5 / 2.3 / PowerShift", "95ch-280ch",
       "joint culasse|surchauffe|refroidissement|pompe a eau|eau dans huile|fumee blanche|PowerShift|a-coups|embrayage|vibrations|odeur brulee",
       "critique", 0.85,
       "EcoBoost 1.0 : refroidissement/joint culasse. PowerShift : embrayage sec fragile.",
-      "Vice cache 1641; tromperie L.213-1; conformite L.217-4.",
+      "Vice caché 1641; tromperie L.213-1; conformité L.217-4.",
       "Class actions PowerShift; TSB Ford EcoBoost",
       "moteur|refroidissement|culasse|boite|embrayage"),
 
-    D("Ford", "Mustang Mach-E", "2021-2027", "Electrique", "269ch-487ch",
+    D("Ford", "Mustang Mach-E", "2021-2027", "Électrique", "269ch-487ch",
       "batterie|charge|autonomie|BMS|software|BlueCruise|ADAS|camera|radar|12V|porte de charge|thermal",
       "critique", 0.9,
-      "Plateforme electrique Ford : batterie, charge, logiciel, BlueCruise, ADAS.",
-      "Conformite L.217-4; securite L.423-1; produits defectueux 1245.",
+      "Plateforme électrique Ford : batterie, charge, logiciel, BlueCruise, ADAS.",
+      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels Ford Mach-E; NHTSA",
       "batterie|charge|ADAS|logiciel"),
 
-    D("Tesla", "Model 3|Model Y|Model S|Model X", "2017-2027", "Electrique", "283ch-1020ch",
+    D("Tesla", "Model 3|Model Y|Model S|Model X", "2017-2027", "Électrique", "283ch-1020ch",
       "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
       "critique", 0.92,
-      "ADAS, batterie 12V, port de charge, degradation batterie, logiciels, poignées, gestion thermique.",
-      "Securite L.423-1; conformite L.217-4; produits defectueux 1245; penal si accident.",
+      "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
+      "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
       "NHTSA Tesla recalls; DGCCRF; SafetyGate",
       "ADAS|batterie|charge|logiciel|securite"),
 
     D("Jeep", "Renegade|Compass|Wrangler|Grand Cherokee|Grand Cherokee 4xe", "2017-2027", "DDCT / Hurricane / 4xe PHEV", "120ch-490ch",
       "DDCT|surchauffe embrayage|a-coups|bruit boite|mode limp|PHEV|batterie|charge|autonomie|software|ADAS",
       "critique", 0.75,
-      "Boite DDCT en ville, 4xe : batterie, charge, logiciel, ADAS.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Boîte DDCT en ville, 4xe : batterie, charge, logiciel, ADAS.",
+      "Vice caché 1641; conformité L.217-4.",
       "TSB FCA/Stellantis; rappels 4xe",
       "boite|embrayage|PHEV|batterie|ADAS"),
 
-    /* -----------------------------
-       TOYOTA / LEXUS / HONDA / NISSAN / MAZDA / SUBARU / SUZUKI / MITSUBISHI
-       ----------------------------- */
     D("Toyota", "Yaris|Corolla|Camry|RAV4|C-HR|Prius|Hilux|Land Cruiser", "2017-2027", "Hybride THS / Dynamic Force / D-4D", "100ch-309ch",
       "batterie hybride|refroidissement batterie|CVT|bruit|vibration|12V|Toyota Safety Sense|camera|radar|ADAS|consommation|mode degrade",
       "critique", 0.65,
       "Hybrides Toyota : batterie, ventilation, CVT, 12V, ADAS Toyota Safety Sense.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Toyota hybride/ADAS; NHTSA",
       "hybride|batterie|CVT|ADAS|12V"),
 
@@ -514,31 +566,31 @@
       "batterie hybride|CVT|refroidissement|ADAS|camera|radar|software|12V|autonomie hybride",
       "moyen", 0.6,
       "Architecture hybride Lexus : batterie, CVT, ADAS, logiciel.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Vice caché 1641; conformité L.217-4.",
       "TSB Lexus/Toyota",
       "hybride|batterie|ADAS|CVT"),
 
-    D("Honda", "Jazz|Civic|HR-V|CR-V|Accord|e:Ny1", "2017-2027", "1.0 / 1.5 Turbo / i-MMD / electrique", "130ch-212ch",
+    D("Honda", "Jazz|Civic|HR-V|CR-V|Accord|e:Ny1", "2017-2027", "1.0 / 1.5 Turbo / i-MMD / électrique", "130ch-212ch",
       "turbo|CVT|bruit|vibration|huile|refroidissement|batterie|charge|autonomie|Honda Sensing|ADAS|camera|radar",
       "critique", 0.7,
       "Turbo/HV/CVT et Honda Sensing. e:Ny1 : batterie, charge, logiciel.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Vice caché 1641; conformité L.217-4.",
       "Rappels Honda; TSB i-MMD",
       "moteur|turbo|CVT|ADAS|batterie"),
 
-    D("Nissan", "Qashqai|X-Trail|Juke|Ariya|Leaf|Navara", "2017-2027", "1.3 TCe / CVT / e-POWER / electrique", "140ch-306ch",
+    D("Nissan", "Qashqai|X-Trail|Juke|Ariya|Leaf|Navara", "2017-2027", "1.3 TCe / CVT / e-POWER / électrique", "140ch-306ch",
       "CVT|a-coups|glissement|surchauffe|e-POWER|batterie|charge|autonomie|ProPILOT|ADAS|camera|radar|software|12V",
       "critique", 0.75,
       "CVT/X-Tronic, e-POWER, Ariya/Leaf : batterie, charge, ADAS ProPILOT, logiciel.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Nissan CVT/ADAS; NHTSA",
       "CVT|boite|batterie|ADAS|logiciel"),
 
-    D("Mazda", "2|3|CX-3|CX-30|CX-5|CX-60|MX-30", "2017-2027", "Skyactiv-G / Skyactiv-X / MX-30 range extender", "110ch-327ch",
-      "compression|huile|bruit|CVT?|boite auto|mild hybrid|48V|batterie MX-30|charge|autonomie|ADAS|i-Activsense",
+    D("Mazda", "2|3|CX-3|CX-30|CX-5|CX-60|MX-30", "2017-2027", "Skyactiv-G / Skyactiv-X / MX-30", "110ch-327ch",
+      "compression|huile|bruit|boite auto|mild hybrid|48V|batterie MX-30|charge|autonomie|ADAS|i-Activsense",
       "moyen", 0.6,
-      "Skyactiv-X compression, mild hybrid 48V, MX-30 electrique/range extender, ADAS.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Skyactiv-X compression, mild hybrid 48V, MX-30 électrique/range extender, ADAS.",
+      "Vice caché 1641; conformité L.217-4.",
       "TSB Mazda; forums",
       "moteur|48V|batterie|ADAS"),
 
@@ -546,7 +598,7 @@
       "CVT|bruit|vibration|huile|refroidissement|EyeSight|ADAS|camera|radar|logiciel",
       "moyen", 0.6,
       "CVT Lineartronic et EyeSight : capteurs, logiciel, entretien.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Vice caché 1641; conformité L.217-4.",
       "Rappels Subaru EyeSight; NHTSA",
       "CVT|ADAS|huile|logiciel"),
 
@@ -554,7 +606,7 @@
       "turbo|48V|batterie 12V|CVT|AllGrip|ADAS|camera|radar|software|conso",
       "moyen", 0.55,
       "Micro-hybridation 48V, CVT, ADAS Suzuki Safety Support.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Vice caché 1641; conformité L.217-4.",
       "TSB Suzuki; forums",
       "48V|turbo|CVT|ADAS"),
 
@@ -562,18 +614,15 @@
       "CVT|bruit|surchauffe|PHEV|batterie|charge|autonomie|ADAS|camera|radar|software",
       "critique", 0.7,
       "Outlander PHEV : batterie, charge, gestion 4WD, CVT, ADAS.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Vice caché 1641; conformité L.217-4.",
       "Rappels Mitsubishi PHEV; NHTSA",
       "CVT|PHEV|batterie|ADAS"),
 
-    /* -----------------------------
-       HYUNDAI / KIA / GENESIS
-       ----------------------------- */
     D("Hyundai", "i10|i20|i30|Bayon|Tucson|Santa Fe|Kona|IONIQ 5|IONIQ 6", "2017-2027", "Smartstream / Theta / Gamma / E-GMP", "80ch-325ch",
-      "consommation huile|turbo|DSCT|a-coups|batterie|charge|autonomie|BMS|Bluelink|ADAS|camera|radar|software|12V",
+      "consommation huile|turbo|DCT|a-coups|batterie|charge|autonomie|BMS|Bluelink|ADAS|camera|radar|software|12V",
       "critique", 0.75,
-      "Moteurs turbo, boites DCT, plateformes E-GMP : batterie, charge rapide, ADAS, logiciel.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Moteurs turbo, boîtes DCT, plateformes E-GMP : batterie, charge rapide, ADAS, logiciel.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Hyundai/Kia; NHTSA; KBA",
       "moteur|boite|batterie|ADAS|logiciel"),
 
@@ -581,151 +630,141 @@
       "DCT|a-coups|embrayage|batterie|charge|autonomie|BMS|ADAS|camera|radar|software|12V|V2L",
       "critique", 0.75,
       "DCT, EV6/EV9 : batterie, charge, V2L, ADAS, logiciel.",
-      "Vice cache 1641; conformite L.217-4; securite L.423-1.",
+      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Kia EV; NHTSA",
       "boite|batterie|charge|ADAS|logiciel"),
 
-    /* -----------------------------
-       CHINOIS / NOUVELLES MARQUES EV
-       ----------------------------- */
-    D("MG / SAIC", "MG3|MG ZS|MG ZS EV|MG4|MG5|Marvel R|Cyster", "2019-2027", "Electrique / PHEV / essence", "116ch-435ch",
+    D("Genesis", "G70|G80|G90|GV60|GV70|GV80", "2017-2027", "Turbo / DCT / E-GMP", "220ch-455ch",
+      "DCT|a-coups|batterie|charge|autonomie|BMS|ADAS|camera|radar|software|12V",
+      "critique", 0.72,
+      "Plateformes Hyundai/Kia premium : DCT, E-GMP, ADAS, logiciel.",
+      "Vice caché 1641; conformité L.217-4.",
+      "Rappels Genesis; NHTSA",
+      "boite|batterie|ADAS|logiciel"),
+
+    D("MG", "MG3|MG ZS|MG ZS EV|MG4|MG5|Marvel R|Cyster", "2019-2027", "Électrique / PHEV / essence", "116ch-435ch",
       "batterie|charge AC|charge DC|autonomie|BMS|software|ADAS|port de charge|12V|camera|radar|thermal derating",
       "critique", 0.9,
-      "Plateformes SAIC/MG : batterie, charge, logiciel, ADAS, autonomie reelle, temperature.",
-      "Conformite L.217-4; securite L.423-1; produits defectueux 1245.",
+      "Plateformes SAIC/MG : batterie, charge, logiciel, ADAS, autonomie réelle, température.",
+      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels MG; DGCCRF; SafetyGate",
       "batterie|charge|ADAS|logiciel|autonomie"),
 
-    D("BYD", "Atto 3|Dolphin|Seal|Han|Tang", "2022-2027", "Blade Battery electrique / PHEV", "177ch-530ch",
+    D("BYD", "Atto 3|Dolphin|Seal|Han|Tang", "2022-2027", "Blade Battery électrique / PHEV", "177ch-530ch",
       "batterie Blade|charge|autonomie|BMS|DiLink|software|ADAS|camera|radar|12V|thermal|port de charge",
       "critique", 0.9,
       "BYD : batterie Blade, charge, logiciel DiLink, ADAS, gestion thermique.",
-      "Conformite L.217-4; securite L.423-1; produits defectueux 1245.",
-      "Rappels BYD; DGCCRF; NHTSA si importe",
+      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
+      "Rappels BYD; DGCCRF; NHTSA si import",
       "batterie|charge|ADAS|logiciel"),
 
-    D("Leapmotor", "T03|C10|B10", "2023-2027", "Electrique", "95ch-218ch",
+    D("Leapmotor", "T03|C10|B10", "2023-2027", "Électrique", "95ch-218ch",
       "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|connectivite",
       "critique", 0.88,
       "Nouvelles plateformes chinoises EV : batterie, charge, logiciel, ADAS.",
-      "Conformite L.217-4; securite L.423-1.",
+      "Conformité L.217-4; sécurité L.423-1.",
       "Rappels Leapmotor; DGCCRF",
       "batterie|charge|ADAS|logiciel"),
 
-    D("XPeng / NIO / Aiways / Ora", "G6|P7|ET5|ES6|U5|Funky Cat|03", "2020-2027", "Electrique", "150ch-600ch",
-      "batterie|charge|swap|autonomie|BMS|software|ADAS|camera|lidar|radar|12V|connectivite|thermal",
+    D("XPeng", "G6|P7|G9", "2020-2027", "Électrique", "200ch-500ch+",
+      "batterie|charge|autonomie|BMS|software|ADAS|camera|lidar|radar|12V|connectivite|thermal",
       "critique", 0.9,
-      "EV chinois premium : batterie, charge/swap, ADAS avancés, lidar, logiciel.",
-      "Conformite L.217-4; securite L.423-1; produits defectueux 1245.",
-      "Rappels constructeurs chinois; SafetyGate",
+      "EV chinois premium : batterie, charge, ADAS avancés, lidar, logiciel.",
+      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
+      "Rappels XPeng; SafetyGate",
       "batterie|charge|ADAS|logiciel|autonomie"),
 
-    D("Chery / Omoda / Jaecoo", "Omoda 5|Jaecoo 7|Tiggo", "2023-2027", "1.6 TGDI / DCT / PHEV", "147ch-300ch+",
+    D("NIO", "ET5|ES6|ET7|EL6", "2020-2027", "Électrique / battery swap", "400ch-600ch+",
+      "batterie|swap|charge|autonomie|BMS|software|ADAS|camera|lidar|radar|12V|connectivite|thermal",
+      "critique", 0.9,
+      "Battery swap, charge, ADAS, lidar, logiciel.",
+      "Conformité L.217-4; sécurité L.423-1.",
+      "Rappels NIO; SafetyGate",
+      "batterie|charge|ADAS|logiciel|autonomie"),
+
+    D("Chery", "Omoda 5|Jaecoo 7|Tiggo", "2023-2027", "1.6 TGDI / DCT / PHEV", "147ch-300ch+",
       "turbo|DCT|a-coups|embrayage|batterie|charge|autonomie|ADAS|camera|radar|software|conso",
       "critique", 0.75,
       "Nouvelles marques chinoises : turbo, DCT, PHEV, ADAS, logiciel.",
-      "Vice cache 1641; conformite L.217-4.",
+      "Vice caché 1641; conformité L.217-4.",
       "Rappels Chery/Omoda; DGCCRF",
       "moteur|boite|DCT|ADAS|batterie"),
 
-    D("Geely / Smart / Lotus", "Coolray|Emgrand|Smart #1|Smart #3|Eletre", "2022-2027", "Electrique / hybride", "200ch-600ch+",
+    D("Geely", "Coolray|Emgrand|Smart #1|Smart #3|Lotus Eletre", "2022-2027", "Électrique / hybride", "200ch-600ch+",
       "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|connectivite",
       "critique", 0.88,
       "Plateformes SEA/Geely : batterie, charge, logiciel, ADAS.",
-      "Conformite L.217-4; securite L.423-1.",
+      "Conformité L.217-4; sécurité L.423-1.",
       "Rappels Geely/Smart; SafetyGate",
       "batterie|charge|ADAS|logiciel"),
 
-    D("Maxus / LDV / GWM", "eDeliver|W90|Tank|Ora", "2019-2027", "Electrique / hybride / utilitaire", "130ch-400ch",
+    D("Smart", "#1|#3|#5", "2022-2027", "Électrique SEA", "200ch-428ch",
+      "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|connectivite",
+      "critique", 0.88,
+      "Smart électrique basé plateforme Geely SEA.",
+      "Conformité L.217-4; sécurité L.423-1.",
+      "Rappels Smart; DGCCRF",
+      "batterie|charge|ADAS|logiciel"),
+
+    D("Maxus", "eDeliver|W90|T60|Euniq", "2019-2027", "Électrique / hybride / utilitaire", "130ch-400ch",
       "batterie|charge|autonomie|BMS|software|ADAS|12V|fuite|refroidissement|utilitaire",
       "critique", 0.85,
-      "Utilitaires et SUV chinois electrifies : batterie, charge, logiciel, refroidissement.",
-      "Conformite L.217-4; securite L.423-1.",
-      "Rappels Maxus/LDV/GWM",
+      "Utilitaires et SUV chinois électrifiés : batterie, charge, logiciel, refroidissement.",
+      "Conformité L.217-4; sécurité L.423-1.",
+      "Rappels Maxus/LDV",
       "batterie|charge|utilitaire|ADAS"),
 
-    /* -----------------------------
-       AMERICAIN / GENERAL MOTORS / RAM / CHRYSLER
-       ----------------------------- */
-    D("Chevrolet / GMC / Cadillac", "Bolt EV|Bolt EUV|Lyriq|Hummer EV", "2017-2027", "Electrique Ultium / Bolt", "204ch-1000ch",
+    D("GWM", "Tank|Ora|GWM Poer", "2021-2027", "Électrique / hybride / utilitaire", "150ch-400ch",
+      "batterie|charge|autonomie|BMS|software|ADAS|12V|fuite|refroidissement",
+      "critique", 0.85,
+      "Marques chinoises GWM/Ora : batterie, charge, logiciel, ADAS.",
+      "Conformité L.217-4; sécurité L.423-1.",
+      "Rappels GWM/Ora",
+      "batterie|charge|ADAS|logiciel"),
+
+    D("Chevrolet", "Bolt EV|Bolt EUV|Lyriq|Equinox EV", "2017-2027", "Électrique Ultium / Bolt", "204ch-1000ch",
       "incendie|batterie|thermal runaway|charge|recall|BMS|software|ADAS|Super Cruise|autonomie|12V",
       "critique", 1.0,
       "Bolt : rappel mondial incendie batterie. Ultium/Super Cruise : logiciel, charge, ADAS.",
-      "Securite L.423-1; produits defectueux 1245; penal si accident; conformite L.217-4.",
+      "Sécurité L.423-1; produits défectueux 1245; pénal si accident; conformité L.217-4.",
       "NHTSA Bolt recall; GM recalls; DGCCRF",
       "incendie|batterie|charge|ADAS|logiciel"),
 
-    D("RAM / Chrysler / Dodge", "1500|Pacifica|Pacifica Hybrid|Charger", "2017-2027", "Diesel / PHEV / Hurricane / Electrique", "250ch-670ch",
+    D("GMC", "Hummer EV|Lyriq-based", "2022-2027", "Électrique Ultium", "400ch-1000ch",
+      "batterie|charge|autonomie|BMS|software|ADAS|Super Cruise|thermal|12V",
+      "critique", 0.92,
+      "Plateforme Ultium GM : batterie, charge, logiciel, ADAS.",
+      "Sécurité L.423-1; produits défectueux 1245.",
+      "NHTSA GMC; GM recalls",
+      "batterie|charge|ADAS|logiciel"),
+
+    D("Cadillac", "Lyriq|Celestiq", "2022-2027", "Électrique Ultium", "300ch-600ch+",
+      "batterie|charge|autonomie|BMS|software|ADAS|Super Cruise|thermal|12V",
+      "critique", 0.92,
+      "Plateforme Ultium GM premium : batterie, charge, logiciel, ADAS.",
+      "Sécurité L.423-1; produits défectueux 1245.",
+      "NHTSA Cadillac; GM recalls",
+      "batterie|charge|ADAS|logiciel"),
+
+    D("Ram", "1500|2500|3500", "2017-2027", "Diesel / Hurricane / électrique", "250ch-700ch",
       "turbo|boite|8-speed|PHEV|batterie|charge|autonomie|software|ADAS|fuel pump|fuite carburant",
       "critique", 0.75,
-      "Gros moteurs, boites auto, PHEV, pompes a carburant, ADAS.",
-      "Vice cache 1641; securite L.423-1; conformite L.217-4.",
-      "NHTSA RAM/Chrysler; recalls",
+      "Gros moteurs, boîtes auto, PHEV, pompes à carburant, ADAS.",
+      "Vice caché 1641; sécurité L.423-1; conformité L.217-4.",
+      "NHTSA Ram; recalls",
       "moteur|boite|PHEV|carburant|ADAS"),
 
-    /* -----------------------------
-       THEMES TRANSVERSAUX SECURITE
-       ----------------------------- */
-    D("Toutes marques", "Vehicules 2017-2027", "2017-2027", "ADAS / conduite assistee", "N/A",
-      "ADAS|camera|radar|lidar|phantom braking|lane keeping|traffic jam assist|emergency brake|calibration|software|mise a jour",
-      "critique", 0.95,
-      "Defauts ADAS : calibration, capteurs, logiciel, freinage fantome, assistance autoroute.",
-      "Securite L.423-1; conformite L.217-4; produits defectueux 1245; penal si accident.",
-      "NHTSA ADAS; Euro NCAP; DGCCRF; SafetyGate",
-      "ADAS|logiciel|securite|capteurs"),
-
-    D("Toutes marques", "Hybrides / electriques 2017-2027", "2017-2027", "Batterie HV / 12V / charge", "N/A",
-      "batterie|BMS|charge AC|charge DC|autonomie|thermal runaway|incendie|12V|DC-DC|software|cell imbalance",
-      "critique", 0.95,
-      "Batteries haute tension, desequilibre cellules, charge, incendie, batterie 12V, DC-DC.",
-      "Securite L.423-1; produits defectueux 1245; conformite L.217-4.",
-      "NHTSA battery recalls; DGCCRF; KBA",
-      "batterie|charge|incendie|electricite|securite"),
-
-    D("Toutes marques", "Diesel 2017-2027", "2017-2027", "Dépollution diesel", "N/A",
-      "EGR|FAP|DPF|AdBlue|NOx|capteur NOx|cristallisation|pompe AdBlue|regeneration|voyant antipollution|mode degrade|fumee noire",
-      "moyen", 0.5,
-      "Systemes EGR/FAP/AdBlue/NOx : encrassement, capteurs, regeneration, logiciel.",
-      "Vice cache 1641; usure normale a ecarter; tromperie L.213-1 si logiciel.",
-      "Rappels diesel; CJUE; DGCCRF",
-      "diesel|EGR|FAP|AdBlue|NOx|pollution"),
-
-    D("Toutes marques", "Essence turbo 2017-2027", "2017-2027", "Downsizing turbo", "N/A",
-      "turbo|wastegate|actuateur|consommation huile|PCV|segments|LSPI|preignition|carbonisation|voyant moteur|perte puissance",
-      "critique", 0.7,
-      "Turbo, PCV, segments, LSPI/pre-ignition, encrassement, perte de puissance.",
-      "Vice cache 1641; conformite L.217-4.",
-      "TSB constructeurs; forums",
-      "moteur|turbo|huile|combustion|puissance"),
-
-    D("Toutes marques", "Boites auto/robotisees 2017-2027", "2017-2027", "DSG / EDC / DCT / CVT / PowerShift / PDK", "N/A",
-      "a-coups|patinage|embrayage|mecatronique|convertisseur|voyant boite|mode degrade|surchauffe|odeur brulee|bruit",
-      "critique", 0.7,
-      "Boites automatiques/robotisees : mecatronique, embrayage, convertisseur, logiciel.",
-      "Vice cache 1641; conformite L.217-4.",
-      "Rappels boites; TSB",
-      "boite|embrayage|DSG|CVT|logiciel"),
-
-    D("Toutes marques", "Electricite / carrosserie 2017-2027", "2017-2027", "Faisceaux / etancheite", "N/A",
-      "court circuit|infiltration eau|corrosion|faisceau|boitier fusibles|calculateurs|voyants aleatoires|incendie electrique|odeur brulee",
-      "critique", 0.9,
-      "Infiltrations, corrosion, courts-circuits, faisceaux, calculateurs, risque incendie electrique.",
-      "Securite L.423-1; vice cache 1641; produits defectueux 1245.",
-      "Rappels incendie electrique; NHTSA; DGCCRF",
-      "electricite|eau|incendie|corrosion|securite"),
-
-    D("Toutes marques", "Fuites de fluides 2017-2027", "2017-2027", "Carburant / huile / liquide", "N/A",
-      "fuite carburant|fuite huile|fuite liquide refroidissement|fuite frein|fuite direction|incendie|odeur|niveau bas|voyant",
-      "critique", 0.85,
-      "Fuites de fluides : risque incendie, perte de freinage, surchauffe, pollution.",
-      "Securite L.423-1; vice cache 1641; penal si accident.",
-      "Rappels fuites; NHTSA; DGCCRF",
-      "fuite|incendie|frein|refroidissement|securite")
+    D("Chrysler", "Pacifica|Pacifica Hybrid", "2017-2027", "V6 / PHEV", "287ch-360ch",
+      "PHEV|batterie|charge|autonomie|software|ADAS|boite|fuel pump",
+      "critique", 0.72,
+      "Pacifica Hybrid : batterie, charge, logiciel, boîte.",
+      "Vice caché 1641; conformité L.217-4.",
+      "NHTSA Chrysler; recalls",
+      "PHEV|batterie|boite|ADAS")
   ];
 
-  /* =========================================================
-     NORMALISATION / FUSION DES DEF AUTS
-     ========================================================= */
+  var SEED_DEFECTS = SPECIFIC_DEFECTS.concat(GENERATED_DEFECTS);
+
   function normalizeDefect(d) {
     return {
       b: d.b || d.brand || "",
@@ -743,6 +782,10 @@
     };
   }
 
+  function isValidDefect(d) {
+    return d && d.b && d.s;
+  }
+
   function defectKey(d) {
     return norm(d.b) + "|" + norm(d.e) + "|" + norm(d.y) + "|" + norm(d.m).slice(0, 40);
   }
@@ -752,80 +795,101 @@
     base.forEach(function (d) { map.set(defectKey(d), d); });
     incoming.forEach(function (d) {
       var nd = normalizeDefect(d);
-      if (!nd.b || !nd.s) return;
+      if (!isValidDefect(nd)) return;
       map.set(defectKey(nd), nd);
     });
     return Array.from(map.values());
   }
 
   function allDefects() {
-    return SEED_DEFECTS.concat(techUpdates);
+    return SEED_DEFECTS.concat(techUpdates || []);
   }
 
-  /* =========================================================
-     MISE A JOUR AUTOMATIQUE TOUS LES 30 JOURS
-     ========================================================= */
-  function checkAutoUpdate(manual) {
-    try {
-      var last = load(KEYS.LAST_UPDATE, 0);
-      var interval = CONFIG.updateIntervalDays * 24 * 60 * 60 * 1000;
-      var due = (Date.now() - last) >= interval;
+  function notificationPermissionState() {
+    if (!("Notification" in window)) return "unsupported";
+    return Notification.permission;
+  }
 
-      if (!due && !manual) return;
-      if (!navigator.onLine && !manual) return;
+  function updateNotificationState() {
+    var el = q("#notifState");
+    var state = notificationPermissionState();
 
-      fetchUpdate(manual);
-    } catch (e) {
-      console.warn("[AR-EXPERT] Check update ignore:", e);
+    var labels = {
+      granted: "✅ Notifications autorisées",
+      default: "⏳ Permission non encore accordée",
+      denied: "❌ Notifications bloquées par le navigateur / Android",
+      unsupported: "⚠️ Notifications non supportées par cet environnement"
+    };
+
+    if (el) {
+      el.textContent = "État des notifications : " + (labels[state] || state);
     }
   }
 
-  function fetchUpdate(manual) {
-    var statusEl = q("#dataStatus");
-    if (statusEl) statusEl.textContent = manual ? "Recherche de mise à jour..." : "Mise à jour périodique en arrière-plan...";
+  function askNotification() {
+    if (!("Notification" in window)) {
+      updateNotificationState();
+      return Promise.resolve("unsupported");
+    }
 
-    fetch(CONFIG.updateUrl, { cache: "no-store", method: "GET" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
+    if (Notification.permission === "granted") {
+      updateNotificationState();
+      return Promise.resolve("granted");
+    }
+
+    if (Notification.permission === "denied") {
+      updateNotificationState();
+      return Promise.resolve("denied");
+    }
+
+    return Promise.resolve(Notification.requestPermission())
+      .then(function (permission) {
+        updateNotificationState();
+        return permission;
       })
-      .then(function (json) {
-        var incoming = Array.isArray(json) ? json : (json && Array.isArray(json.defects) ? json.defects : []);
-        if (!incoming.length) {
-          if (manual) toast("Aucune nouvelle donnée technique.", "info");
-          save(KEYS.LAST_UPDATE, Date.now());
-          updateDataStatus("Base locale à jour");
-          return;
-        }
-
-        techUpdates = mergeDefects(techUpdates, incoming);
-        save(KEYS.TECH_UPDATES, techUpdates);
-        save(KEYS.LAST_UPDATE, Date.now());
-        updateAdminStats();
-        updateDataStatus("Base mise à jour automatiquement");
-
-        if (manual) toast("Mise à jour technique appliquée.", "success");
-        notify("Base technique mise à jour", incoming.length + " entrées traitées.");
-      })
-      .catch(function (err) {
-        console.warn("[AR-EXPERT] Mise à jour impossible:", err);
-        save(KEYS.LAST_UPDATE, Date.now());
-        updateDataStatus("Mode autonome : mise à jour indisponible");
-        if (manual) toast("Mise à jour impossible. Base locale conservée.", "warning");
+      .catch(function () {
+        updateNotificationState();
+        return Notification.permission || "denied";
       });
   }
 
-  function updateDataStatus(msg) {
-    var el = q("#dataStatus");
-    if (el) el.textContent = msg;
+  function showSystemNotification(title, body, tag) {
+    var options = {
+      body: body || "",
+      tag: tag || "arex-" + Date.now(),
+      data: {
+        url: "./index.html"
+      }
+    };
+
+    var fallback = function () {
+      if ("Notification" in window && Notification.permission === "granted") {
+        try {
+          var n = new Notification(title, options);
+          n.onclick = function () {
+            window.focus();
+          };
+          return Promise.resolve();
+        } catch (e) {
+          console.warn("[AR-EXPERT] Notification fallback impossible:", e);
+        }
+      }
+      return Promise.resolve();
+    };
+
+    if (swRegistration && typeof swRegistration.showNotification === "function") {
+      return swRegistration.showNotification(title, options).catch(fallback);
+    }
+
+    return fallback();
   }
 
-  /* =========================================================
-     AUTH / USERS / REQUESTS
-     ========================================================= */
+  function notify(title, body, tag) {
+    return showSystemNotification(title, body, tag);
+  }
+
   function getUsers() { return load(KEYS.USERS, []); }
   function saveUsers(users) { save(KEYS.USERS, users); }
-
   function getRequests() { return load(KEYS.REQUESTS, []); }
   function saveRequests(requests) { save(KEYS.REQUESTS, requests); }
 
@@ -861,7 +925,6 @@
     var session = load(KEYS.SESSION, null);
     if (!session) return false;
 
-    // Admin : jamais de restauration automatique. Mot de passe requis à chaque ouverture.
     if (session.role === "admin") {
       clearSession();
       return false;
@@ -933,6 +996,201 @@
     }
   }
 
+  function pendingRequests() {
+    return getRequests().filter(function (r) {
+      return r.status === "pending";
+    });
+  }
+
+  function pendingSignature() {
+    return pendingRequests()
+      .map(function (r) { return r.id; })
+      .sort()
+      .join("|");
+  }
+
+  function updateNotificationBell() {
+    var bell = q("#notifBellBtn");
+    var badge = q("#notifBadge");
+
+    if (!bell) return;
+
+    if (!currentUser || currentUser.role !== "admin") {
+      bell.classList.add("hidden");
+      if (badge) badge.classList.add("hidden");
+      return;
+    }
+
+    bell.classList.remove("hidden");
+
+    var count = pendingRequests().length;
+
+    if (badge) {
+      badge.textContent = String(count);
+      badge.classList.toggle("hidden", count === 0);
+    }
+  }
+
+  function renderAdminIfOpen() {
+    var panel = q("#adminPanel");
+    if (!panel) return;
+    if (panel.classList.contains("hidden")) return;
+    if (!currentUser || currentUser.role !== "admin") return;
+    renderAdmin();
+  }
+
+  function onAccessRequestReceived(req) {
+    if (!currentUser || currentUser.role !== "admin") return;
+    if (!req) return;
+
+    var title = "Nouvelle demande d’accès";
+    var body = (req.name || "Tiers") + " — " + (req.email || "");
+
+    notify(title, body, "access-" + (req.id || Date.now()));
+
+    updateNotificationBell();
+    renderAdminIfOpen();
+
+    toast("Nouvelle demande : " + (req.name || "Tiers"), "info");
+  }
+
+  function pollAdminNotifications() {
+    if (!currentUser || currentUser.role !== "admin") return;
+
+    var sig = pendingSignature();
+
+    if (sig === lastPendingSignature) {
+      updateNotificationBell();
+      return;
+    }
+
+    var oldIds = lastPendingSignature ? lastPendingSignature.split("|") : [];
+    var newIds = sig ? sig.split("|").filter(function (id) {
+      return id && oldIds.indexOf(id) < 0;
+    }) : [];
+
+    lastPendingSignature = sig;
+    updateNotificationBell();
+
+    if (newIds.length) {
+      var all = getRequests();
+
+      newIds.forEach(function (id) {
+        var req = all.find(function (r) {
+          return r.id === id;
+        });
+
+        if (req) {
+          onAccessRequestReceived(req);
+        }
+      });
+    }
+
+    renderAdminIfOpen();
+  }
+
+  function startAdminPolling() {
+    stopAdminPolling();
+
+    lastPendingSignature = pendingSignature();
+    updateNotificationBell();
+
+    adminPollTimer = setInterval(function () {
+      pollAdminNotifications();
+    }, CONFIG.pollAdminMs || 5000);
+
+    var count = pendingRequests().length;
+    if (count > 0) {
+      toast(count + " demande(s) d’accès en attente", "info");
+    }
+  }
+
+  function stopAdminPolling() {
+    if (adminPollTimer) {
+      clearInterval(adminPollTimer);
+      adminPollTimer = null;
+    }
+  }
+
+  function publishAccessRequest(req) {
+    if (!req) return;
+
+    if (broadcast) {
+      try {
+        broadcast.postMessage({
+          type: "access-request",
+          payload: req
+        });
+      } catch (e) {}
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent("arex:access-request", {
+        detail: req
+      }));
+    } catch (e) {}
+
+    updateNotificationBell();
+  }
+
+  function makeAccessRequestShareUrl(req) {
+    var payload = {
+      id: req.id,
+      name: req.name,
+      email: req.email,
+      reason: req.reason,
+      date: req.date,
+      source: "lien-partage"
+    };
+
+    var baseUrl = location.href.split("?")[0].split("#")[0];
+    return baseUrl + "?access_request=" + utf8ToB64Url(JSON.stringify(payload));
+  }
+
+  function processIncomingAccessRequestFromUrl() {
+    try {
+      var raw = getQueryParam("access_request");
+      if (!raw) return;
+
+      var decoded = b64UrlToUtf8(raw);
+      var req = JSON.parse(decoded);
+
+      if (!req || !req.name || !req.email) return;
+
+      req.id = req.id || uid();
+      req.status = "pending";
+      req.date = req.date || new Date().toLocaleString("fr-FR");
+      req.source = req.source || "lien-partage";
+
+      var requests = getRequests();
+
+      var exists = requests.find(function (r) {
+        return r.id === req.id ||
+          (
+            String(r.email || "").toLowerCase() === String(req.email || "").toLowerCase() &&
+            String(r.name || "").toLowerCase() === String(req.name || "").toLowerCase() &&
+            String(r.reason || "") === String(req.reason || "")
+          );
+      });
+
+      if (!exists) {
+        requests.push(req);
+        saveRequests(requests);
+        publishAccessRequest(req);
+
+        toast("Demande d’accès importée depuis le lien partagé.", "success");
+      }
+
+      var cleanUrl = location.href.split("?")[0] + location.hash;
+
+      if (history.replaceState) {
+        history.replaceState({}, document.title, cleanUrl);
+      }
+    } catch (e) {
+      console.warn("[AR-EXPERT] Lien de demande invalide:", e);
+    }
+  }
+
   function showApp() {
     var login = q("#loginScreen");
     if (login) {
@@ -947,16 +1205,32 @@
     }
 
     var badge = q("#userBadge");
-    if (badge) badge.textContent = currentUser.role === "admin" ? "👑 Admin" : "👤 " + currentUser.name;
+    if (badge) {
+      badge.textContent = currentUser.role === "admin"
+        ? "👑 Admin"
+        : "👤 " + currentUser.name;
+    }
 
     var adminBtn = q("#adminPanelBtn");
     if (adminBtn) {
-      if (currentUser.role === "admin") adminBtn.classList.remove("hidden");
-      else adminBtn.classList.add("hidden");
+      if (currentUser.role === "admin") {
+        adminBtn.classList.remove("hidden");
+      } else {
+        adminBtn.classList.add("hidden");
+      }
     }
 
     updateCounter();
-    askNotification();
+    updateNotificationBell();
+    updateNotificationState();
+
+    if (currentUser && currentUser.role === "admin") {
+      startAdminPolling();
+      askNotification();
+    } else {
+      stopAdminPolling();
+    }
+
     window.scrollTo(0, 0);
   }
 
@@ -974,8 +1248,13 @@
     }
 
     var admin = q("#adminPanel");
-    if (admin) admin.classList.add("hidden");
+    if (admin) {
+      admin.classList.add("hidden");
+    }
 
+    stopAdminPolling();
+    updateNotificationBell();
+    updateNotificationState();
     refreshSavedPasswordButton();
   }
 
@@ -989,27 +1268,79 @@
   }
 
   function verifyAdminPassword(input) {
-    return sha256(ADMIN_PASSWORD_SAFE()).then(function (adminHash) {
-      if (!input) return Promise.resolve(false);
+    if (!input) return Promise.resolve(false);
+    return sha256(CONFIG.adminPassword).then(function (adminHash) {
       return sha256(input).then(function (inputHash) {
         return inputHash === adminHash;
       });
     });
   }
 
-  function ADMIN_PASSWORD_SAFE() {
-    return CONFIG.adminPassword;
-  }
-
-  function loginAdminFromHash(hash) {
-    return sha256(ADMIN_PASSWORD_SAFE()).then(function (adminHash) {
-      return hash === adminHash;
+  function loginAdminFromHash(savedHash) {
+    if (!savedHash) return Promise.resolve(false);
+    return sha256(CONFIG.adminPassword).then(function (adminHash) {
+      return savedHash === adminHash;
     });
   }
 
-  /* =========================================================
-     EVENTS CONNEXION
-     ========================================================= */
+  function enforceTierAccess() {
+    if (!currentUser || currentUser.role === "admin") return;
+
+    var fresh = findUser(currentUser.name, currentUser.email);
+    if (!fresh || fresh.status !== "approved") {
+      clearSession();
+      showLogin();
+      toast("Votre accès a été révoqué ou refusé par l’administrateur.", "error");
+      notify("Accès révoqué", "Contactez l’administrateur si nécessaire.");
+    } else {
+      currentUser = fresh;
+      setSession(fresh);
+      updateCounter();
+    }
+  }
+
+  setInterval(enforceTierAccess, 15000);
+
+  window.addEventListener("storage", function (e) {
+    if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS) {
+      updateNotificationBell();
+
+      if (currentUser && currentUser.role === "admin") {
+        pollAdminNotifications();
+        renderAdminIfOpen();
+      }
+
+      enforceTierAccess();
+    }
+  });
+
+  if (broadcast) {
+    broadcast.onmessage = function (event) {
+      try {
+        var data = event.data || {};
+
+        if (data.type === "access-request") {
+          onAccessRequestReceived(data.payload);
+        }
+
+        if (data.type === "access-change") {
+          enforceTierAccess();
+
+          if (currentUser && currentUser.role === "admin") {
+            updateNotificationBell();
+            renderAdminIfOpen();
+          }
+        }
+      } catch (e) {
+        console.warn("[AR-EXPERT] Broadcast message ignoré:", e);
+      }
+    };
+  }
+
+  window.addEventListener("arex:access-request", function (event) {
+    onAccessRequestReceived(event.detail);
+  });
+
   qa(".auth-tab").forEach(function (btn) {
     btn.addEventListener("click", function () {
       qa(".auth-tab").forEach(function (b) { b.classList.remove("active"); });
@@ -1041,7 +1372,10 @@
       }
 
       if (remember) {
-        sha256(pwd).then(function (h) { save(KEYS.ADMIN_PWD_HASH, h); refreshSavedPasswordButton(); });
+        sha256(pwd).then(function (h) {
+          save(KEYS.ADMIN_PWD_HASH, h);
+          refreshSavedPasswordButton();
+        });
       } else {
         del(KEYS.ADMIN_PWD_HASH);
         refreshSavedPasswordButton();
@@ -1059,8 +1393,7 @@
       toast("Connexion admin réussie.", "success");
       if (pwdEl) pwdEl.value = "";
     }).catch(function () {
-      // Fallback local si crypto indisponible
-      if (pwd === ADMIN_PASSWORD_SAFE()) {
+      if (pwd === CONFIG.adminPassword) {
         setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
         showApp();
         toast("Connexion admin réussie (mode local).", "success");
@@ -1107,6 +1440,7 @@
     }
 
     var requests = getRequests();
+
     var alreadyPending = requests.find(function (r) {
       return r.email.toLowerCase() === email.toLowerCase() && r.status === "pending";
     });
@@ -1128,24 +1462,70 @@
       email: email,
       reason: reason,
       status: "pending",
-      date: new Date().toLocaleString("fr-FR")
+      date: new Date().toLocaleString("fr-FR"),
+      source: "formulaire-local"
     };
 
     requests.push(req);
     saveRequests(requests);
 
-    askNotification();
-    notify("Nouvelle demande d’accès", name + " (" + email + ")");
+    lastSharedAccessRequest = req;
 
-    if (broadcast) {
-      try { broadcast.postMessage({ type: "request", payload: req }); } catch (e) {}
-    }
+    var shareBtn = q("#shareRequestBtn");
+    if (shareBtn) shareBtn.classList.remove("hidden");
 
-    authMessage("Demande envoyée. En attente de validation admin.", "success");
+    publishAccessRequest(req);
+
+    authMessage(
+      "Demande envoyée. Si l’admin est sur le même appareil, il sera notifié. Sinon, utilisez ‘Partager la demande avec l’admin’.",
+      "success"
+    );
 
     if (nameEl) nameEl.value = "";
     if (emailEl) emailEl.value = "";
     if (reasonEl) reasonEl.value = "";
+  });
+
+  on("#shareRequestBtn", "click", function () {
+    if (!lastSharedAccessRequest) {
+      toast("Aucune demande à partager.", "warning");
+      return;
+    }
+
+    var url = makeAccessRequestShareUrl(lastSharedAccessRequest);
+
+    var text =
+      "Demande d’accès Expert Auto\n" +
+      "Nom : " + lastSharedAccessRequest.name + "\n" +
+      "Email : " + lastSharedAccessRequest.email + "\n" +
+      "Motif : " + lastSharedAccessRequest.reason + "\n" +
+      "Lien admin : " + url;
+
+    if (navigator.share) {
+      navigator.share({
+        title: "Demande d’accès Expert Auto",
+        text: text,
+        url: url
+      }).catch(function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () {
+            toast("Lien de demande copié.", "success");
+          }).catch(function () {
+            toast("Copie impossible.", "error");
+          });
+        } else {
+          toast("Partage impossible.", "warning");
+        }
+      });
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        toast("Lien de demande copié.", "success");
+      }).catch(function () {
+        toast("Copie impossible.", "error");
+      });
+    } else {
+      toast("Partage non supporté.", "warning");
+    }
   });
 
   on("#thirdLoginBtn", "click", function () {
@@ -1188,53 +1568,36 @@
     toast("Déconnexion effectuée.", "info");
   });
 
-  /* =========================================================
-     CONTROLE TIERS EN TEMPS REEL LOCAL
-     ========================================================= */
-  function enforceTierAccess() {
-    if (!currentUser || currentUser.role === "admin") return;
-
-    var fresh = findUser(currentUser.name, currentUser.email);
-    if (!fresh || fresh.status !== "approved") {
-      clearSession();
-      showLogin();
-      toast("Votre accès a été révoqué ou refusé par l’administrateur.", "error");
-      notify("Accès révoqué", "Contactez l’administrateur si nécessaire.");
-    } else {
-      currentUser = fresh;
-      setSession(fresh);
-      updateCounter();
-    }
-  }
-
-  setInterval(enforceTierAccess, 15000);
-
-  window.addEventListener("storage", function (e) {
-    if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS) {
-      if (currentUser && currentUser.role === "admin") renderAdmin();
-      enforceTierAccess();
-    }
+  on("#clearCacheBtn", "click", function () {
+    clearCacheAndReload();
   });
 
-  if (broadcast) {
-    broadcast.onmessage = function (event) {
-      try {
-        var data = event.data || {};
-        if (data.type === "request" && currentUser && currentUser.role === "admin") {
-          renderAdmin();
-          notify("Demande reçue", data.payload && data.payload.name ? data.payload.name : "Nouvelle demande");
-        }
-        if (data.type === "access-change") {
-          enforceTierAccess();
-          if (currentUser && currentUser.role === "admin") renderAdmin();
-        }
-      } catch (e) {}
-    };
+  function clearCacheAndReload() {
+    var unload = ("serviceWorker" in navigator)
+      ? navigator.serviceWorker.getRegistrations().then(function (regs) {
+          return Promise.all(regs.map(function (r) {
+            return r.unregister().catch(function () {});
+          }));
+        })
+      : Promise.resolve();
+
+    var delCache = ("caches" in window)
+      ? caches.keys().then(function (names) {
+          return Promise.all(names.map(function (n) {
+            return caches.delete(n).catch(function () {});
+          }));
+        })
+      : Promise.resolve();
+
+    Promise.all([unload.catch(function () {}), delCache.catch(function () {})])
+      .then(function () {
+        location.reload(true);
+      })
+      .catch(function () {
+        location.reload(true);
+      });
   }
 
-  /* =========================================================
-     PDF UPLOAD
-     ========================================================= */
   function readFileAsArrayBuffer(file) {
     if (file.arrayBuffer) return file.arrayBuffer();
     return new Promise(function (resolve, reject) {
@@ -1304,9 +1667,6 @@
       });
   });
 
-  /* =========================================================
-     MATCHING TECHNIQUE / JURIDIQUE
-     ========================================================= */
   function checkYearRange(rangeStr, targetYear) {
     if (!targetYear) return true;
     var parts = String(rangeStr || "").split("-").map(function (s) { return parseInt(s.trim(), 10); });
@@ -1377,8 +1737,6 @@
 
   function matchDefects(marque, modele, annee, kilometrage, texte) {
     var bq = norm(marque);
-    if (!bq) return [];
-
     var mq = norm(modele);
     var yr = parseYear(annee);
     var km = parseKm(kilometrage);
@@ -1387,14 +1745,19 @@
 
     allDefects().forEach(function (d) {
       var db = norm(d.b || "");
-      var brandOk = db.indexOf(bq) >= 0 || bq.indexOf(db) >= 0 || db === "toutes marques";
-      if (!brandOk) return;
 
-      var yearOk = checkYearRange(d.y, yr);
-      if (!yearOk) return;
+      var brandOk;
+      if (!bq) {
+        brandOk = db === "toutes marques";
+      } else {
+        brandOk = db === "toutes marques" || db.indexOf(bq) >= 0 || bq.indexOf(db) >= 0;
+      }
+
+      if (!brandOk) return;
+      if (!checkYearRange(d.y, yr)) return;
 
       var modelOk = true;
-      if (mq && d.m && d.m !== "Vehicules 2017-2027") {
+      if (mq && d.m && d.m !== "*") {
         modelOk = String(d.m || "").split("|").some(function (m) {
           var nm = norm(m);
           return nm.indexOf(mq) >= 0 || mq.indexOf(nm) >= 0;
@@ -1437,7 +1800,7 @@
           moteur: d.e,
           puissance: d.p,
           periode: d.y,
-          modeles: String(d.m || "").split("|"),
+          modeles: d.m === "*" ? ["Toutes motorisations"] : String(d.m || "").split("|"),
           severite: d.sev,
           description: d.n,
           symptomes: found.length ? found : String(d.s || "").split("|").slice(0, 3),
@@ -1452,7 +1815,7 @@
       }
     });
 
-    return results.sort(function (a, b) { return b.score - a.score; });
+    return results.sort(function (a, b) { return b.score - a.score; }).slice(0, 12);
   }
 
   function researchLinks(brand, model, engine, symptoms) {
@@ -1470,9 +1833,13 @@
     ];
   }
 
-  /* =========================================================
-     ANALYSE PRINCIPALE
-     ========================================================= */
+  function addTerm() {
+    for (var i = 0; i < arguments.length; i++) {
+      termesMobilises.add(arguments[i]);
+    }
+    return '<span class="termes-juridiques">(' + Array.prototype.slice.call(arguments).join(", ") + ")</span>";
+  }
+
   on("#analyzeBtn", "click", function () {
     if (!currentUser) {
       toast("Connectez-vous.", "error");
@@ -1602,9 +1969,6 @@
     }
   }
 
-  /* =========================================================
-     SECTIONS
-     ========================================================= */
   function secFacts(text, context) {
     var h = "<p><strong>Objet :</strong> recensement des éléments fournis " + addTerm("éléments factuels", "faits allégués") + ".</p>";
 
@@ -2041,12 +2405,11 @@
     return h;
   }
 
-  /* =========================================================
-     ADMIN PANEL
-     ========================================================= */
   function updateAdminStats() {
     var brands = {};
-    allDefects().forEach(function (d) { brands[d.b] = true; });
+    allDefects().forEach(function (d) {
+      if (d.b && d.b !== "Toutes marques") brands[d.b] = true;
+    });
 
     var statEntries = q("#statEntries");
     var statBrands = q("#statBrands");
@@ -2063,7 +2426,7 @@
     var box = q("#pendingRequests");
     if (!box) return;
 
-    var pending = getRequests().filter(function (r) { return r.status === "pending"; });
+    var pending = pendingRequests();
     var count = q("#pendingCount");
     if (count) count.textContent = pending.length;
 
@@ -2076,9 +2439,9 @@
       return '<div class="card pending">' +
         "<strong>" + esc(r.name) + "</strong> <small>" + esc(r.email) + "</small>" +
         "<p>" + esc(r.reason) + "</p>" +
-        "<div class=\"actions\">" +
-        '<button class="btn-ok" data-action="approve" data-id="' + esc(r.id) + '">Accepter</button>' +
-        '<button class="btn-no" data-action="refuse" data-id="' + esc(r.id) + '">Refuser</button>' +
+        '<div class="actions">' +
+        '<button class="btn-ok" data-action="approve" data-id="' + esc(r.id) + '" type="button">Accepter</button>' +
+        '<button class="btn-no" data-action="refuse" data-id="' + esc(r.id) + '" type="button">Refuser</button>' +
         "</div></div>";
     }).join("");
   }
@@ -2096,8 +2459,8 @@
 
     box.innerHTML = users.map(function (u) {
       var action = u.status === "approved"
-        ? '<button class="btn-warn" data-action="revoke" data-email="' + esc(u.email) + '" data-name="' + esc(u.name) + '">Révoquer</button>'
-        : '<button class="btn-ok" data-action="restore" data-email="' + esc(u.email) + '" data-name="' + esc(u.name) + '">Rétablir</button>';
+        ? '<button class="btn-warn" data-action="revoke" data-email="' + esc(u.email) + '" data-name="' + esc(u.name) + '" type="button">Révoquer</button>'
+        : '<button class="btn-ok" data-action="restore" data-email="' + esc(u.email) + '" data-name="' + esc(u.name) + '" type="button">Rétablir</button>';
 
       return '<div class="card ' + esc(u.status) + '">' +
         "<strong>" + esc(u.name) + "</strong> <small>" + esc(u.email) + " • " + esc(u.status) + "</small>" +
@@ -2192,13 +2555,60 @@
     }
   });
 
+  on("#enableNotifBtn", "click", function () {
+    askNotification().then(function (permission) {
+      if (permission === "granted") {
+        toast("Notifications admin activées.", "success");
+      } else if (permission === "denied") {
+        toast("Notifications bloquées. Autorisez-les dans Android / navigateur.", "warning");
+      } else {
+        toast("Permission notification : " + permission, "info");
+      }
+    });
+  });
+
+  on("#testNotifBtn", "click", function () {
+    askNotification().then(function (permission) {
+      if (permission === "granted") {
+        notify(
+          "Test Expert Auto",
+          "La notification admin fonctionne correctement.",
+          "test-" + Date.now()
+        );
+        toast("Notification de test envoyée.", "success");
+      } else {
+        toast("Notification impossible : permission = " + permission, "warning");
+      }
+    });
+  });
+
+  on("#refreshRequestsBtn", "click", function () {
+    updateNotificationBell();
+    renderAdmin();
+    toast("Demandes actualisées.", "info");
+  });
+
+  on("#notifBellBtn", "click", function () {
+    if (!currentUser || currentUser.role !== "admin") return;
+
+    var panel = q("#adminPanel");
+    if (panel) panel.classList.remove("hidden");
+
+    qa(".admin-tab").forEach(function (b) {
+      b.classList.toggle("active", b.dataset.adminTab === "requests");
+    });
+
+    qa(".admin-pane").forEach(function (p) {
+      p.classList.toggle("active", p.id === "requestsPane");
+    });
+
+    renderAdmin();
+  });
+
   on("#forceUpdateBtn", "click", function () {
     fetchUpdate(true);
   });
 
-  /* =========================================================
-     EXPORT / IMPORT / APK / INSTALL
-     ========================================================= */
   on("#exportDataBtn", "click", function () {
     var data = {
       exportedAt: new Date().toISOString(),
@@ -2292,9 +2702,6 @@
     if (btn) btn.classList.remove("hidden");
   });
 
-  /* =========================================================
-     PDF / PARTAGE
-     ========================================================= */
   on("#generatePdfBtn", "click", function () {
     if (!analysisData || !analysisData.sections || !analysisData.sections.length) {
       toast("Générez d’abord une analyse.", "warning");
@@ -2391,22 +2798,88 @@
     }
   });
 
-  /* =========================================================
-     SERVICE WORKER
-     ========================================================= */
   function registerServiceWorker() {
     try {
       if ("serviceWorker" in navigator && location.protocol !== "file:") {
-        navigator.serviceWorker.register("./sw.js").catch(function (err) {
-          console.warn("[AR-EXPERT] SW non enregistré:", err);
-        });
+        navigator.serviceWorker
+          .register("./sw.js")
+          .then(function (reg) {
+            swRegistration = reg;
+            return navigator.serviceWorker.ready;
+          })
+          .then(function (reg) {
+            swRegistration = reg;
+            console.log("[AR-EXPERT] Service Worker prêt.");
+          })
+          .catch(function (err) {
+            console.warn("[AR-EXPERT] Service Worker non enregistré:", err);
+          });
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn("[AR-EXPERT] Enregistrement SW impossible:", e);
+    }
   }
 
-  /* =========================================================
-     INIT
-     ========================================================= */
+  function updateDataStatus(msg) {
+    var el = q("#dataStatus");
+    if (el) el.textContent = msg;
+  }
+
+  function checkAutoUpdate(manual) {
+    try {
+      var last = load(KEYS.LAST_UPDATE, 0);
+      var interval = CONFIG.updateIntervalDays * 24 * 60 * 60 * 1000;
+      var due = (Date.now() - last) >= interval;
+
+      if (!due && !manual) return;
+      if (!navigator.onLine && !manual) return;
+
+      fetchUpdate(manual);
+    } catch (e) {
+      console.warn("[AR-EXPERT] Check update ignore:", e);
+    }
+  }
+
+  function fetchUpdate(manual) {
+    if (!window.fetch) {
+      if (manual) toast("Mise à jour impossible : fetch non supporté.", "warning");
+      return;
+    }
+
+    var statusEl = q("#dataStatus");
+    if (statusEl) statusEl.textContent = manual ? "Recherche de mise à jour..." : "Mise à jour périodique en arrière-plan...";
+
+    fetch(CONFIG.updateUrl, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      })
+      .then(function (json) {
+        var incoming = Array.isArray(json) ? json : (json && Array.isArray(json.defects) ? json.defects : []);
+        if (!incoming.length) {
+          if (manual) toast("Aucune nouvelle donnée technique.", "info");
+          save(KEYS.LAST_UPDATE, Date.now());
+          updateDataStatus("Base locale à jour");
+          return;
+        }
+
+        techUpdates = mergeDefects(techUpdates, incoming);
+        save(KEYS.TECH_UPDATES, techUpdates);
+        save(KEYS.LAST_UPDATE, Date.now());
+        updateAdminStats();
+        updateDataStatus("Base mise à jour automatiquement");
+
+        if (manual) toast("Mise à jour technique appliquée.", "success");
+        notify("Base technique mise à jour", incoming.length + " entrées traitées.");
+      })
+      .catch(function (err) {
+        console.warn("[AR-EXPERT] Mise à jour impossible:", err);
+        save(KEYS.LAST_UPDATE, Date.now());
+        updateDataStatus("Mode autonome : mise à jour indisponible");
+        if (manual) toast("Mise à jour impossible. Base locale conservée.", "warning");
+      });
+  }
+
   function init() {
     try {
       if (window.pdfjsLib) {
@@ -2415,12 +2888,17 @@
       }
     } catch (e) {}
 
-    techUpdates = load(KEYS.TECH_UPDATES, []);
+    techUpdates = (load(KEYS.TECH_UPDATES, []) || [])
+      .map(normalizeDefect)
+      .filter(isValidDefect);
+
     updateAdminStats();
     updateDataStatus("Base locale ingénieur chargée");
+    updateNotificationState();
 
-    checkAutoUpdate(false);
     registerServiceWorker();
+    checkAutoUpdate(false);
+
     refreshSavedPasswordButton();
 
     if (restoreSession()) {
@@ -2428,6 +2906,8 @@
     } else {
       showLogin();
     }
+
+    processIncomingAccessRequestFromUrl();
 
     toast("Application prête. Base locale chargée.", "success");
   }
