@@ -436,7 +436,7 @@ main {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 14px;
 }
 
@@ -466,6 +466,54 @@ main {
 .status.error {
   background: #fee2e2;
   color: #991b1b;
+}
+
+.suggest-wrap {
+  position: relative;
+}
+
+.suggest-box {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% - 8px);
+  z-index: 300;
+  background: #fff;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  box-shadow: 0 12px 28px rgba(0,0,0,0.12);
+  max-height: 240px;
+  overflow: auto;
+  padding: 6px;
+}
+
+.suggest-item {
+  width: 100%;
+  border: none;
+  background: transparent;
+  text-align: left;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 700;
+  color: #374151;
+}
+
+.suggest-item:hover,
+.suggest-item.active {
+  background: #eef2ff;
+  color: var(--primary);
+}
+
+.selection-summary {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: #eff6ff;
+  border: 1px dashed #93c5fd;
+  color: #1d4ed8;
+  font-size: 0.92rem;
+  font-weight: 700;
 }
 
 .analysis-section {
