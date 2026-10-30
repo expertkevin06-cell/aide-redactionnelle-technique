@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#1a1a2e" />
-  <meta name="description" content="Analyse technique et juridique automobile en mode expert, ingénieur, juriste, sécurité." />
-  <title>Aide Rédactionnelle Expert Auto v13</title>
+  <meta name="description" content="Analyse technique et juridique automobile en mode expert, ingénieur, juriste, sécurité. Intégration auto-diagnostic." />
+  <title>Aide Rédactionnelle Expert Auto v14</title>
 
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
@@ -18,7 +18,7 @@
       <div class="login-head">
         <h1>📋 Aide Rédactionnelle Expert</h1>
         <p>Analyse technique & juridique automobile</p>
-        <small class="version">v13 — Connexion tiers réparée + notifications admin + base locale 2017–2027</small>
+        <small class="version">v14 — Auto-diagnostic intégré + connexion tiers réparée + base locale 2017–2027</small>
       </div>
 
       <div class="auth-tabs">
@@ -127,7 +127,7 @@
         </div>
       </div>
 
-      <p class="subtitle">Ingénieur • Juriste • Avocat • Sécurité automobile • Consommation</p>
+      <p class="subtitle">Ingénieur • Juriste • Avocat • Sécurité automobile • Auto-diagnostic</p>
       <div id="dailyCounter" class="counter"></div>
       <div id="dataStatus" class="data-status">Initialisation...</div>
     </header>
@@ -164,7 +164,7 @@
           <label for="textInput">2. Faits, symptômes, désordres techniques</label>
           <textarea
             id="textInput"
-            placeholder="Décrivez précisément : bruit, fumée, voyant, perte de puissance, chauffe, infiltration d’eau, problème de charge, autonomie, ADAS, boîte, embrayage, turbo, FAP, AdBlue, courroie, chaîne, batterie, incendie, fuite..."
+            placeholder="Décrivez précisément : bruit, fumée, voyant, perte de puissance, chauffe, infiltration d’eau, problème de charge, autonomie, ADAS, boîte, embrayage, turbo, FAP, AdBlue, courroie, chaîne, batterie, incendie, fuite, code DTC..."
           ></textarea>
         </div>
 
@@ -182,7 +182,7 @@
               <option value="professional">Professionnel</option>
               <option value="private">Particulier</option>
             </select>
-            <textarea id="contextInfo" placeholder="Date d’achat, garantie, contrôle technique, échanges, rappel, entretien..."></textarea>
+            <textarea id="contextInfo" placeholder="Date d’achat, garantie, contrôle technique, échanges, rappel, entretien, DTC, diagnostic..."></textarea>
           </div>
 
           <div class="field">
@@ -199,7 +199,7 @@
         </div>
 
         <button id="analyzeBtn" class="btn-primary" type="button">
-          🔍 Lancer l’analyse croisée technique + juridique
+          🔍 Lancer l’analyse croisée technique + juridique + auto-diagnostic
         </button>
       </section>
 
@@ -208,7 +208,7 @@
 
         <div class="disclaimer">
           <strong>⚠️ Avertissement :</strong>
-          Ce document est une aide à la rédaction fondée sur une base locale technique et juridique.
+          Ce document est une aide à la rédaction fondée sur une base locale technique, juridique et auto-diagnostic.
           Il ne remplace pas une expertise contradictoire, un avocat, un expert judiciaire ou un organisme de sécurité.
         </div>
 
@@ -222,7 +222,7 @@
     </main>
 
     <footer>
-      © 2026 Aide Rédactionnelle Expert — Base locale autonome, extensible par JSON.
+      © 2026 Aide Rédactionnelle Expert — Base locale autonome + appui auto-diagnostic.
     </footer>
   </div>
 
@@ -270,11 +270,11 @@
       </div>
 
       <div id="dbPane" class="admin-pane">
-        <h3>Base technique locale</h3>
+        <h3>Base technique locale + auto-diagnostic</h3>
         <p class="muted">
           Base ingénieur 2017–2027 générée localement par marques × familles de pannes,
-          enrichie de défauts spécifiques critiques. Mise à jour automatique tous les 30 jours
-          via <code>data/technical-updates.json</code> si disponible.
+          enrichie de défauts spécifiques critiques et synchronisée automatiquement avec
+          <code>auto-diagnostic</code> si les données sont accessibles.
         </p>
 
         <div class="stats-grid">
@@ -287,14 +287,45 @@
             <b id="statBrands">--</b>
           </div>
           <div class="stat-box">
-            <span>Dernière mise à jour</span>
+            <span>Auto-diagnostic</span>
+            <b id="statAutoEntries">--</b>
+          </div>
+          <div class="stat-box">
+            <span>Sync auto-diagnostic</span>
+            <b id="statAutoSync">Jamais</b>
+          </div>
+          <div class="stat-box">
+            <span>Dernière mise à jour JSON</span>
             <b id="statSync">Jamais</b>
           </div>
         </div>
 
+        <div class="admin-field">
+          <label for="autoBaseUrl">URL base auto-diagnostic</label>
+          <input id="autoBaseUrl" type="url" placeholder="https://expertkevin06-cell.github.io/auto-diagnostic/" />
+        </div>
+
+        <div class="admin-field">
+          <label for="autoEndpoints">Endpoints JSON / fichiers à tester (un par ligne)</label>
+          <textarea id="autoEndpoints" placeholder="data/base.json
+data/pannes.json
+data/models.json
+data/dtc.json
+db.json"></textarea>
+        </div>
+
+        <div class="actions-row">
+          <button id="saveAutoCfgBtn" class="btn-secondary" type="button">
+            💾 Enregistrer configuration auto-diagnostic
+          </button>
+          <button id="syncAutoBtn" class="btn-secondary" type="button">
+            🔄 Synchroniser auto-diagnostic maintenant
+          </button>
+        </div>
+
         <div class="actions-row">
           <button id="forceUpdateBtn" class="btn-secondary" type="button">
-            🔄 Vérifier la mise à jour maintenant
+            🔄 Vérifier mise à jour technique JSON
           </button>
           <button id="exportDataBtn" class="btn-secondary" type="button">
             ⬇️ Exporter données / base
@@ -305,8 +336,8 @@
         </div>
 
         <div class="verification-needed">
-          Format attendu pour <code>technical-updates.json</code> :
-          <pre>{ "defects": [ { "b":"Marque", "m":"Modèle1|Modèle2", "y":"2017-2027", "e":"Moteur", "p":"Puissance", "s":"symptome1|symptome2", "sev":"critique", "wf":0.9, "n":"Description", "law":"Base légale", "rec":"Rappel/TSB", "tg":"tags" } ] }</pre>
+          Format attendu pour <code>technical-updates.json</code> ou import auto-diagnostic :
+          <pre>{ "defects": [ { "b":"Marque", "m":"Modèle1|Modèle2", "y":"2017-2027", "e":"Moteur", "p":"Puissance", "s":"symptome1|symptome2", "sev":"critique", "wf":0.9, "n":"Description", "law":"Base légale", "rec":"Rappel/TSB", "tg":"tags", "dtc":"P0xxx|P1xxx", "sourceUrl":"https://..." } ] }</pre>
         </div>
       </div>
 
