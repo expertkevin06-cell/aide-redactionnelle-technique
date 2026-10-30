@@ -4,8 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#1a1a2e" />
-  <meta name="description" content="Analyse technique et juridique automobile en mode expert, ingénieur, juriste, sécurité routière." />
-  <title>Aide Rédactionnelle Expert Auto v11</title>
+  <meta name="description" content="Analyse technique et juridique automobile en mode expert, ingénieur, juriste, sécurité." />
+  <title>Aide Rédactionnelle Expert Auto v12</title>
 
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="styles.css" />
@@ -13,32 +13,30 @@
 </head>
 <body>
 
-  <!-- ============================== -->
-  <!-- ÉCRAN DE CONNEXION             -->
-  <!-- ============================== -->
   <div id="loginScreen" class="login-screen">
     <div class="login-card">
       <div class="login-head">
         <h1>📋 Aide Rédactionnelle Expert</h1>
         <p>Analyse technique & juridique automobile</p>
-        <small class="version">v11 — Base locale ingénieur 2017–2027</small>
+        <small class="version">v12 — Base locale ingénieur 2017–2027</small>
       </div>
 
       <div class="auth-tabs">
-        <button class="auth-tab active" data-auth-tab="admin">👑 Admin</button>
-        <button class="auth-tab" data-auth-tab="request">📨 Demande d’accès</button>
-        <button class="auth-tab" data-auth-tab="login">👤 Connexion tiers</button>
+        <button class="auth-tab active" data-auth-tab="admin" type="button">👑 Admin</button>
+        <button class="auth-tab" data-auth-tab="request" type="button">📨 Demande d’accès</button>
+        <button class="auth-tab" data-auth-tab="login" type="button">👤 Connexion tiers</button>
       </div>
 
-      <!-- Admin -->
       <div id="adminPane" class="auth-pane active">
         <label for="adminPassword">Mot de passe administrateur</label>
         <input
           type="text"
           id="adminPassword"
-          class="hidden-password"
-          placeholder="Saisir le mot de passe (caractères non visibles)"
+          class="invisible-password"
+          placeholder="Saisir le mot de passe"
           autocomplete="off"
+          autocorrect="off"
+          autocapitalize="off"
           spellcheck="false"
           aria-label="Mot de passe administrateur, caractères non visibles"
         />
@@ -48,32 +46,34 @@
           <label for="rememberAdminPwd">Enregistrer localement sur cet appareil</label>
         </div>
 
-        <button id="useSavedPwdBtn" class="btn-secondary hidden">🔓 Utiliser le mot de passe enregistré</button>
-        <button id="adminLoginBtn" class="btn-primary">Accéder au tableau de bord</button>
+        <button id="useSavedPwdBtn" class="btn-secondary hidden" type="button">
+          🔓 Utiliser le mot de passe enregistré
+        </button>
+
+        <button id="adminLoginBtn" class="btn-primary" type="button">
+          Accéder au tableau de bord
+        </button>
       </div>
 
-      <!-- Demande d'accès -->
-      <!-- Panneau Demande d'accès -->
-<div id="requestPane" class="auth-pane">
-  <label for="reqName">Nom complet</label>
-  <input type="text" id="reqName" placeholder="Nom et prénom" />
+      <div id="requestPane" class="auth-pane">
+        <label for="reqName">Nom complet</label>
+        <input type="text" id="reqName" placeholder="Nom et prénom" />
 
-  <label for="reqEmail">Email</label>
-  <input type="email" id="reqEmail" placeholder="email@exemple.fr" />
+        <label for="reqEmail">Email</label>
+        <input type="email" id="reqEmail" placeholder="email@exemple.fr" />
 
-  <label for="reqReason">Motif de la demande</label>
-  <textarea id="reqReason" placeholder="Expliquez brièvement votre besoin..."></textarea>
+        <label for="reqReason">Motif de la demande</label>
+        <textarea id="reqReason" placeholder="Décrivez votre besoin : litige, expertise, analyse, document..."></textarea>
 
-  <button id="requestBtn" class="btn-secondary" type="button">
-    Envoyer la demande
-  </button>
+        <button id="requestBtn" class="btn-secondary" type="button">
+          Envoyer la demande
+        </button>
 
-  <button id="shareRequestBtn" class="btn-secondary hidden" type="button">
-    📤 Partager la demande avec l’admin
-  </button>
-</div>
+        <button id="shareRequestBtn" class="btn-secondary hidden" type="button">
+          📤 Partager la demande avec l’admin
+        </button>
+      </div>
 
-      <!-- Connexion tiers -->
       <div id="loginPane" class="auth-pane">
         <label for="loginName">Nom utilisé lors de la demande</label>
         <input type="text" id="loginName" placeholder="Nom complet" />
@@ -81,42 +81,43 @@
         <label for="loginEmail">Email utilisé lors de la demande</label>
         <input type="email" id="loginEmail" placeholder="email@exemple.fr" />
 
-        <button id="thirdLoginBtn" class="btn-secondary">Se connecter</button>
+        <button id="thirdLoginBtn" class="btn-secondary" type="button">
+          Se connecter
+        </button>
       </div>
 
       <div id="authMsg" class="auth-msg"></div>
+
+      <div class="login-foot">
+        <button id="clearCacheBtn" type="button" class="link-btn">
+          Vider cache / recharger
+        </button>
+      </div>
     </div>
   </div>
 
-  <!-- ============================== -->
-  <!-- APPLICATION PRINCIPALE         -->
-  <!-- ============================== -->
   <div id="mainApp" class="container hidden">
     <header>
       <div class="header-top">
         <h1>🚗 Analyse Expert Auto</h1>
+
         <div class="header-actions">
-  <span id="userBadge" class="badge"></span>
-
-  <button
-    id="notifBellBtn"
-    class="icon-btn hidden"
-    type="button"
-    title="Demandes d’accès admin"
-    aria-label="Voir les demandes d’accès"
-  >
-    🔔
-    <span id="notifBadge" class="notif-badge hidden">0</span>
-  </button>
-
-  <button id="installBtn" class="icon-btn hidden" type="button" title="Installer l’application">📲</button>
-  <button id="adminPanelBtn" class="icon-btn hidden" type="button" title="Panneau administrateur">⚙️</button>
-  <button id="logoutBtn" class="icon-btn" type="button" title="Déconnexion">🚪</button>
-</div>
           <span id="userBadge" class="badge"></span>
-          <button id="installBtn" class="icon-btn hidden" title="Installer l’application">📲</button>
-          <button id="adminPanelBtn" class="icon-btn hidden" title="Panneau administrateur">⚙️</button>
-          <button id="logoutBtn" class="icon-btn" title="Déconnexion">🚪</button>
+
+          <button
+            id="notifBellBtn"
+            class="icon-btn hidden"
+            type="button"
+            title="Demandes d’accès admin"
+            aria-label="Voir les demandes d’accès"
+          >
+            🔔
+            <span id="notifBadge" class="notif-badge hidden">0</span>
+          </button>
+
+          <button id="installBtn" class="icon-btn hidden" type="button" title="Installer l’application">📲</button>
+          <button id="adminPanelBtn" class="icon-btn hidden" type="button" title="Panneau administrateur">⚙️</button>
+          <button id="logoutBtn" class="icon-btn" type="button" title="Déconnexion">🚪</button>
         </div>
       </div>
 
@@ -179,7 +180,7 @@
           </div>
 
           <div class="field">
-            <label for="objectiveInfo">5. Objectif</label>
+            <label for="goalSelect">5. Objectif</label>
             <select id="goalSelect">
               <option value="refund">Remboursement / annulation</option>
               <option value="repair">Prise en charge réparation</option>
@@ -191,7 +192,9 @@
           </div>
         </div>
 
-        <button id="analyzeBtn" class="btn-primary">🔍 Lancer l’analyse croisée technique + juridique</button>
+        <button id="analyzeBtn" class="btn-primary" type="button">
+          🔍 Lancer l’analyse croisée technique + juridique
+        </button>
       </section>
 
       <section id="analysisSection" class="analysis-section hidden">
@@ -206,8 +209,8 @@
         <div id="analysisResult" class="analysis-result"></div>
 
         <div class="actions-row">
-          <button id="generatePdfBtn" class="btn-secondary">📄 Générer le PDF</button>
-          <button id="shareBtn" class="btn-secondary">📤 Partager le rapport</button>
+          <button id="generatePdfBtn" class="btn-secondary" type="button">📄 Générer le PDF</button>
+          <button id="shareBtn" class="btn-secondary" type="button">📤 Partager le rapport</button>
         </div>
       </section>
     </main>
@@ -217,26 +220,42 @@
     </footer>
   </div>
 
-  <!-- ============================== -->
-  <!-- PANNEAU ADMIN                  -->
-  <!-- ============================== -->
   <div id="adminPanel" class="modal hidden">
     <div class="modal-card">
       <div class="modal-head">
         <h2>⚙️ Administration</h2>
-        <button id="closeAdminBtn" class="icon-btn dark">✖</button>
+        <button id="closeAdminBtn" class="icon-btn dark" type="button">✖</button>
       </div>
 
       <div class="admin-tabs">
-        <button class="admin-tab active" data-admin-tab="requests">🔑 Demandes (<span id="pendingCount">0</span>)</button>
-        <button class="admin-tab" data-admin-tab="users">👥 Tiers</button>
-        <button class="admin-tab" data-admin-tab="db">💾 Base technique</button>
-        <button class="admin-tab" data-admin-tab="apk">📦 APK / Data</button>
+        <button class="admin-tab active" data-admin-tab="requests" type="button">
+          🔑 Demandes (<span id="pendingCount">0</span>)
+        </button>
+        <button class="admin-tab" data-admin-tab="users" type="button">👥 Tiers</button>
+        <button class="admin-tab" data-admin-tab="db" type="button">💾 Base technique</button>
+        <button class="admin-tab" data-admin-tab="apk" type="button">📦 APK / Data</button>
       </div>
 
       <div id="requestsPane" class="admin-pane active">
         <h3>Demandes en attente</h3>
-        <div id="pendingRequests" class="list empty-state">Aucune demande.</div>
+
+        <div class="actions-row">
+          <button id="enableNotifBtn" class="btn-secondary" type="button">
+            🔔 Activer notifications admin
+          </button>
+          <button id="testNotifBtn" class="btn-secondary" type="button">
+            🧪 Tester notification
+          </button>
+          <button id="refreshRequestsBtn" class="btn-secondary" type="button">
+            🔄 Rafraîchir demandes
+          </button>
+        </div>
+
+        <div id="notifState" class="muted">État des notifications : vérification...</div>
+
+        <div id="pendingRequests" class="list empty-state">
+          Aucune demande.
+        </div>
       </div>
 
       <div id="usersPane" class="admin-pane">
@@ -247,8 +266,9 @@
       <div id="dbPane" class="admin-pane">
         <h3>Base technique locale</h3>
         <p class="muted">
-          La base embarquée couvre les défauts ingénieurs 2017–2027.
-          Les mises à jour automatiques tous les 30 jours utilisent un fichier JSON local ou hébergé.
+          Base ingénieur 2017–2027 générée localement par marques × familles de pannes,
+          enrichie de défauts spécifiques critiques. Mise à jour automatique tous les 30 jours
+          via <code>data/technical-updates.json</code> si disponible.
         </p>
 
         <div class="stats-grid">
@@ -267,9 +287,15 @@
         </div>
 
         <div class="actions-row">
-          <button id="forceUpdateBtn" class="btn-secondary">🔄 Vérifier la mise à jour maintenant</button>
-          <button id="exportDataBtn" class="btn-secondary">⬇️ Exporter données / base</button>
-          <button id="importDataBtn" class="btn-secondary">⬆️ Importer JSON</button>
+          <button id="forceUpdateBtn" class="btn-secondary" type="button">
+            🔄 Vérifier la mise à jour maintenant
+          </button>
+          <button id="exportDataBtn" class="btn-secondary" type="button">
+            ⬇️ Exporter données / base
+          </button>
+          <button id="importDataBtn" class="btn-secondary" type="button">
+            ⬆️ Importer JSON
+          </button>
         </div>
 
         <div class="verification-needed">
@@ -286,8 +312,8 @@
         </p>
 
         <div class="actions-row">
-          <button id="apkBtn" class="btn-secondary">📦 Ouvrir PWABuilder</button>
-          <button id="copyUrlBtn" class="btn-secondary">🔗 Copier l’URL</button>
+          <button id="apkBtn" class="btn-secondary" type="button">📦 Ouvrir PWABuilder</button>
+          <button id="copyUrlBtn" class="btn-secondary" type="button">🔗 Copier l’URL</button>
         </div>
       </div>
     </div>
