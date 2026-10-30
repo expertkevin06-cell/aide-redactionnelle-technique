@@ -1,13 +1,14 @@
 {
-  "name": "Aide Rédactionnelle Expert",
-  "short_name": "AideRédac Expert",
-  "description": "Analyse technique et juridique automobile - droit français - version expert",
+  "name": "Aide Rédactionnelle Expert Auto",
+  "short_name": "Expert Auto",
+  "description": "Analyse technique et juridique automobile en mode expert, ingénieur, juriste et sécurité.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
-  "orientation": "portrait-primary",
-  "background_color": "#ffffff",
+  "orientation": "portrait",
+  "background_color": "#1a1a2e",
   "theme_color": "#1a1a2e",
+  "lang": "fr",
   "icons": [
     {
       "src": "icon-192.png",
