@@ -1,7 +1,7 @@
 {
   "name": "Aide Rédactionnelle Expert Auto",
   "short_name": "Expert Auto",
-  "description": "Analyse technique et juridique automobile en mode expert, ingénieur, juriste et sécurité.",
+  "description": "Analyse technique et juridique automobile en mode expert, ingénieur, juriste, sécurité et auto-diagnostic.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
