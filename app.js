@@ -270,12 +270,72 @@
     return String(v);
   }
 
-  function firstVal(obj, keys) {
-    for (var i = 0; i < keys.length; i++) {
-      var k = keys[i];
-      if (obj && obj[k] != null && obj[k] !== "") return obj[k];
+  function getField(obj, keys) {
+    if (!obj || typeof obj !== "object") return "";
+    var i, k;
+
+    for (i = 0; i < keys.length; i++) {
+      k = keys[i];
+      if (obj[k] != null && obj[k] !== "") return obj[k];
     }
+
+    var lowerMap = {};
+    for (var prop in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, prop)) {
+        lowerMap[normKey(prop)] = prop;
+      }
+    }
+
+    for (i = 0; i < keys.length; i++) {
+      var lk = lowerMap[normKey(keys[i])];
+      if (lk && obj[lk] != null && obj[lk] !== "") return obj[lk];
+    }
+
     return "";
+  }
+
+  function getBrandField(o) {
+    return valToString(getField(o, ["b", "brand", "marque", "constructeur", "make", "Brand", "Marque"]));
+  }
+
+  function getModelField(o) {
+    return valToString(getField(o, ["m", "model", "modele", "modèle", "vehicle", "vehicule", "Model", "Modele"]));
+  }
+
+  function getEngineField(o) {
+    return valToString(getField(o, ["e", "engine", "motorisation", "moteur", "powertrain", "version", "variant", "Engine", "Motorisation"]));
+  }
+
+  function getPowerField(o) {
+    return valToString(getField(o, ["p", "power", "puissance", "ch", "kw", "kwh", "Power", "Puissance"]));
+  }
+
+  function getFuelField(o) {
+    return valToString(getField(o, ["t", "type", "fuel", "energie", "énergie", "carburant", "engineType", "Fuel", "Type"]));
+  }
+
+  function getTransField(o) {
+    return valToString(getField(o, ["tr", "transmission", "boite", "boîte", "gearbox", "Transmission", "Boite"]));
+  }
+
+  function getYearsField(o) {
+    return valToString(getField(o, ["y", "years", "annee", "année", "period", "range", "from", "start", "Years"]));
+  }
+
+  function getSymptomsField(o) {
+    return valToString(getField(o, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault", "Symptoms"]));
+  }
+
+  function getDtcField(o) {
+    return valToString(getField(o, ["dtc", "codeDtc", "code", "codes", "DTC"]));
+  }
+
+  function getDisplacementField(o) {
+    return valToString(getField(o, ["d", "cyl", "cylindree", "cylindrée", "displacement", "engineSize", "cubic", "Cylindree"]));
+  }
+
+  function getCodeField(o) {
+    return valToString(getField(o, ["code", "codeMoteur", "engineCode", "codemoteur", "Code"]));
   }
 
   function fetchJson(url) {
@@ -328,15 +388,30 @@
         "js/motorisations.js",
         "js/models.js",
         "js/brands.js",
+        "js/engine-catalog.js",
+        "js/vehicle-catalog.js",
         "app.js",
         "data.js",
         "db.js",
-        "assets/db.js"
+        "assets/db.js",
+        "assets/data.js"
       ]
     }
   };
 
   var KEYS = {
+    SESSION: "arex_session_v19",
+    USERS: "arex_users_v19",
+    REQUESTS: "arex_requests_v19",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v19",
+    TECH_UPDATES: "arex_tech_updates_v19",
+    LAST_UPDATE: "arex_last_update_v19",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v19",
+    CATALOG_CFG: "arex_catalog_cfg_v19",
+    IMPORTED_RAW: "arex_imported_raw_v19"
+  };
+
+  var OLD_KEYS = {
     SESSION: "arex_session_v18",
     USERS: "arex_users_v18",
     REQUESTS: "arex_requests_v18",
@@ -346,18 +421,6 @@
     AUTO_LAST_SYNC: "arex_auto_last_sync_v18",
     CATALOG_CFG: "arex_catalog_cfg_v18",
     IMPORTED_RAW: "arex_imported_raw_v18"
-  };
-
-  var OLD_KEYS = {
-    SESSION: "arex_session_v17",
-    USERS: "arex_users_v17",
-    REQUESTS: "arex_requests_v17",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v17",
-    TECH_UPDATES: "arex_tech_updates_v17",
-    LAST_UPDATE: "arex_last_update_v17",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v17",
-    CATALOG_CFG: "arex_catalog_cfg_v17",
-    IMPORTED_RAW: "arex_imported_raw_v17"
   };
 
   /* =========================================================
@@ -376,6 +439,7 @@
   var broadcast = null;
   var autoLastSync = 0;
   var modelLoadToken = 0;
+  var engineCache = {};
 
   var selection = {
     brand: null,
@@ -1132,8 +1196,80 @@
     });
   }
 
+  function parseDisplacement(text) {
+    var t = String(text || "");
+    var m = t.match(/\b(\d\.\d)\s*(?:l|litre|litres)?\b/i);
+    if (m) return m[1] + " L";
+
+    m = t.match(/\b(\d{3,4})\s*(?:cm3|cc)\b/i);
+    if (m) return m[1] + " cm3";
+
+    m = t.match(/\b(\d{3,4})\b(?:\s*(?:cm3|cc))?/i);
+    if (m && parseInt(m[1], 10) >= 600 && parseInt(m[1], 10) <= 8000 && /\b(diesel|essence|turbo|tdi|hdi|dci|tsi|tfsi|puretech|ecoboost)\b/i.test(t)) {
+      return m[1] + " cm3";
+    }
+
+    return "";
+  }
+
+  function parsePower(text) {
+    var t = String(text || "");
+    var parts = [];
+    var re = /(\d+(?:[.,]\d+)?)\s*(ch|cv|hp|kw|kwh)/gi;
+    var m;
+
+    while ((m = re.exec(t)) !== null) {
+      var value = m[1].replace(",", ".");
+      var unit = m[2].toLowerCase();
+      if (unit === "cv" || unit === "hp") unit = "ch";
+      parts.push(value + " " + unit);
+    }
+
+    if (parts.length) return unique(parts).join("|");
+
+    m = t.match(/\b(\d{2,3})\b/);
+    if (m && /\b(ch|kw|puissance)\b/i.test(t)) return m[1] + " ch";
+
+    return "";
+  }
+
+  function parsePowerNumber(text) {
+    var t = String(text || "");
+    var m = t.match(/(\d+(?:[.,]\d+)?)\s*(ch|cv|hp)/i);
+    if (m) return parseFloat(m[1].replace(",", "."));
+
+    m = t.match(/(\d+(?:[.,]\d+)?)\s*kw/i);
+    if (m) return parseFloat(m[1].replace(",", ".")) * 1.36;
+
+    return 0;
+  }
+
+  function parseCapacityNumber(text) {
+    var t = String(text || "");
+    var m = t.match(/(\d+(?:[.,]\d+)?)\s*kwh/i);
+    return m ? parseFloat(m[1].replace(",", ".")) : 0;
+  }
+
+  function parseDisplacementNumber(text) {
+    var t = String(text || "");
+    var m = t.match(/\b(\d\.\d)\b/);
+    if (m) return parseFloat(m[1]);
+
+    m = t.match(/\b(\d{3,4})\s*(?:cm3|cc)?\b/i);
+    if (m) {
+      var v = parseInt(m[1], 10);
+      if (v >= 600 && v <= 8000) return v / 1000;
+    }
+
+    return 0;
+  }
+
   function inferFuel(text) {
     var t = norm(text || "");
+
+    if (containsAny(t, [
+      "hydrogene", "h2", "fuel cell", "pile a combustible"
+    ])) return "Hydrogène";
 
     if (containsAny(t, [
       "hybride rechargeable", "plug-in", "phev", "e-tense", "4xe", "prime",
@@ -1159,7 +1295,7 @@
       "austral e-tech", "captur e-tech", "spring", "500e", "e-corsa",
       "e-208", "e-2008", "enyaq", "elroq", "born", "taycan", "mach-e", "i-pace",
       "ariya", "leaf", "mx-30", "eqs", "eqe", "eqb", "eqa", "q4 e-tron",
-      "ev6", "ev9", "mg4", "seal", "dolphin", "bolt"
+      "ev6", "ev9", "mg4", "seal", "dolphin", "bolt", "kwh"
     ]);
 
     if (hy && el) return "Hybride / électrique";
@@ -1188,8 +1324,7 @@
   function isFuelType(f) {
     f = norm(f || "");
     return [
-      "essence", "diesel", "hybride", "hybride rechargeable",
-      "hybride leger 48v", "electrique", "gpl", "e85", "bioethanol"
+      "essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol", "hydrogene"
     ].some(function (x) { return f.indexOf(x) >= 0; });
   }
 
@@ -1197,7 +1332,8 @@
     var t = norm(fuel || "");
     return t.indexOf("electrique") >= 0 ||
            t.indexOf("hybride") >= 0 ||
-           t.indexOf("48v") >= 0;
+           t.indexOf("48v") >= 0 ||
+           t.indexOf("hydrogene") >= 0;
   }
 
   function looksLikeMotorisation(text) {
@@ -1205,100 +1341,156 @@
     if (!t || t.length < 2) return false;
 
     if (containsAny(t, [
-      "essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol",
+      "essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol", "hydrogene",
       "turbo", "tdi", "tsi", "tfsi", "hdi", "dci", "bluehdi", "bluedci",
       "puretech", "firefly", "ecoboost", "skyactiv", "boostjet", "ecotorque",
       "e-tech", "etech", "phev", "bev", "48v", "mild", "full hybrid",
       "plug-in", "rechargeable", "electric", "hybrid", "multijet", "tdci",
       "ecoblue", "d-4d", "thp", "tce", "t-gdi", "tgdi", "crdi", "mpi", "gdi",
-      "i-mmd", "e:hev", "e-power", "self-charging", "elroq", "enyaq"
+      "i-mmd", "e:hev", "e-power", "self-charging", "elroq", "enyaq", "kwh"
     ])) return true;
 
     if (/\b\d\.\d\b/.test(t)) return true;
-    if (/\b\d{3,4}\b/.test(t) && /\b(ch|kw|kwh|hp|cv)\b/.test(t)) return true;
-    if (/^[a-z0-9 .,_-]{3,50}$/.test(t) && /\b[a-z]{1,4}\d{2,3}\b/.test(t)) return true;
+    if (/\b\d{3,4}\b/.test(t) && /\b(ch|kw|kwh|hp|cv|cm3|cc)\b/.test(t)) return true;
+    if (/^[a-z0-9 .,_-]{3,70}$/.test(t) && /\b[a-z]{1,4}\d{2,3}\b/.test(t)) return true;
 
     return false;
   }
 
-  function addEngine(o, sourceUrl, force, sourceLabel) {
-    if (!o) return;
+  function createEngineLabel(e, d, p, f, tr, code) {
+    e = String(e || "").trim();
+    if (e) return e;
 
-    var brand = valToString(firstVal(o, ["b", "brand", "marque", "constructeur"]));
-    var model = valToString(firstVal(o, ["m", "model", "modele", "modèle"]));
-    var engine = valToString(firstVal(o, ["e", "engine", "motorisation", "moteur", "powertrain", "name", "version", "variant"]));
-    var power = valToString(firstVal(o, ["p", "power", "puissance", "ch", "kw", "kwh"]));
-    var fuel = valToString(firstVal(o, ["t", "type", "fuel", "energie", "énergie", "engineType", "carburant"]));
-    var trans = valToString(firstVal(o, ["tr", "transmission", "boite", "boîte", "gearbox", "speed"]));
-    var years = valToString(firstVal(o, ["y", "years", "annee", "année", "period", "range"]));
-    var src = valToString(firstVal(o, ["source", "src"])) || sourceLabel || "catalogue";
+    var parts = [d, p, f, tr, code].filter(function (x) { return x && String(x).trim(); });
+    return parts.length ? parts.join(" ") : "Motorisation non nommée";
+  }
+
+  function normalizeEngineInput(o, sourceLabel, sourceUrl, keyFallback) {
+    if (!o) return null;
+
+    var brand = "";
+    var model = "";
+    var years = "";
+    var engine = "";
+    var power = "";
+    var fuel = "";
+    var trans = "";
+    var code = "";
+    var displacement = "";
+    var source = sourceLabel || "catalogue";
+    var url = sourceUrl || "";
+    var confidence = 0.75;
 
     if (Array.isArray(o)) {
-      brand = o[0] || brand;
-      model = o[1] || model;
-      years = o[2] || years;
-      engine = o[3] || engine;
-      power = o[4] || power;
-      fuel = o[5] || fuel;
-      trans = o[6] || trans;
+      brand = o[0] || "";
+      model = o[1] || "";
+      years = o[2] || "";
+      engine = o[3] || "";
+      power = o[4] || "";
+      fuel = o[5] || "";
+      trans = o[6] || "";
+      code = o[7] || "";
+      displacement = o[8] || "";
+    } else if (typeof o === "object") {
+      brand = getBrandField(o);
+      model = getModelField(o);
+      years = getYearsField(o);
+      engine = getEngineField(o);
+      power = getPowerField(o);
+      fuel = getFuelField(o);
+      trans = getTransField(o);
+      code = getCodeField(o);
+      displacement = getDisplacementField(o);
+      source = valToString(getField(o, ["source", "src"])) || source;
+      url = valToString(getField(o, ["sourceUrl", "url", "lien", "link"])) || url;
+      confidence = typeof o.confidence === "number" ? o.confidence : confidence;
+
+      if (!engine && keyFallback && !isMetaKey(keyFallback)) engine = keyFallback;
+      if (!engine && o.name && (power || fuel || displacement)) engine = o.name;
     }
 
     brand = String(brand || "").trim();
     model = String(model || "").trim();
-    engine = String(engine || "").trim();
 
-    if (!brand || !model || !engine) return;
+    if (!brand || !model) return null;
+
+    engine = String(engine || "").trim();
+    power = String(power || "").trim() || parsePower(engine + " " + code + " " + displacement);
+    displacement = String(displacement || "").trim() || parseDisplacement(engine + " " + code);
+    code = String(code || "").trim();
+    trans = String(trans || "").trim();
+    years = String(years || "").trim();
 
     if (!fuel || !isFuelType(fuel)) {
-      fuel = inferFuel(engine + " " + power + " " + trans + " " + model + " " + years);
+      fuel = inferFuel(engine + " " + power + " " + displacement + " " + trans + " " + code + " " + model + " " + years);
     }
 
-    if (!force && !isFuelType(fuel) && !looksLikeMotorisation(engine)) return;
+    engine = createEngineLabel(engine, displacement, power, fuel, trans, code);
 
-    if (!isFuelType(fuel)) fuel = "Non précisé / mixte";
+    if (!confidence) {
+      if (norm(source).indexOf("auto-diagnostic") >= 0) confidence = 0.88;
+      else if (norm(source).indexOf("catalogue local") >= 0) confidence = 0.95;
+      else if (norm(source).indexOf("heuristique") >= 0) confidence = 0.55;
+      else confidence = 0.75;
+    }
 
-    var k = normKey(brand) + "|" + normKey(model) + "|" + normKey(engine) + "|" + normKey(power) + "|" + normKey(fuel) + "|" + normKey(trans);
+    return {
+      brand: brand,
+      model: model,
+      years: years,
+      engine: engine,
+      displacement: displacement,
+      power: power,
+      fuel: fuel,
+      transmission: trans,
+      code: code,
+      source: source,
+      sourceUrl: url,
+      confidence: confidence
+    };
+  }
+
+  function addEngine(o, sourceUrl, force, sourceLabel, keyFallback) {
+    var e = normalizeEngineInput(o, sourceLabel || "catalogue", sourceUrl || "", keyFallback || "");
+    if (!e) return;
+
+    if (!force && !isFuelType(e.fuel) && !looksLikeMotorisation(e.engine + " " + e.power + " " + e.displacement + " " + e.code)) {
+      return;
+    }
+
+    var k = normKey(e.brand) + "|" + normKey(e.model) + "|" + normKey(e.engine) + "|" +
+            normKey(e.displacement) + "|" + normKey(e.power) + "|" + normKey(e.fuel) + "|" +
+            normKey(e.transmission) + "|" + normKey(e.code);
+
     if (catalog.engineKeys[k]) return;
 
     catalog.engineKeys[k] = true;
-
-    catalog.engines.push({
-      brand: brand,
-      model: model,
-      engine: engine,
-      power: power || "N/A",
-      fuel: fuel,
-      transmission: trans || "",
-      years: years || "",
-      source: src,
-      sourceUrl: sourceUrl || valToString(firstVal(o, ["sourceUrl", "url", "lien", "link"])) || ""
-    });
-
-    addModel(brand, model, years, src, sourceUrl);
+    catalog.engines.push(e);
+    addModel(e.brand, e.model, e.years, e.source, e.sourceUrl);
   }
 
   function normalizeDefect(d, sourceLabel, sourceUrl) {
     if (!d) return null;
 
     var out = {
-      b: valToString(firstVal(d, ["b", "brand", "marque", "constructeur"])),
-      m: valToString(firstVal(d, ["m", "models", "model", "modele", "modèle"])),
-      y: valToString(firstVal(d, ["y", "years", "annee", "année", "period", "range"])),
-      e: valToString(firstVal(d, ["e", "engine", "motorisation", "moteur", "system", "système", "name"])),
-      p: valToString(firstVal(d, ["p", "power", "puissance"])),
-      s: valToString(firstVal(d, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"])),
-      sev: valToString(firstVal(d, ["sev", "severity", "gravite", "gravité"])) || "moyen",
+      b: getBrandField(d),
+      m: getModelField(d) || "*",
+      y: getYearsField(d),
+      e: getEngineField(d),
+      p: getPowerField(d),
+      s: getSymptomsField(d),
+      sev: valToString(getField(d, ["sev", "severity", "gravite", "gravité"])) || "moyen",
       wf: typeof d.wf === "number" ? d.wf : (typeof d.wearFactor === "number" ? d.wearFactor : 0.5),
-      n: valToString(firstVal(d, ["n", "note", "description", "fiche", "detail"])),
-      law: valToString(firstVal(d, ["law", "legal", "baseLegale", "droit", "fondement"])),
-      rec: valToString(firstVal(d, ["rec", "recall", "rappel", "campagne", "source"])),
-      tg: valToString(firstVal(d, ["tg", "tags", "categorie", "category", "systeme"])),
-      dtc: valToString(firstVal(d, ["dtc", "codeDtc", "code", "codes"])),
-      source: valToString(firstVal(d, ["source", "src"])) || sourceLabel || "base locale",
-      sourceUrl: valToString(firstVal(d, ["sourceUrl", "url", "lien", "link"])) || sourceUrl || ""
+      n: valToString(getField(d, ["n", "note", "description", "fiche", "detail"])),
+      law: valToString(getField(d, ["law", "legal", "baseLegale", "droit", "fondement"])),
+      rec: valToString(getField(d, ["rec", "recall", "rappel", "campagne", "source"])),
+      tg: valToString(getField(d, ["tg", "tags", "categorie", "category", "systeme"])),
+      dtc: getDtcField(d),
+      source: valToString(getField(d, ["source", "src"])) || sourceLabel || "base locale",
+      sourceUrl: valToString(getField(d, ["sourceUrl", "url", "lien", "link"])) || sourceUrl || ""
     };
 
-    out.et = valToString(firstVal(d, ["et", "engineType", "type", "fuel", "energie"])) || inferFuel(out.e + " " + out.tg + " " + out.s + " " + out.n);
+    out.et = valToString(getField(d, ["et", "engineType", "type", "fuel", "energie"])) || inferFuel(out.e + " " + out.tg + " " + out.s + " " + out.n);
 
     if (!out.b || !out.s) return null;
     return out;
@@ -1327,6 +1519,7 @@
           p: nd.p,
           t: nd.et,
           tr: "",
+          code: "",
           source: nd.source,
           sourceUrl: nd.sourceUrl
         }, nd.sourceUrl, true, nd.source);
@@ -1366,72 +1559,44 @@
     return out;
   }
 
-  function reinforceEnginesFromDefects(brand, model, year) {
-    catalog.defects.forEach(function (d) {
-      if (!brandMatches(d.b, brand)) return;
-      if (!yearMatches(d.y, year)) return;
-      if (!looksLikeMotorisation(d.e)) return;
-
-      if (d.m && d.m !== "*") {
-        String(d.m).split("|").forEach(function (m) {
-          if (!model || nameMatch(m, model)) {
-            addEngine({
-              b: d.b,
-              m: m,
-              y: d.y,
-              e: d.e,
-              p: d.p,
-              t: d.et,
-              tr: "",
-              source: d.source,
-              sourceUrl: d.sourceUrl
-            }, d.sourceUrl, true, d.source);
-          }
-        });
-      } else if (model) {
-        addEngine({
-          b: d.b,
-          m: model,
-          y: d.y,
-          e: d.e,
-          p: d.p,
-          t: d.et,
-          tr: "",
-          source: d.source,
-          sourceUrl: d.sourceUrl
-        }, d.sourceUrl, true, d.source);
-      }
-    });
+  function engineMatches(e, brand, model, year) {
+    if (!brandMatches(e.brand, brand)) return false;
+    if (!nameMatch(e.model, model)) return false;
+    if (!yearMatches(e.years, year)) return false;
+    return true;
   }
 
-  function getEngines(brand, model, year) {
-    reinforceEnginesFromDefects(brand, model, year);
-
+  function dedupeAndSortEngines(list) {
+    var seen = {};
     var out = [];
 
-    catalog.engines.forEach(function (e) {
-      if (!brandMatches(e.brand, brand)) return;
-      if (!nameMatch(e.model, model)) return;
-      if (!yearMatches(e.years, year)) return;
-
-      out.push({
-        id: normKey(e.brand) + "|" + normKey(e.model) + "|" + normKey(e.engine) + "|" + normKey(e.power) + "|" + normKey(e.fuel) + "|" + normKey(e.transmission),
-        brand: e.brand,
-        model: e.model,
-        engine: e.engine,
-        power: e.power,
-        fuel: e.fuel,
-        transmission: e.transmission,
-        years: e.years,
-        source: e.source,
-        sourceUrl: e.sourceUrl
-      });
+    list.forEach(function (e) {
+      if (!e) return;
+      var k = normKey(e.brand) + "|" + normKey(e.model) + "|" + normKey(e.engine) + "|" +
+              normKey(e.displacement) + "|" + normKey(e.power) + "|" + normKey(e.fuel) + "|" +
+              normKey(e.transmission) + "|" + normKey(e.code);
+      if (seen[k]) return;
+      seen[k] = true;
+      out.push(e);
     });
 
     out.sort(function (a, b) {
       var fa = fuelRank(a.fuel);
       var fb = fuelRank(b.fuel);
       if (fa !== fb) return fa - fb;
+
+      var da = parseDisplacementNumber(a.displacement || a.engine);
+      var db = parseDisplacementNumber(b.displacement || b.engine);
+      if (da !== db) return (da || 999) - (db || 999);
+
+      var pa = parsePowerNumber(a.power || a.engine);
+      var pb = parsePowerNumber(b.power || b.engine);
+      if (pa !== pb) return pb - pa;
+
+      var ca = parseCapacityNumber(a.power || a.displacement || a.engine);
+      var cb = parseCapacityNumber(b.power || b.displacement || b.engine);
+      if (ca !== cb) return cb - ca;
+
       return norm(a.engine).localeCompare(norm(b.engine));
     });
 
@@ -1439,270 +1604,427 @@
   }
 
   function fuelRank(f) {
-    var order = ["Essence", "Diesel", "Hybride", "Hybride rechargeable", "Hybride léger 48V", "Électrique", "GPL", "E85 / Bioéthanol", "Non précisé / mixte"];
+    var order = ["Essence", "Diesel", "Hybride", "Hybride rechargeable", "Hybride léger 48V", "Électrique", "GPL", "E85 / Bioéthanol", "Hydrogène", "Non précisé / mixte", "Hybride / électrique"];
     var i = order.indexOf(f);
     return i >= 0 ? i : 999;
   }
 
   /* =========================================================
-     INGESTION JSON / AUTO-DIAGNOSTIC
+     GENERATION INGÉNIEUR DE SECOURS
      ========================================================= */
-  function getBrandField(o) {
-    return valToString(firstVal(o, ["b", "brand", "marque", "constructeur", "make"]));
+  function detectFamily(brand) {
+    var b = normKey(brand);
+
+    if (containsAny(b, ["renault", "dacia", "peugeot", "citroen", "ds", "opel", "vauxhall", "fiat", "alfa", "maserati", "abarth"])) return "stellantis";
+    if (containsAny(b, ["volkswagen", "vw", "audi", "skoda", "seat", "cupra", "porsche"])) return "vag";
+    if (containsAny(b, ["bmw", "mini", "alpina"])) return "bmw";
+    if (containsAny(b, ["mercedes", "smart", "amg"])) return "mercedes";
+    if (containsAny(b, ["toyota", "lexus"])) return "toyota";
+    if (containsAny(b, ["hyundai", "kia", "genesis"])) return "hk";
+    if (containsAny(b, ["tesla", "byd", "nio", "xpeng", "leapmotor", "ora", "aiways", "polestar", "lucid", "rivian", "vinfast", "seres"])) return "ev";
+    if (containsAny(b, ["mg"])) return "mg";
+    return "generic";
   }
 
-  function getModelField(o) {
-    return valToString(firstVal(o, ["m", "model", "modele", "modèle", "vehicle", "vehicule", "nom_modele"]));
+  function detectSegment(model, brand) {
+    var m = norm(model || "");
+    var b = norm(brand || "");
+
+    if (containsAny(m, ["kangoo", "partner", "berlingo", "rifter", "caddy", "transit", "vivaro", "expert", "jumpy", "trafic", "master", "boxer", "jumper", "sprinter", "ducato", "transporter", "caravelle"])) return "van";
+
+    if (containsAny(m, ["clio", "208", "c3", "corsa", "polo", "fabia", "ibiza", "swift", "yaris", "jazz", "micra", "aygo", "107", "108", "c1", "up!", "sandero", "logan", "500", "panda"])) return "city";
+
+    if (containsAny(m, ["captur", "2008", "c3 aircross", "t-cross", "taigo", "arona", "mokka", "vitara", "s-cross", "bx", "trackhawk"])) return "suv_small";
+
+    if (containsAny(m, ["tiguan", "kuga", "tucson", "sportage", "qashqai", "x-trail", "karoq", "ateca", "formentor", "cx-5", "forester", "outlander", "rav4", "cr-v", "elroq", "enyaq", "id.4", "q4 e-tron", "xc40", "ex30", "macan", "glc", "gla"])) return "suv_compact";
+
+    if (containsAny(m, ["kodiaq", "touareg", "x5", "x7", "gle", "q7", "q8", "cayenne", "defender", "range rover", "discovery", "ev9", "escalade", "navigator"])) return "suv_large";
+
+    if (containsAny(m, ["megane", "308", "c4", "astra", "golf", "leon", "octavia", "focus", "3 serie", "classe a", "a3", "corolla", "civic", "elantra", "versa"])) return "compact";
+
+    if (containsAny(b, ["porsche", "jaguar", "land rover", "lotus", "aston", "bentley", "rolls", "lamborghini", "ferrari", "mclaren", "bugatti"])) return "premium";
+
+    return "generic";
   }
 
-  function getEngineField(o) {
-    return valToString(firstVal(o, ["e", "engine", "motorisation", "moteur", "powertrain", "version", "variant"]));
-  }
+  function generateEngines(brand, model, year) {
+    var out = [];
+    var y = parseYear(year) || new Date().getFullYear();
+    var family = detectFamily(brand);
+    var segment = detectSegment(model, brand);
+    var mLower = norm(model || "");
 
-  function getPowerField(o) {
-    return valToString(firstVal(o, ["p", "power", "puissance", "ch", "kw", "kwh"]));
-  }
-
-  function getSymptomsField(o) {
-    return valToString(firstVal(o, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"]));
-  }
-
-  function getYearsField(o) {
-    return valToString(firstVal(o, ["y", "years", "annee", "année", "period", "range", "from", "start"]));
-  }
-
-  function addEngineFromItem(item, brandFallback, modelFallback, sourceLabel, sourceUrl, force) {
-    if (!item) return;
-
-    if (typeof item === "string") {
-      if (brandFallback && modelFallback) {
-        addEngine({
-          b: brandFallback,
-          m: modelFallback,
-          e: item,
-          source: sourceLabel,
-          sourceUrl: sourceUrl
-        }, sourceUrl, force === true, sourceLabel);
-      }
-      return;
+    function push(e, p, f, tr, code, d, conf) {
+      var ne = normalizeEngineInput({
+        b: brand,
+        m: model,
+        y: y + "-" + y,
+        e: e,
+        p: p,
+        t: f,
+        tr: tr || "",
+        code: code || "",
+        d: d || "",
+        source: "heuristique ingénieur",
+        confidence: typeof conf === "number" ? conf : 0.55
+      }, "heuristique ingénieur", "", "");
+      if (ne) out.push(ne);
     }
 
-    if (Array.isArray(item)) {
-      if (item.length >= 7) {
-        addEngine({
-          b: item[0],
-          m: item[1],
-          y: item[2],
-          e: item[3],
-          p: item[4],
-          t: item[5],
-          tr: item[6],
-          source: sourceLabel,
-          sourceUrl: sourceUrl
-        }, sourceUrl, true, sourceLabel);
+    var isEvName = containsAny(mLower, ["e-", "ë-", "electric", "ev", "id.", "elroq", "enyaq", "taycan", "ioniq", "ev6", "ev9", "model 3", "model y", "model s", "model x", "atto", "seal", "dolphin", "mg4", "ariya", "leaf", "mx-30", "mach-e", "i-pace", "eqs", "eqe", "eqb", "eqa", "q4 e-tron", "e-tron", "born", "tavascan", "formentor vz", "ex30"]);
+
+    if (family === "ev" || isEvName) {
+      push("Standard Range", "170ch|204ch", "Électrique", "RWD / réducteur", "BEV", "50 kWh|60 kWh", 0.62);
+      push("Long Range", "204ch|286ch|350ch", "Électrique", "RWD / réducteur", "BEV", "65 kWh|77 kWh|85 kWh", 0.62);
+      push("AWD / Performance", "300ch|400ch|500ch", "Électrique", "AWD / réducteur", "BEV", "75 kWh|90 kWh|100 kWh", 0.58);
+      return dedupeAndSortEngines(out);
+    }
+
+    if (family === "stellantis") {
+      if (segment === "city") {
+        push("1.0 TCe", "65ch|90ch", "Essence", "BVM5|BVM6", "H4D", "1.0 L", 0.72);
+        push("1.3 TCe", "100ch|130ch|140ch", "Essence", "BVM6|EDC", "H5H", "1.3 L", 0.72);
+        if (y >= 2016) push("1.5 Blue dCi", "75ch|100ch|115ch", "Diesel", "BVM6|EDC", "K9K", "1.5 L", 0.72);
+        if (y >= 2020) push("E-Tech Hybrid", "140ch|145ch", "Hybride", "automatique", "TCe 140", "1.6 L", 0.68);
+        if (y >= 2023) push("E-Tech Plug-in Hybrid", "160ch|180ch", "Hybride rechargeable", "automatique", "PHEV", "1.6 L", 0.62);
+      } else if (segment === "compact" || segment === "suv_small") {
+        push("1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT8", "EB2", "1.2 L", 0.74);
+        push("1.3 TCe", "100ch|130ch|155ch", "Essence", "BVM6|EDC", "H5H", "1.3 L", 0.72);
+        if (y >= 2016) push("1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5", "1.5 L", 0.74);
+        if (y >= 2018) push("2.0 BlueHDi", "150ch|180ch", "Diesel", "EAT8", "DW10", "2.0 L", 0.68);
+        if (y >= 2020) push("Hybrid 180", "180ch", "Hybride rechargeable", "EAT8", "PHEV", "1.6 L", 0.66);
+        if (y >= 2021) push("Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV", "1.6 L", 0.66);
+      } else if (segment === "suv_compact" || segment === "suv_large") {
+        push("1.2 PureTech", "130ch|155ch|180ch", "Essence", "EAT8", "EB2", "1.2 L", 0.72);
+        push("1.6 PureTech", "180ch|225ch", "Essence", "EAT8", "EP6F", "1.6 L", 0.68);
+        if (y >= 2016) push("1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5", "1.5 L", 0.74);
+        if (y >= 2018) push("2.0 BlueHDi", "160ch|180ch", "Diesel", "EAT8", "DW10", "2.0 L", 0.72);
+        if (y >= 2020) push("Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV", "1.6 L", 0.68);
+        if (y >= 2021) push("Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 / 4x4", "PHEV4", "1.6 L", 0.64);
+      } else if (segment === "van") {
+        push("1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT8", "EB2", "1.2 L", 0.72);
+        push("1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5", "1.5 L", 0.74);
+        push("2.0 BlueHDi", "150ch|180ch", "Diesel", "EAT8", "DW10", "2.0 L", 0.72);
+        if (y >= 2021) push("Électrique", "100kW|115kW|136ch", "Électrique", "réducteur", "eCMP", "50 kWh", 0.66);
+      } else {
+        push("1.2 PureTech", "100ch|130ch", "Essence", "BVM6|EAT8", "EB2", "1.2 L", 0.66);
+        push("1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5", "1.5 L", 0.66);
+        if (y >= 2020) push("Hybrid", "180ch|225ch", "Hybride rechargeable", "EAT8", "PHEV", "1.6 L", 0.58);
+      }
+      return dedupeAndSortEngines(out);
+    }
+
+    if (family === "vag") {
+      if (segment === "city" || segment === "compact") {
+        push("1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM6|DSG", "EA211", "1.0 L", 0.76);
+        push("1.5 TSI", "130ch|150ch|180ch", "Essence", "DSG|BVM6", "EA211 evo", "1.5 L", 0.76);
+        if (y >= 2016) push("2.0 TSI", "190ch|245ch|320ch", "Essence", "DSG", "EA888", "2.0 L", 0.72);
+        if (y >= 2015) push("1.6 TDI", "95ch|115ch", "Diesel", "BVM6|DSG", "EA288", "1.6 L", 0.74);
+        if (y >= 2015) push("2.0 TDI", "115ch|150ch|190ch|200ch", "Diesel", "DSG|BVM6", "EA288", "2.0 L", 0.76);
+        if (y >= 2020) push("1.0 eTSI", "110ch", "Hybride léger 48V", "DSG", "EA211 evo", "1.0 L", 0.70);
+        if (y >= 2020) push("1.5 eTSI", "130ch|150ch", "Hybride léger 48V", "DSG", "EA211 evo", "1.5 L", 0.70);
+        if (y >= 2020) push("eHybrid", "204ch|245ch|300ch", "Hybride rechargeable", "DSG", "PHEV", "1.4 L|2.0 L", 0.66);
+      } else if (segment === "suv_small" || segment === "suv_compact") {
+        push("1.0 TSI", "95ch|110ch|115ch", "Essence", "DSG", "EA211", "1.0 L", 0.74);
+        push("1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo", "1.5 L", 0.74);
+        push("2.0 TSI", "190ch|245ch|300ch|320ch", "Essence", "DSG", "EA888", "2.0 L", 0.74);
+        push("2.0 TDI", "115ch|150ch|190ch|200ch", "Diesel", "DSG", "EA288", "2.0 L", 0.76);
+        if (y >= 2020) push("eHybrid", "245ch|300ch", "Hybride rechargeable", "DSG", "PHEV", "1.4 L|2.0 L", 0.68);
+        if (containsAny(mLower, ["elroq", "enyaq", "id.", "q4 e-tron", "born", "tavascan"])) {
+          push("Standard", "170ch|204ch", "Électrique", "RWD / réducteur", "MEB", "55 kWh|63 kWh", 0.78);
+          push("Long Range", "204ch|286ch", "Électrique", "RWD / réducteur", "MEB", "77 kWh", 0.78);
+          push("AWD / vRS / GTX", "265ch|299ch|340ch", "Électrique", "AWD / réducteur", "MEB", "77 kWh|82 kWh", 0.74);
+        }
+      } else if (segment === "van") {
+        push("1.5 TSI", "114ch", "Essence", "DSG|BVM6", "EA211", "1.5 L", 0.70);
+        push("2.0 TDI", "102ch|122ch|150ch", "Diesel", "DSG|BVM6", "EA288", "2.0 L", 0.74);
+        if (y >= 2020) push("Électrique", "113ch|204ch", "Électrique", "réducteur", "eCaddy/eTransporter", "50 kWh|75 kWh", 0.66);
+      } else {
+        push("2.0 TDI", "150ch|200ch", "Diesel", "DSG", "EA288", "2.0 L", 0.70);
+        push("2.0 TSI", "245ch|320ch", "Essence", "DSG", "EA888", "2.0 L", 0.70);
+      }
+      return dedupeAndSortEngines(out);
+    }
+
+    if (family === "bmw") {
+      push("118i / 320i", "136ch|156ch|170ch|184ch", "Essence", "BVM8|Steptronic", "B38/B48", "1.5 L|2.0 L", 0.72);
+      push("330i / M340i", "245ch|258ch|374ch", "Essence", "Steptronic", "B46/B58", "2.0 L|3.0 L", 0.70);
+      push("118d / 320d", "150ch|163ch|190ch", "Diesel", "BVM6|Steptronic", "B47", "2.0 L", 0.74);
+      push("330d / 40d", "286ch|292ch|340ch", "Diesel", "Steptronic", "B57", "3.0 L", 0.70);
+      if (y >= 2019) push("330e / xDrive45e", "252ch|292ch|394ch", "Hybride rechargeable", "Steptronic", "PHEV", "2.0 L", 0.66);
+      if (containsAny(mLower, ["i4", "ix", "ix1", "cooper e"])) {
+        push("eDrive", "286ch|340ch", "Électrique", "RWD / réducteur", "BEV", "70 kWh|80 kWh|100 kWh", 0.72);
+        push("xDrive / M", "462ch|544ch|619ch", "Électrique", "AWD / réducteur", "BEV", "80 kWh|100 kWh", 0.68);
+      }
+      return dedupeAndSortEngines(out);
+    }
+
+    if (family === "mercedes") {
+      push("180 / 200", "136ch|163ch|190ch|204ch", "Essence", "7G-DCT|9G-Tronic", "M282/M264", "1.3 L|2.0 L", 0.72);
+      push("250 / 300", "224ch|258ch", "Essence", "8G|9G-Tronic", "M260/M264", "2.0 L", 0.70);
+      push("220d / 300d", "150ch|190ch|200ch|245ch|286ch", "Diesel", "9G-Tronic", "OM654", "2.0 L|3.0 L", 0.74);
+      if (y >= 2020) push("250e / 300e / 300de", "218ch|313ch|381ch", "Hybride rechargeable", "8G|9G-Tronic", "PHEV", "2.0 L", 0.66);
+      if (containsAny(mLower, ["eqa", "eqb", "eqe", "eqs"])) {
+        push("250+ / 350", "190ch|292ch", "Électrique", "RWD / réducteur", "BEV", "66 kWh|90 kWh|107 kWh", 0.74);
+        push("350 4MATIC / 580", "292ch|544ch", "Électrique", "AWD / réducteur", "BEV", "90 kWh|107 kWh", 0.70);
+      }
+      return dedupeAndSortEngines(out);
+    }
+
+    if (family === "toyota") {
+      push("1.0 / 1.2 / 1.5", "72ch|100ch|125ch", "Essence", "BVM5|CVT", "Dynamic Force", "1.0 L|1.2 L|1.5 L", 0.70);
+      push("2.0", "150ch|171ch", "Essence", "CVT|Direct Shift", "Dynamic Force", "2.0 L", 0.70);
+      if (y >= 2015) push("Hybrid", "116ch|125ch|180ch|218ch|222ch", "Hybride", "e-CVT", "THS", "1.5 L|1.8 L|2.5 L", 0.78);
+      if (y >= 2021) push("Plug-in Hybrid", "306ch|320ch", "Hybride rechargeable", "e-CVT", "PHEV", "2.5 L", 0.70);
+      if (y >= 2015 && segment !== "city") push("D-4D", "120ch|150ch|200ch", "Diesel", "BVM6|Direct Shift", "GD", "2.0 L|2.2 L", 0.68);
+      return dedupeAndSortEngines(out);
+    }
+
+    if (family === "hk") {
+      push("1.0 T-GDI", "100ch|120ch", "Essence", "BVM6|DCT", "Smartstream", "1.0 L", 0.72);
+      push("1.2 / 1.4 / 1.5", "100ch|140ch|160ch", "Essence", "BVM6|IVT", "Smartstream", "1.2 L|1.4 L|1.5 L", 0.70);
+      push("1.6 T-GDI", "150ch|177ch|215ch|230ch", "Essence", "DCT|BVM6", "Smartstream", "1.6 L", 0.72);
+      push("1.6 CRDi", "115ch|136ch", "Diesel", "BVM6|DCT", "Smartstream", "1.6 L", 0.72);
+      if (y >= 2020) push("Hybrid", "130ch|150ch|215ch|230ch", "Hybride", "automatique", "HEV", "1.6 L", 0.72);
+      if (y >= 2021) push("Plug-in Hybrid", "253ch|265ch", "Hybride rechargeable", "automatique", "PHEV", "1.6 L", 0.70);
+      if (containsAny(mLower, ["kona", "ioniq", "ev6", "ev9"])) {
+        push("Standard Range", "136ch|151ch|170ch", "Électrique", "RWD / réducteur", "BEV", "39 kWh|53 kWh|64 kWh", 0.74);
+        push("Long Range", "204ch|228ch|325ch", "Électrique", "RWD / réducteur", "BEV", "64 kWh|77 kWh", 0.74);
+        push("AWD / GT", "325ch|430ch|585ch", "Électrique", "AWD / réducteur", "BEV", "77 kWh", 0.70);
+      }
+      return dedupeAndSortEngines(out);
+    }
+
+    if (family === "mg") {
+      push("1.5 VTi / Turbo", "110ch|120ch|169ch", "Essence", "BVM5|CVT", "NA/Turbo", "1.5 L", 0.66);
+      if (y >= 2020) push("Hybrid", "190ch|240ch|280ch|400ch", "Hybride", "automatique", "HEV", "1.5 L", 0.62);
+      if (containsAny(mLower, ["mg4", "zs ev", "marvel r", "cyberster"])) {
+        push("Standard Range", "136ch|156ch|170ch", "Électrique", "RWD / réducteur", "BEV", "51 kWh|64 kWh", 0.72);
+        push("Long Range", "170ch|204ch|250ch", "Électrique", "RWD / réducteur", "BEV", "64 kWh|77 kWh", 0.72);
+        push("XPOWER / AWD", "333ch|435ch", "Électrique", "AWD / réducteur", "BEV", "64 kWh|77 kWh", 0.68);
+      }
+      return dedupeAndSortEngines(out);
+    }
+
+    // Generic fallback
+    push("1.0 / 1.2 Turbo", "90ch|110ch|130ch", "Essence", "BVM5|BVM6|automatique", "TURBO", "1.0 L|1.2 L", 0.58);
+    push("1.5 / 1.6 Turbo", "130ch|150ch|180ch", "Essence", "BVM6|automatique", "TURBO", "1.5 L|1.6 L", 0.58);
+    if (segment !== "city") push("2.0 Turbo", "190ch|245ch", "Essence", "automatique", "TURBO", "2.0 L", 0.54);
+    if (y >= 2015) push("1.5 / 2.0 Diesel", "100ch|130ch|150ch|190ch", "Diesel", "BVM6|automatique", "TDI/HDi/DCI", "1.5 L|2.0 L", 0.58);
+    if (y >= 2020) push("Hybrid", "140ch|180ch", "Hybride", "automatique", "HEV", "1.5 L|1.6 L|2.0 L", 0.54);
+    if (y >= 2021) push("Plug-in Hybrid", "225ch|280ch", "Hybride rechargeable", "automatique", "PHEV", "1.6 L|2.0 L", 0.52);
+    if (y >= 2020) push("Electric", "150ch|204ch|286ch", "Électrique", "réducteur", "BEV", "50 kWh|65 kWh|77 kWh", 0.52);
+
+    return dedupeAndSortEngines(out);
+  }
+
+  function getEnginesFor(brand, model, year) {
+    if (!brand || !model) return [];
+
+    var yr = parseYear(year);
+    var cacheKey = normKey(brand) + "|" + normKey(model) + "|" + (yr || "any");
+    if (engineCache[cacheKey]) return engineCache[cacheKey].slice();
+
+    var list = [];
+
+    catalog.engines.forEach(function (e) {
+      if (engineMatches(e, brand, model, yr)) list.push(e);
+    });
+
+    catalog.defects.forEach(function (d) {
+      if (!brandMatches(d.b, brand)) return;
+      if (!yearMatches(d.y, yr)) return;
+      if (!d.m || d.m === "*") {
+        if (!looksLikeMotorisation(d.e)) return;
+      } else if (!modelListContains(d.m, model)) {
         return;
       }
 
-      if (brandFallback && modelFallback && item.length >= 1) {
-        addEngine({
-          b: brandFallback,
-          m: modelFallback,
-          y: item[4] || "",
-          e: item[0] || "",
-          p: item[1] || "",
-          t: item[2] || "",
-          tr: item[3] || "",
-          source: sourceLabel,
-          sourceUrl: sourceUrl
-        }, sourceUrl, force === true, sourceLabel);
-      }
-      return;
+      if (!looksLikeMotorisation(d.e)) return;
+
+      var ne = normalizeEngineInput({
+        b: d.b,
+        m: model,
+        y: d.y,
+        e: d.e,
+        p: d.p,
+        t: d.et,
+        tr: "",
+        code: d.dtc || "",
+        source: d.source,
+        sourceUrl: d.sourceUrl,
+        confidence: 0.84
+      }, d.source, d.sourceUrl, "");
+
+      if (ne) list.push(ne);
+    });
+
+    if (list.length < 4) {
+      list = list.concat(generateEngines(brand, model, yr));
     }
 
-    if (typeof item === "object") {
-      var b = getBrandField(item) || brandFallback;
-      var m = getModelField(item) || modelFallback;
-      var e = getEngineField(item) || item.name || "";
-
-      if (b && m && e) {
-        addEngine({
-          b: b,
-          m: m,
-          y: getYearsField(item),
-          e: e,
-          p: getPowerField(item),
-          t: valToString(firstVal(item, ["t", "type", "fuel", "energie", "énergie", "engineType"])),
-          tr: valToString(firstVal(item, ["tr", "transmission", "boite", "boîte", "gearbox"])),
-          source: sourceLabel,
-          sourceUrl: sourceUrl
-        }, sourceUrl, force === true, sourceLabel);
-      }
-    }
+    list = dedupeAndSortEngines(list);
+    engineCache[cacheKey] = list;
+    return list.slice();
   }
 
-  function addModelFromItem(item, brandFallback, sourceLabel, sourceUrl) {
-    if (!item) return;
-
-    if (typeof item === "string") {
-      if (brandFallback) addModel(brandFallback, item, "", sourceLabel, sourceUrl);
-      return;
-    }
-
-    if (Array.isArray(item)) {
-      if (item.length >= 2) {
-        var b = item[0];
-        var m = item[1];
-        var y = item[2] || "";
-        if (brandFallback && !getBrandField({ b: b })) {
-          b = brandFallback;
-          m = item[0];
-          y = item[1] || "";
-        }
-        addModel(b, m, y, sourceLabel, sourceUrl);
-      }
-      return;
-    }
-
-    if (typeof item === "object") {
-      var brand = getBrandField(item) || brandFallback;
-      var model = getModelField(item) || item.name || "";
-      if (brand && model) addModel(brand, model, getYearsField(item), sourceLabel, sourceUrl);
-    }
+  function clearEngineCache() {
+    engineCache = {};
   }
 
-  function ingestContainer(val, kind, brandFallback, modelFallback, sourceLabel, sourceUrl, depth, seen) {
-    if (!val || depth > 7) return;
+  /* =========================================================
+     INGESTION JSON / AUTO-DIAGNOSTIC
+     ========================================================= */
+  var META_KEYS = {
+    b:1, brand:1, marque:1, constructeur:1, make:1,
+    m:1, model:1, modele:1, vehicle:1, vehicule:1,
+    e:1, engine:1, motorisation:1, moteur:1, powertrain:1, version:1, variant:1,
+    p:1, power:1, puissance:1, ch:1, kw:1, kwh:1,
+    t:1, type:1, fuel:1, energie:1, carburant:1, enginetype:1,
+    tr:1, transmission:1, boite:1, gearbox:1,
+    y:1, years:1, annee:1, period:1, range:1, from:1, start:1,
+    s:1, symptoms:1, symptomes:1, panne:1, pannes:1, defaut:1, probleme:1, issue:1, fault:1,
+    dtc:1, codedtc:1, code:1, codes:1,
+    d:1, cyl:1, cylindree:1, displacement:1, enginesize:1, cubic:1,
+    n:1, note:1, description:1, fiche:1, detail:1,
+    law:1, legal:1, baselegale:1, droit:1, fondement:1,
+    rec:1, recall:1, rappel:1, campagne:1,
+    tg:1, tags:1, categorie:1, category:1, systeme:1,
+    source:1, src:1, sourceurl:1, url:1, lien:1, link:1,
+    confidence:1, wf:1, wearfactor:1, sev:1, severity:1, gravite:1,
+    brands:1, marques:1, models:1, modeles:1, vehicles:1, vehicules:1,
+    engines:1, motorisations:1, powertrains:1, variants:1,
+    defects:1, faults:1, rappels:1, problems:1, issues:1,
+    data:1, items:1, records:1, catalog:1, base:1, database:1, result:1, results:1,
+    name:1, aliases:1, alias:1
+  };
 
-    if (Array.isArray(val)) {
-      val.forEach(function (item) {
-        if (kind === "brand") {
-          if (typeof item === "string") addBrand(item, null, sourceLabel, sourceUrl);
-          else if (item && typeof item === "object") {
-            var n = item.name || getBrandField(item);
-            if (n) addBrand(n, item.aliases, sourceLabel, sourceUrl);
-          }
-        } else if (kind === "model") {
-          addModelFromItem(item, brandFallback, sourceLabel, sourceUrl);
-        } else if (kind === "engine") {
-          addEngineFromItem(item, brandFallback, modelFallback, sourceLabel, sourceUrl, true);
-        } else if (kind === "defect") {
-          if (item && typeof item === "object") addDefect(item, sourceLabel, sourceUrl);
-        }
-      });
-      return;
-    }
-
-    if (typeof val === "object") {
-      Object.keys(val).forEach(function (key) {
-        var child = val[key];
-
-        if (kind === "brand") {
-          addBrand(key, null, sourceLabel, sourceUrl);
-          if (Array.isArray(child)) {
-            child.forEach(function (m) { addModelFromItem(m, key, sourceLabel, sourceUrl); });
-          } else if (child && typeof child === "object") {
-            ingestJson(child, sourceLabel, sourceUrl, depth + 1, seen);
-          }
-        } else if (kind === "model") {
-          addBrand(key, null, sourceLabel, sourceUrl);
-          if (Array.isArray(child)) {
-            child.forEach(function (m) { addModelFromItem(m, key, sourceLabel, sourceUrl); });
-          } else if (child && typeof child === "object") {
-            ingestJson(child, sourceLabel, sourceUrl, depth + 1, seen);
-          }
-        } else if (kind === "engine") {
-          if (Array.isArray(child)) {
-            child.forEach(function (e) { addEngineFromItem(e, key, modelFallback, sourceLabel, sourceUrl, true); });
-          } else if (child && typeof child === "object") {
-            if (getEngineField(child) || child.name) {
-              addEngineFromItem(child, key, modelFallback, sourceLabel, sourceUrl, true);
-            } else {
-              Object.keys(child).forEach(function (modelKey) {
-                addModel(key, modelKey, "", sourceLabel, sourceUrl);
-                var ev = child[modelKey];
-                if (Array.isArray(ev)) {
-                  ev.forEach(function (e) { addEngineFromItem(e, key, modelKey, sourceLabel, sourceUrl, true); });
-                } else if (ev && typeof ev === "object") {
-                  ingestJson(ev, sourceLabel, sourceUrl, depth + 1, seen);
-                }
-              });
-            }
-          }
-        } else if (kind === "defect") {
-          if (child && typeof child === "object") addDefect(child, sourceLabel, sourceUrl);
-        }
-      });
-    }
+  function isMetaKey(key) {
+    return !!META_KEYS[normKey(key)];
   }
 
-  function ingestJson(json, sourceLabel, sourceUrl, depth, seen) {
+  function isPlainContainer(obj) {
+    return obj && typeof obj === "object" && !Array.isArray(obj) && Object.keys(obj).length > 0;
+  }
+
+  function ingestNode(node, brandFallback, modelFallback, keyFallback, sourceLabel, sourceUrl, depth, seen) {
     depth = depth || 0;
     seen = seen || (typeof WeakSet !== "undefined" ? new WeakSet() : null);
 
-    if (!json || depth > 7) return;
+    if (!node || depth > 8) return;
 
-    if (Array.isArray(json)) {
-      json.forEach(function (item) {
-        ingestJson(item, sourceLabel, sourceUrl, depth + 1, seen);
+    if (Array.isArray(node)) {
+      node.forEach(function (item) {
+        if (typeof item === "string") {
+          var s = String(item || "").trim();
+          if (!s) return;
+
+          if (brandFallback && modelFallback) {
+            addEngine({
+              b: brandFallback,
+              m: modelFallback,
+              e: s,
+              source: sourceLabel,
+              sourceUrl: sourceUrl
+            }, sourceUrl, false, sourceLabel);
+          } else if (brandFallback) {
+            addModel(brandFallback, s, "", sourceLabel, sourceUrl);
+          } else {
+            addBrand(s, null, sourceLabel, sourceUrl);
+          }
+        } else {
+          ingestNode(item, brandFallback, modelFallback, keyFallback, sourceLabel, sourceUrl, depth + 1, seen);
+        }
       });
       return;
     }
 
-    if (typeof json !== "object") return;
+    if (typeof node !== "object") return;
 
     if (seen) {
-      if (seen.has(json)) return;
-      seen.add(json);
+      if (seen.has(node)) return;
+      seen.add(node);
     }
 
-    var brand = getBrandField(json);
-    var model = getModelField(json);
-    var engine = getEngineField(json);
-    var symptoms = getSymptomsField(json);
+    var b = getBrandField(node) || brandFallback || "";
+    var m = getModelField(node) || modelFallback || "";
+    var e = getEngineField(node);
+    if (!e && keyFallback && !isMetaKey(keyFallback)) e = keyFallback;
+    if (!e && node.name && (getPowerField(node) || getFuelField(node) || getDisplacementField(node))) e = node.name;
 
-    if (!brand && json.name && (json.models || json.modeles || json.engines || json.motorisations)) {
-      brand = String(json.name || "").trim();
-    }
+    var sym = getSymptomsField(node);
+    var hasEngineData = e || getPowerField(node) || getFuelField(node) || getDisplacementField(node);
 
-    if (!model && brand && json.name && !engine && !symptoms && (json.years || json.y || json.period)) {
-      model = String(json.name || "").trim();
-    }
-
-    ingestContainer(json.brands || json.marques, "brand", brand, model, sourceLabel, sourceUrl, depth + 1, seen);
-    ingestContainer(json.models || json.modeles || json.vehicles || json.vehicules, "model", brand, model, sourceLabel, sourceUrl, depth + 1, seen);
-    ingestContainer(json.engines || json.motorisations || json.powertrains || json.versions || json.variants, "engine", brand, model, sourceLabel, sourceUrl, depth + 1, seen);
-    ingestContainer(json.defects || json.pannes || json.faults || json.rappels || json.problems, "defect", brand, model, sourceLabel, sourceUrl, depth + 1, seen);
-
-    if (brand && model && engine) {
-      addEngine({
-        b: brand,
-        m: model,
-        y: getYearsField(json),
-        e: engine,
-        p: getPowerField(json),
-        t: valToString(firstVal(json, ["t", "type", "fuel", "energie", "énergie", "engineType"])),
-        tr: valToString(firstVal(json, ["tr", "transmission", "boite", "boîte", "gearbox"])),
+    if (b && m && hasEngineData) {
+      addEngine(Object.assign({}, node, {
+        b: b,
+        m: m,
+        e: e || "",
         source: sourceLabel,
         sourceUrl: sourceUrl
-      }, sourceUrl, false, sourceLabel);
-    } else if (brand && model) {
-      addModel(brand, model, getYearsField(json), sourceLabel, sourceUrl);
+      }), sourceUrl, false, sourceLabel, keyFallback);
     }
 
-    if (brand && symptoms) {
-      addDefect(json, sourceLabel, sourceUrl);
+    if (b && sym) {
+      addDefect(Object.assign({}, node, {
+        b: b,
+        m: m || node.m || node.modele || "*",
+        source: sourceLabel,
+        sourceUrl: sourceUrl
+      }), sourceLabel, sourceUrl);
     }
 
-    if (brand && !model && !engine && !symptoms) {
-      addBrand(brand, json.aliases, sourceLabel, sourceUrl);
-    }
+    if (b && !m) addBrand(b, node.aliases || node.alias, sourceLabel, sourceUrl);
+    if (b && m) addModel(b, m, getYearsField(node), sourceLabel, sourceUrl);
 
-    Object.keys(json).forEach(function (k) {
-      var v = json[k];
-      if (v && typeof v === "object") {
-        ingestJson(v, sourceLabel, sourceUrl, depth + 1, seen);
-      }
+    ["brands", "marques"].forEach(function (k) {
+      if (node[k]) ingestNode(node[k], null, null, null, sourceLabel, sourceUrl, depth + 1, seen);
     });
+
+    ["models", "modeles", "vehicles", "vehicules"].forEach(function (k) {
+      if (node[k]) ingestNode(node[k], b, null, null, sourceLabel, sourceUrl, depth + 1, seen);
+    });
+
+    ["engines", "motorisations", "powertrains", "versions", "variants"].forEach(function (k) {
+      if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen);
+    });
+
+    ["defects", "pannes", "faults", "rappels", "problems", "issues"].forEach(function (k) {
+      if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen);
+    });
+
+    ["data", "items", "records", "catalog", "base", "database", "result", "results"].forEach(function (k) {
+      if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen);
+    });
+
+    if (isPlainContainer(node)) {
+      Object.keys(node).forEach(function (key) {
+        if (isMetaKey(key)) return;
+        var val = node[key];
+
+        if (val && typeof val === "object") {
+          ingestNode(val, b, m, key, sourceLabel, sourceUrl, depth + 1, seen);
+        } else if (typeof val === "string") {
+          var s = String(val || "").trim();
+          if (!s) return;
+
+          if (b && m) {
+            addEngine({
+              b: b,
+              m: m,
+              e: key,
+              p: s,
+              source: sourceLabel,
+              sourceUrl: sourceUrl
+            }, sourceUrl, false, sourceLabel);
+          } else if (b) {
+            addModel(b, key, s, sourceLabel, sourceUrl);
+          } else {
+            addBrand(key, null, sourceLabel, sourceUrl);
+          }
+        }
+      });
+    }
   }
 
   function parseBalanced(text, start) {
@@ -1712,7 +2034,7 @@
     var stack = [open];
     var inString = false;
     var escape = false;
-    var max = Math.min(text.length, start + 2000000);
+    var max = Math.min(text.length, start + 2500000);
 
     for (var i = start + 1; i < max; i++) {
       var ch = text.charAt(i);
@@ -1772,15 +2094,15 @@
     var out = [];
     if (!text) return out;
 
-    var keywordRe = /marque|brand|modele|model|motorisation|engine|panne|defaut|dtc|symptom|rappel|recall|puissance|power|energie|fuel/i;
-    var max = Math.min(text.length, 2500000);
+    var keywordRe = /marque|brand|modele|model|motorisation|engine|panne|defaut|dtc|symptom|rappel|recall|puissance|power|energie|fuel|cylindree|displacement/i;
+    var max = Math.min(text.length, 3000000);
     var attempts = 0;
 
-    for (var i = 0; i < max && attempts < 250; i++) {
+    for (var i = 0; i < max && attempts < 350; i++) {
       var ch = text.charAt(i);
       if (ch !== "[" && ch !== "{") continue;
 
-      var snippet = text.substr(i, 500).toLowerCase();
+      var snippet = text.substr(i, 700).toLowerCase();
       if (!keywordRe.test(snippet)) continue;
 
       attempts++;
@@ -1795,6 +2117,29 @@
     }
 
     return out;
+  }
+
+  function ingestAutoText(url, text, sourceLabel) {
+    var candidates = extractJsonCandidates(text);
+    candidates.forEach(function (c) {
+      ingestNode(c, null, null, null, sourceLabel || "auto-diagnostic", url, 0);
+    });
+    return candidates.length > 0;
+  }
+
+  function discoverScriptUrls(html, baseUrl) {
+    var urls = [];
+    var re = /<script[^>]+src=["']([^"']+)["']/gi;
+    var m;
+
+    while ((m = re.exec(html)) !== null && urls.length < 40) {
+      var src = m[1];
+      if (/^https?:\/\//i.test(src) || src.charAt(0) === "/" || /^[\w./-]+\.js(?:\?|$)/i.test(src)) {
+        urls.push(resolveUrl(baseUrl, src));
+      }
+    }
+
+    return unique(urls);
   }
 
   function loadCatalogConfig() {
@@ -1906,7 +2251,7 @@
   function loadImportedCatalog() {
     var raw = loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [];
     raw.forEach(function (json) {
-      try { ingestJson(json, "import-admin", "import", 0); } catch (e) {}
+      try { ingestNode(json, null, null, null, "import-admin", "import", 0); } catch (e) {}
     });
   }
 
@@ -1924,20 +2269,20 @@
 
     tasks.push(
       fetchJson(CONFIG.catalog.vehicleUrl)
-        .then(function (json) { ingestJson(json, "catalogue local", CONFIG.catalog.vehicleUrl, 0); })
+        .then(function (json) { ingestNode(json, null, null, null, "catalogue local", CONFIG.catalog.vehicleUrl, 0); })
         .catch(function () {})
     );
 
     tasks.push(
       fetchJson(CONFIG.catalog.engineUrl)
-        .then(function (json) { ingestJson(json, "catalogue local", CONFIG.catalog.engineUrl, 0); })
+        .then(function (json) { ingestNode(json, null, null, null, "catalogue local", CONFIG.catalog.engineUrl, 0); })
         .catch(function () {})
     );
 
     tasks.push(
       fetchJson(CONFIG.catalog.technicalUrl)
         .then(function (json) {
-          ingestJson(json, "mise à jour JSON", CONFIG.catalog.technicalUrl, 0);
+          ingestNode(json, null, null, null, "mise à jour JSON", CONFIG.catalog.technicalUrl, 0);
           save(KEYS.LAST_UPDATE, Date.now());
         })
         .catch(function () {})
@@ -1986,14 +2331,6 @@
       });
   }
 
-  function ingestAutoText(url, text, sourceLabel) {
-    var candidates = extractJsonCandidates(text);
-    candidates.forEach(function (c) {
-      ingestJson(c, sourceLabel || "auto-diagnostic", url, 0);
-    });
-    return candidates.length > 0;
-  }
-
   function loadAutoDiagnostic(manual) {
     if (!window.fetch) return Promise.resolve(false);
 
@@ -2010,7 +2347,7 @@
       tasks.push(
         fetchJson(url)
           .then(function (json) {
-            ingestJson(json, "auto-diagnostic", url, 0);
+            ingestNode(json, null, null, null, "auto-diagnostic", url, 0);
             return true;
           })
           .catch(function () {
@@ -2030,7 +2367,22 @@
       tasks.push(
         fetchText(url)
           .then(function (text) {
-            return ingestAutoText(url, text, "auto-diagnostic");
+            var found = ingestAutoText(url, text, "auto-diagnostic");
+
+            if (/index\.html$/i.test(url)) {
+              var discovered = discoverScriptUrls(text, baseUrl);
+              discovered.forEach(function (su) {
+                tasks.push(
+                  fetchText(su)
+                    .then(function (stext) {
+                      return ingestAutoText(su, stext, "auto-diagnostic");
+                    })
+                    .catch(function () { return false; })
+                );
+              });
+            }
+
+            return found;
           })
           .catch(function () {
             return false;
@@ -2049,6 +2401,7 @@
         defects: Math.max(0, after.defects - before.defects)
       };
 
+      clearEngineCache();
       updateAdminStats();
       refreshSelectorsFromCatalog();
 
@@ -2081,6 +2434,7 @@
         return loadAutoDiagnostic(manual);
       })
       .then(function () {
+        clearEngineCache();
         updateAdminStats();
         refreshSelectorsFromCatalog();
         updateDataStatus("Catalogue chargé • Marques: " + getAllBrands().length + " • Modèles: " + catalog.models.length + " • Motorisations: " + catalog.engines.length + " • Fiches: " + catalog.defects.length);
@@ -2122,7 +2476,7 @@
       if (!val) return true;
       if (norm(b.name).indexOf(val) >= 0) return true;
       return b.aliases.some(function (a) { return norm(a).indexOf(val) >= 0; });
-    }).slice(0, 50);
+    }).slice(0, 60);
 
     if (!brands.length) {
       panel.innerHTML = '<div class="combo-empty">Aucune marque trouvée.</div>';
@@ -2194,10 +2548,15 @@
     var parts = [];
     if (o.fuel) parts.push(o.fuel);
     if (o.engine) parts.push(o.engine);
+    if (o.displacement) parts.push(o.displacement);
     if (o.power && o.power !== "N/A") parts.push(o.power);
     if (o.transmission) parts.push(o.transmission);
+    if (o.code) parts.push(o.code);
     if (o.years) parts.push(o.years);
-    if (o.source && o.source !== "catalogue local") parts.push(o.source);
+
+    if (o.source && norm(o.source).indexOf("heuristique") >= 0) parts.push("à confirmer");
+    else if (o.source && o.source !== "catalogue local") parts.push(o.source);
+
     return parts.join(" • ");
   }
 
@@ -2319,7 +2678,7 @@
     }
 
     var year = parseYear((q("#vehicleYear") || {}).value);
-    var engines = getEngines(selection.brand.name, selection.model.name, year);
+    var engines = getEnginesFor(selection.brand.name, selection.model.name, year);
 
     if (!engines.length) {
       engines.push({
@@ -2327,12 +2686,15 @@
         brand: selection.brand.name,
         model: selection.model.name,
         engine: "Autre / non précisée",
+        displacement: "",
         power: "N/A",
         fuel: "Non précisé / mixte",
         transmission: "",
+        code: "",
         years: year ? String(year) : "",
         source: "manuel",
-        sourceUrl: ""
+        sourceUrl: "",
+        confidence: 0.4
       });
     }
 
@@ -2367,9 +2729,11 @@
     if (v.modele) parts.push(v.modele);
     if (v.annee) parts.push(v.annee);
     if (v.engine) parts.push(v.engine);
+    if (v.displacement) parts.push(v.displacement);
     if (v.power && v.power !== "N/A") parts.push(v.power);
     if (v.fuel) parts.push(v.fuel);
     if (v.transmission) parts.push(v.transmission);
+    if (v.code) parts.push(v.code);
 
     el.textContent = "Sélection retenue : " + parts.join(" • ");
   }
@@ -2385,9 +2749,11 @@
       modele: selection.model ? selection.model.name : "",
       annee: yearEl ? yearEl.value.trim() : "",
       engine: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.engine : "",
+      displacement: selection.engine ? selection.engine.displacement : "",
       power: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.power : "",
       fuel: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.fuel : "",
       transmission: selection.engine ? selection.engine.transmission : "",
+      code: selection.engine ? selection.engine.code : "",
       engineSource: selection.engine ? selection.engine.source : "",
       engineSourceUrl: selection.engine ? selection.engine.sourceUrl : "",
       kilometrage: kmEl ? kmEl.value.trim() : "",
@@ -2519,6 +2885,8 @@
         else if (norm(d.e).indexOf(norm(v.engine)) >= 0 || norm(v.engine).indexOf(norm(d.e)) >= 0) score += 3;
       }
 
+      if (v.displacement && containsAny(d.e + " " + d.n + " " + d.tg, [v.displacement])) score += 2;
+
       if (v.power && d.p) {
         var sel = powerTokens(v.power);
         var def = powerTokens(d.p);
@@ -2528,6 +2896,8 @@
       if (v.fuel && norm(d.et) === norm(v.fuel)) score += 3;
 
       if (v.transmission && containsAny(d.tg + " " + d.e + " " + d.n, [v.transmission])) score += 1;
+
+      if (v.code && containsAny(d.e + " " + d.n + " " + d.tg + " " + d.dtc, [v.code])) score += 2;
 
       if (dtcCodes.length && d.dtc) {
         var dd = norm(d.dtc);
@@ -2597,9 +2967,11 @@
     if (flags.engine) {
       h += '<div class="rappel-info"><h4>🧰 Motorisation retenue pour l’analyse</h4>';
       h += "<p><strong>Motorisation :</strong> " + esc(flags.engine) + "</p>";
+      h += "<p><strong>Cylindrée / capacité :</strong> " + esc(flags.displacement || "non précisée") + "</p>";
       h += "<p><strong>Puissance :</strong> " + esc(flags.power || "non précisée") + "</p>";
       h += "<p><strong>Énergie :</strong> " + esc(flags.fuel || "non précisée") + "</p>";
       h += "<p><strong>Transmission / boîte :</strong> " + esc(flags.transmission || "non précisée") + "</p>";
+      h += "<p><strong>Code moteur / système :</strong> " + esc(flags.code || "non communiqué") + "</p>";
       h += "<p><strong>Source motorisation :</strong> " + esc(flags.engineSource || "non précisée") + "</p>";
       h += "<p>La motorisation est prise en compte comme critère technique et juridique : elle oriente le diagnostic, la présomption d’antériorité, la gravité, les rappels applicables et les fondements de responsabilité.</p>";
       h += "</div>";
@@ -2645,9 +3017,11 @@
 
     var flags = {
       engine: vehicleData.engine || "",
+      displacement: vehicleData.displacement || "",
       power: vehicleData.power || "",
       fuel: vehicleData.fuel || "",
       transmission: vehicleData.transmission || "",
+      code: vehicleData.code || "",
       engineSource: vehicleData.engineSource || "",
       professional: sellerType === "professional" || containsAny(all, ["professionnel", "garage", "concession", "revendeur", "automobile", "commercial"]),
       privateSeller: sellerType === "private" || containsAny(all, ["particulier", "entre particuliers", "leboncoin", "lavitrine"]),
@@ -2715,7 +3089,7 @@
 
     var availableEngines = [];
     if (vehicleData.marque && vehicleData.modele) {
-      availableEngines = getEngines(vehicleData.marque, vehicleData.modele, parseYear(vehicleData.annee));
+      availableEngines = getEnginesFor(vehicleData.marque, vehicleData.modele, parseYear(vehicleData.annee));
     }
 
     h += "<h4>A. Véhicule sélectionné</h4><ul>";
@@ -2723,19 +3097,30 @@
     h += "<li><strong>Modèle :</strong> " + esc(vehicleData.modele || "non précisé") + "</li>";
     h += "<li><strong>Année :</strong> " + esc(vehicleData.annee || "non précisée") + " " + addTerm("millésime", "date de première mise en circulation") + "</li>";
     h += "<li><strong>Motorisation :</strong> " + esc(vehicleData.engine || "non précisée") + "</li>";
+    h += "<li><strong>Cylindrée / capacité :</strong> " + esc(vehicleData.displacement || "non précisée") + "</li>";
     h += "<li><strong>Puissance :</strong> " + esc(vehicleData.power || "non précisée") + "</li>";
     h += "<li><strong>Énergie :</strong> " + esc(vehicleData.fuel || "non précisée") + "</li>";
     h += "<li><strong>Transmission / boîte :</strong> " + esc(vehicleData.transmission || "non précisée") + "</li>";
+    h += "<li><strong>Code moteur / système :</strong> " + esc(vehicleData.code || "non communiqué") + "</li>";
     h += "<li><strong>Motorisations renforcées disponibles pour ce modèle/année :</strong> " + availableEngines.length + "</li>";
     h += "<li><strong>Kilométrage :</strong> " + esc(vehicleData.kilometrage || "non précisé") + " km " + addTerm("kilométrage", "usure normale", "vétusté") + "</li>";
     h += "<li><strong>VIN :</strong> " + esc(vehicleData.vin || "non communiqué") + " " + addTerm("VIN", "numéro de série", "traçabilité") + "</li>";
     h += "</ul>";
 
-    h += "<h4>B. Faits rapportés</h4>";
+    if (availableEngines.length) {
+      h += "<h4>B. Motorisations disponibles retenues par le moteur ingénieur</h4><ul>";
+      availableEngines.slice(0, 20).forEach(function (e) {
+        h += "<li>" + esc(engineLabel(e)) + "</li>";
+      });
+      if (availableEngines.length > 20) h += "<li>… " + (availableEngines.length - 20) + " autre(s) motorisation(s) disponible(s)</li>";
+      h += "</ul>";
+    }
+
+    h += "<h4>C. Faits rapportés</h4>";
     h += "<p>" + esc(text.substring(0, 1400)) + (text.length > 1400 ? " [...] (tronqué pour affichage, analyse complète conservée en mémoire)" : "") + "</p>";
 
     if (context) {
-      h += "<h4>C. Contexte transactionnel</h4><p>" + esc(context.substring(0, 1000)) + "</p>";
+      h += "<h4>D. Contexte transactionnel</h4><p>" + esc(context.substring(0, 1000)) + "</p>";
     }
 
     h += '<div class="certainty-low"><strong>Limite :</strong> faits non vérifiés par expertise contradictoire ' + addTerm("faits non vérifiés", "principe du contradictoire") + ".</div>";
@@ -2752,14 +3137,14 @@
     if (!matches.length) {
       h += "<p><strong>Objet :</strong> recherche de défauts conceptuels connus " + addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série") + ".</p>";
       h += '<div class="verification-needed">';
-      h += "<p>Aucune correspondance exacte trouvée dans la base locale / auto-diagnostic pour Marque/Modèle/Année/Motorisation/Puissance/Symptômes.</p>";
+      h += "<p>Aucune correspondance exacte trouvée dans la base locale / auto-diagnostic pour Marque/Modèle/Année/Motorisation/Puissance/Cylindrée/Code/Symptômes.</p>";
       h += "<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>";
       h += "<p>Une expertise individuelle est nécessaire " + addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine") + ".</p>";
       h += "</div>";
       return h;
     }
 
-    h += "<p><strong>Objet :</strong> croisement technique local avec motorisation, puissance, énergie, défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA, auto-diagnostic et bases de sécurité " + addTerm("vice caché notoire", "défaut de série", "défaut de conception") + ".</p>";
+    h += "<p><strong>Objet :</strong> croisement technique local avec motorisation, cylindrée, puissance, énergie, code moteur, défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA, auto-diagnostic et bases de sécurité " + addTerm("vice caché notoire", "défaut de série", "défaut de conception") + ".</p>";
 
     matches.forEach(function (m, i) {
       var cls = m.severite === "critique" ? "rappel-critical" : "rappel-info";
@@ -2938,7 +3323,7 @@
 
   function researchLinks(brand, model, engine, symptoms, fuel) {
     var baseQuery = (brand + " " + model + " " + (engine || "") + " " + (fuel || "") + " " + (symptoms || []).slice(0, 3).join(" ")).trim();
-    var q1 = encodeURIComponent(baseQuery + " défaut panne rappel incendie DTC motorisation puissance");
+    var q1 = encodeURIComponent(baseQuery + " défaut panne rappel incendie DTC motorisation puissance cylindrée");
     var q2 = encodeURIComponent(brand + " " + model);
 
     return [
@@ -2957,14 +3342,14 @@
 
     h += "<h4>A. Documents à consolider</h4><ul>";
     h += "<li>Facture d’achat : " + (flags.invoice ? "présente" : "à récupérer") + "</li>";
-    h += "<li>Certificat de cession / carte grise : vérifier motorisation, énergie, puissance, kilométrage</li>";
+    h += "<li>Certificat de cession / carte grise : vérifier motorisation, énergie, puissance, cylindrée, kilométrage</li>";
     h += "<li>Contrôle technique : " + (flags.controlTech ? "présent" : "à récupérer") + "</li>";
     h += "<li>Historique entretien / carnet / factures garage</li>";
     h += "<li>Preuve des rappels effectués via VIN</li>";
     h += "<li>Devis réparation (minimum 2)</li>";
     h += "<li>Lecture OBD / codes défaut DTC</li>";
     h += "<li>Rapport auto-diagnostic / fiches expert corrélées</li>";
-    h += "<li>Document motorisation : énergie, puissance, code moteur, boîte, logiciel</li>";
+    h += "<li>Document motorisation : énergie, puissance, cylindrée, code moteur, boîte, logiciel</li>";
     h += "<li>Photos : moisiure, eau, corrosion, voyants, niveaux, batterie, charge</li>";
     h += "</ul>";
 
@@ -3018,9 +3403,11 @@
       esc(vData.modele || "modèle non précisé") + " / " +
       esc(vData.annee || "année non précisée") + " / " +
       esc(vData.engine || "motorisation non précisée") +
+      (vData.displacement ? " / " + esc(vData.displacement) : "") +
       (vData.power && vData.power !== "N/A" ? " / " + esc(vData.power) : "") +
       (vData.fuel ? " / " + esc(vData.fuel) : "") +
       (vData.transmission ? " / " + esc(vData.transmission) : "") +
+      (vData.code ? " / code " + esc(vData.code) : "") +
       ".</p>";
 
     h += "<p>";
@@ -3272,7 +3659,7 @@
       '<h1>Rapport d’analyse expert auto</h1>' +
       '<p><strong>Date :</strong> ' + esc(analysisData.date || "") + '</p>' +
       '<p><strong>Véhicule :</strong> ' + esc(vehicleData.marque || "") + ' ' + esc(vehicleData.modele || "") + ' ' + esc(vehicleData.annee || "") + '</p>' +
-      '<p><strong>Motorisation :</strong> ' + esc(vehicleData.engine || "") + ' — ' + esc(vehicleData.power || "") + ' — ' + esc(vehicleData.fuel || "") + '</p>' +
+      '<p><strong>Motorisation :</strong> ' + esc(vehicleData.engine || "") + ' — ' + esc(vehicleData.displacement || "") + ' — ' + esc(vehicleData.power || "") + ' — ' + esc(vehicleData.fuel || "") + '</p>' +
       '<p><strong>Kilométrage :</strong> ' + esc(vehicleData.kilometrage || "") + ' km</p>' +
       body +
       '</body>' +
@@ -3326,7 +3713,7 @@
       doc.text("Véhicule : " + (vehicleData.marque || "") + " " + (vehicleData.modele || "") + " " + (vehicleData.annee || ""), 20, y);
       y += 6;
 
-      doc.text("Motorisation : " + (vehicleData.engine || "") + " — " + (vehicleData.power || "") + " — " + (vehicleData.fuel || ""), 20, y);
+      doc.text("Motorisation : " + (vehicleData.engine || "") + " — " + (vehicleData.displacement || "") + " — " + (vehicleData.power || "") + " — " + (vehicleData.fuel || ""), 20, y);
       y += 6;
 
       doc.text("Kilométrage : " + (vehicleData.kilometrage || "") + " km", 20, y);
@@ -4038,8 +4425,9 @@
     on("#forceUpdateBtn", "click", function () {
       fetchJson(CONFIG.catalog.technicalUrl)
         .then(function (json) {
-          ingestJson(json, "mise à jour JSON", CONFIG.catalog.technicalUrl, 0);
+          ingestNode(json, null, null, null, "mise à jour JSON", CONFIG.catalog.technicalUrl, 0);
           save(KEYS.LAST_UPDATE, Date.now());
+          clearEngineCache();
           updateAdminStats();
           refreshSelectorsFromCatalog();
           toast("Mise à jour technique appliquée.", "success");
@@ -4066,7 +4454,7 @@
       var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       var a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "aide-redactionnelle-expert-data-v18.json";
+      a.download = "aide-redactionnelle-expert-data-v19.json";
       a.click();
       toast("Données exportées.", "success");
     });
@@ -4092,8 +4480,9 @@
             imported.push(data);
             save(KEYS.IMPORTED_RAW, imported);
 
-            ingestJson(data, "import-admin", "import", 0);
+            ingestNode(data, null, null, null, "import-admin", "import", 0);
 
+            clearEngineCache();
             updateAdminStats();
             refreshSelectorsFromCatalog();
             renderAdmin();
@@ -4264,7 +4653,7 @@
 
     loadCatalogs(false);
 
-    toast("Application prête. Motorisations renforcées depuis auto-diagnostic.", "success");
+    toast("Application prête. Motorisations renforcées essence/diesel/hybride/électrique.", "success");
   }
 
   function boot() {
