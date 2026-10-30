@@ -1,21 +1,41 @@
 (function () {
   "use strict";
 
+  /* =========================================================
+     POLYFILL MINIMAL
+     ========================================================= */
+  if (!String.prototype.padStart) {
+    String.prototype.padStart = function (maxLength, fillString) {
+      if (this.length >= maxLength) return String(this);
+      fillString = fillString || " ";
+      var fill = "";
+      while (fill.length + this.length < maxLength) fill += fillString;
+      return fill.substring(0, maxLength - this.length) + String(this);
+    };
+  }
+
+  /* =========================================================
+     PROTECTION GLOBALE : AUCUNE ERREUR NE BLOQUE LE DEMARRAGE
+     ========================================================= */
   window.addEventListener("error", function (event) {
-    console.error("[AR-EXPERT] Erreur globale:", event.message);
-    try { toast("Erreur interceptée: " + event.message, "error"); } catch (e) {}
+    console.warn("[AR-EXPERT] Erreur globale ignorée:", event.message);
   });
 
   window.addEventListener("unhandledrejection", function (event) {
-    console.error("[AR-EXPERT] Promesse rejetée:", event.reason);
-    try {
-      toast("Action interrompue: " + (event.reason && event.reason.message ? event.reason.message : "erreur"), "error");
-    } catch (e) {}
+    console.warn("[AR-EXPERT] Promesse rejetée ignorée:", event.reason);
     if (event.preventDefault) event.preventDefault();
   });
 
-  function q(sel) { return document.querySelector(sel); }
-  function qa(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+  /* =========================================================
+     HELPERS DOM / STOCKAGE / FORMATAGE
+     ========================================================= */
+  function q(sel) {
+    try { return document.querySelector(sel); } catch (e) { return null; }
+  }
+
+  function qa(sel) {
+    try { return Array.prototype.slice.call(document.querySelectorAll(sel)); } catch (e) { return []; }
+  }
 
   function on(sel, ev, fn) {
     var el = q(sel);
@@ -101,6 +121,7 @@
 
   function simpleHash(str) {
     var hash = 5381;
+    str = String(str || "");
     for (var i = 0; i < str.length; i++) {
       hash = ((hash << 5) + hash) + str.charCodeAt(i);
       hash = hash & hash;
@@ -112,13 +133,16 @@
     if (!window.crypto || !crypto.subtle || typeof TextEncoder === "undefined") {
       return Promise.resolve(simpleHash(String(text || "")));
     }
-    return crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text || ""))).then(function (buf) {
-      return Array.prototype.map.call(new Uint8Array(buf), function (b) {
-        return b.toString(16).padStart(2, "0");
-      }).join("");
-    }).catch(function () {
-      return simpleHash(String(text || ""));
-    });
+    return crypto.subtle
+      .digest("SHA-256", new TextEncoder().encode(String(text || "")))
+      .then(function (buf) {
+        return Array.prototype.map.call(new Uint8Array(buf), function (b) {
+          return b.toString(16).padStart(2, "0");
+        }).join("");
+      })
+      .catch(function () {
+        return simpleHash(String(text || ""));
+      });
   }
 
   function utf8ToB64Url(str) {
@@ -151,6 +175,84 @@
     return null;
   }
 
+  function cleanUrlAfterParam() {
+    var clean = location.href.split("?")[0] + location.hash;
+    if (history.replaceState) {
+      history.replaceState({}, document.title, clean);
+    }
+  }
+
+  /* =========================================================
+     CHARGEMENT DYNAMIQUE DES BIBLIOTHEQUES
+     L'application démarre même si ces bibliothèques échouent.
+     ========================================================= */
+  var scriptCache = {};
+
+  function loadScript(src) {
+    if (scriptCache[src]) return scriptCache[src];
+
+    scriptCache[src] = new Promise(function (resolve, reject) {
+      var existing = document.querySelector('script[src="' + src + '"]');
+      if (existing) {
+        resolve();
+        return;
+      }
+
+      var s = document.createElement("script");
+      s.src = src;
+      s.async = true;
+      s.onload = function () { resolve(); };
+      s.onerror = function () {
+        delete scriptCache[src];
+        reject(new Error("Bibliothèque indisponible : " + src));
+      };
+      document.head.appendChild(s);
+    });
+
+    return scriptCache[src];
+  }
+
+  var pdfJsPromise = null;
+  function ensurePdfJs() {
+    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    if (pdfJsPromise) return pdfJsPromise;
+
+    pdfJsPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js")
+      .then(function () {
+        if (!window.pdfjsLib) throw new Error("PDF.js non chargé");
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        return window.pdfjsLib;
+      })
+      .catch(function (err) {
+        pdfJsPromise = null;
+        throw err;
+      });
+
+    return pdfJsPromise;
+  }
+
+  var jsPdfPromise = null;
+  function ensureJsPdf() {
+    if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
+    if (jsPdfPromise) return jsPdfPromise;
+
+    jsPdfPromise = loadScript("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js")
+      .then(function () {
+        if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("jsPDF non chargé");
+        return window.jspdf.jsPDF;
+      })
+      .catch(function (err) {
+        jsPdfPromise = null;
+        throw err;
+      });
+
+    return jsPdfPromise;
+  }
+
+  /* =========================================================
+     CONFIGURATION
+     ========================================================= */
   var CONFIG = {
     adminPassword: "Kevin83600",
     maxDailyAnalyses: 10,
@@ -160,12 +262,12 @@
   };
 
   var KEYS = {
-    SESSION: "arex_session_v12",
-    USERS: "arex_users_v12",
-    REQUESTS: "arex_requests_v12",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v12",
-    TECH_UPDATES: "arex_tech_updates_v12",
-    LAST_UPDATE: "arex_last_update_v12"
+    SESSION: "arex_session_v13",
+    USERS: "arex_users_v13",
+    REQUESTS: "arex_requests_v13",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v13",
+    TECH_UPDATES: "arex_tech_updates_v13",
+    LAST_UPDATE: "arex_last_update_v13"
   };
 
   var currentUser = null;
@@ -189,6 +291,680 @@
     broadcast = null;
   }
 
+  /* =========================================================
+     NOTIFICATIONS
+     ========================================================= */
+  function notificationPermissionState() {
+    if (!("Notification" in window)) return "unsupported";
+    return Notification.permission;
+  }
+
+  function updateNotificationState() {
+    var el = q("#notifState");
+    var state = notificationPermissionState();
+
+    var labels = {
+      granted: "✅ Notifications autorisées",
+      default: "⏳ Permission non encore accordée",
+      denied: "❌ Notifications bloquées par le navigateur / Android",
+      unsupported: "⚠️ Notifications non supportées par cet environnement"
+    };
+
+    if (el) {
+      el.textContent = "État des notifications : " + (labels[state] || state);
+    }
+  }
+
+  function askNotification() {
+    if (!("Notification" in window)) {
+      updateNotificationState();
+      return Promise.resolve("unsupported");
+    }
+
+    if (Notification.permission === "granted") {
+      updateNotificationState();
+      return Promise.resolve("granted");
+    }
+
+    if (Notification.permission === "denied") {
+      updateNotificationState();
+      return Promise.resolve("denied");
+    }
+
+    return Promise.resolve(Notification.requestPermission())
+      .then(function (permission) {
+        updateNotificationState();
+        return permission;
+      })
+      .catch(function () {
+        updateNotificationState();
+        return Notification.permission || "denied";
+      });
+  }
+
+  function showSystemNotification(title, body, tag) {
+    var options = {
+      body: body || "",
+      tag: tag || "arex-" + Date.now(),
+      data: { url: "./index.html" }
+    };
+
+    var fallback = function () {
+      if ("Notification" in window && Notification.permission === "granted") {
+        try {
+          var n = new Notification(title, options);
+          n.onclick = function () { window.focus(); };
+          return Promise.resolve();
+        } catch (e) {
+          console.warn("[AR-EXPERT] Notification fallback impossible:", e);
+        }
+      }
+      return Promise.resolve();
+    };
+
+    if (swRegistration && typeof swRegistration.showNotification === "function") {
+      return swRegistration.showNotification(title, options).catch(fallback);
+    }
+
+    return fallback();
+  }
+
+  function notify(title, body, tag) {
+    return showSystemNotification(title, body, tag);
+  }
+
+  /* =========================================================
+     IDENTITÉ / UTILISATEURS / DEMANDES / ACCÈS TIERS
+     ========================================================= */
+  function normIdentity(value) {
+    return norm(String(value == null ? "" : value)).replace(/\s+/g, " ").trim();
+  }
+
+  function userEmailKey(email) {
+    return normIdentity(email).replace(/\s/g, "");
+  }
+
+  function userNameKey(name) {
+    return normIdentity(name);
+  }
+
+  function userCompositeKey(name, email) {
+    return userNameKey(name) + "|" + userEmailKey(email);
+  }
+
+  function migrateUser(u) {
+    var user = Object.assign({}, u || {});
+    user.name = String(user.name || "").trim();
+    user.email = String(user.email || "").trim();
+    user.nameNorm = userNameKey(user.name);
+    user.emailNorm = userEmailKey(user.email);
+    user.key = user.key || userCompositeKey(user.name, user.email);
+    user.role = user.role || "user";
+    user.status = user.status || "pending";
+    if (!user.daily) user.daily = { date: todayKey(), count: 0 };
+    return user;
+  }
+
+  function getUsers() {
+    var raw = load(KEYS.USERS, []) || [];
+    var changed = false;
+
+    var users = raw.map(function (u) {
+      var m = migrateUser(u);
+      if (JSON.stringify(m) !== JSON.stringify(u)) changed = true;
+      return m;
+    });
+
+    if (changed) save(KEYS.USERS, users);
+    return users;
+  }
+
+  function saveUsers(users) {
+    save(KEYS.USERS, (users || []).map(migrateUser));
+  }
+
+  function migrateRequest(r) {
+    var req = Object.assign({}, r || {});
+    req.name = String(req.name || "").trim();
+    req.email = String(req.email || "").trim();
+    req.reason = String(req.reason || "").trim();
+    req.nameNorm = userNameKey(req.name);
+    req.emailNorm = userEmailKey(req.email);
+    req.key = req.key || userCompositeKey(req.name, req.email);
+    req.status = req.status || "pending";
+    req.ts = req.ts || Date.now();
+    req.date = req.date || new Date(req.ts).toLocaleString("fr-FR");
+    return req;
+  }
+
+  function getRequests() {
+    var raw = load(KEYS.REQUESTS, []) || [];
+    var changed = false;
+
+    var requests = raw.map(function (r) {
+      var m = migrateRequest(r);
+      if (JSON.stringify(m) !== JSON.stringify(r)) changed = true;
+      return m;
+    });
+
+    if (changed) save(KEYS.REQUESTS, requests);
+    return requests;
+  }
+
+  function saveRequests(requests) {
+    save(KEYS.REQUESTS, (requests || []).map(migrateRequest));
+  }
+
+  function findUser(name, email) {
+    var key = userCompositeKey(name, email);
+    var emailKey = userEmailKey(email);
+    var users = getUsers();
+
+    return users.find(function (u) {
+      return u.key === key;
+    }) || users.find(function (u) {
+      return u.emailNorm === emailKey && u.role !== "admin";
+    }) || null;
+  }
+
+  function findApprovedUser(name, email) {
+    var emailKey = userEmailKey(email);
+    if (!emailKey) return null;
+
+    var key = userCompositeKey(name, email);
+    var users = getUsers();
+
+    return users.find(function (u) {
+      return u.status === "approved" && u.role !== "admin" && u.key === key;
+    }) || users.find(function (u) {
+      return u.status === "approved" && u.role !== "admin" && u.emailNorm === emailKey;
+    }) || null;
+  }
+
+  function findStoredUser(session) {
+    if (!session) return null;
+
+    var users = getUsers();
+    var key = session.key || userCompositeKey(session.name, session.email);
+    var emailKey = userEmailKey(session.email);
+
+    return users.find(function (u) {
+      return u.key === key;
+    }) || users.find(function (u) {
+      return u.emailNorm === emailKey && u.role !== "admin";
+    }) || null;
+  }
+
+  function upsertUser(user) {
+    var next = migrateUser(user);
+    var users = getUsers();
+
+    var idx = users.findIndex(function (u) {
+      return u.key === next.key || (u.emailNorm === next.emailNorm && u.role !== "admin");
+    });
+
+    if (idx >= 0) {
+      var merged = Object.assign({}, users[idx], next);
+
+      merged.daily = users[idx].daily && users[idx].daily.date === todayKey()
+        ? users[idx].daily
+        : (next.daily || { date: todayKey(), count: 0 });
+
+      users[idx] = merged;
+      next = merged;
+    } else {
+      users.push(next);
+    }
+
+    saveUsers(users);
+    return next;
+  }
+
+  function setSession(user) {
+    currentUser = migrateUser(user);
+    save(KEYS.SESSION, currentUser);
+  }
+
+  function clearSession() {
+    currentUser = null;
+    del(KEYS.SESSION);
+  }
+
+  function restoreSession() {
+    var session = load(KEYS.SESSION, null);
+    if (!session) return false;
+
+    if (session.role === "admin") {
+      clearSession();
+      return false;
+    }
+
+    var fresh = findStoredUser(session);
+
+    if (fresh && fresh.status === "approved") {
+      currentUser = fresh;
+      setSession(fresh);
+      return true;
+    }
+
+    clearSession();
+    return false;
+  }
+
+  function dailyInfo() {
+    if (!currentUser) return { allowed: false, remaining: 0, unlimited: false };
+    if (currentUser.role === "admin") return { allowed: true, remaining: Infinity, unlimited: true };
+
+    var user = findUser(currentUser.name, currentUser.email) || currentUser;
+    var daily = user.daily && user.daily.date === todayKey() ? user.daily.count : 0;
+
+    return {
+      allowed: daily < CONFIG.maxDailyAnalyses,
+      remaining: Math.max(0, CONFIG.maxDailyAnalyses - daily),
+      unlimited: false
+    };
+  }
+
+  function incrementDaily() {
+    if (!currentUser || currentUser.role === "admin") return;
+
+    var users = getUsers();
+    var idx = users.findIndex(function (u) {
+      return u.key === currentUser.key ||
+        (u.emailNorm === currentUser.emailNorm && u.role !== "admin");
+    });
+
+    if (idx < 0) return;
+
+    var user = users[idx];
+    if (!user.daily || user.daily.date !== todayKey()) {
+      user.daily = { date: todayKey(), count: 0 };
+    }
+    user.daily.count += 1;
+    users[idx] = user;
+    saveUsers(users);
+    currentUser = user;
+    setSession(user);
+    updateCounter();
+  }
+
+  function updateCounter() {
+    var el = q("#dailyCounter");
+    if (!el) return;
+    var info = dailyInfo();
+    el.textContent = info.unlimited
+      ? "👑 Admin — analyses illimitées"
+      : "📊 " + info.remaining + "/" + CONFIG.maxDailyAnalyses + " analyses restantes";
+  }
+
+  function authMessage(msg, type) {
+    var el = q("#authMsg");
+    if (el) {
+      el.textContent = msg;
+      el.className = "auth-msg " + type;
+    } else {
+      toast(msg, type);
+    }
+  }
+
+  function makeAccessRequestShareUrl(req) {
+    var payload = {
+      id: req.id,
+      name: req.name,
+      email: req.email,
+      reason: req.reason,
+      date: req.date,
+      source: "lien-partage"
+    };
+
+    var baseUrl = location.href.split("?")[0].split("#")[0];
+    return baseUrl + "?access_request=" + utf8ToB64Url(JSON.stringify(payload));
+  }
+
+  function makeAccessGrantUrl(user) {
+    var safe = migrateUser(user);
+
+    var payload = {
+      name: safe.name,
+      email: safe.email,
+      status: "approved",
+      role: "user",
+      key: safe.key,
+      grantedAt: Date.now()
+    };
+
+    var baseUrl = location.href.split("?")[0].split("#")[0];
+    return baseUrl + "?access_grant=" + utf8ToB64Url(JSON.stringify(payload));
+  }
+
+  function processIncomingAccessRequestFromUrl() {
+    try {
+      var raw = getQueryParam("access_request");
+      if (!raw) return false;
+
+      var decoded = b64UrlToUtf8(raw);
+      var req = JSON.parse(decoded);
+
+      if (!req || !req.name || !req.email) return false;
+
+      req = migrateRequest({
+        id: req.id || uid(),
+        name: req.name,
+        email: req.email,
+        reason: req.reason || "Motif non précisé",
+        status: "pending",
+        date: req.date || new Date().toLocaleString("fr-FR"),
+        ts: Date.now(),
+        source: "lien-partage"
+      });
+
+      var requests = getRequests();
+
+      var exists = requests.find(function (r) {
+        return r.id === req.id ||
+          (r.emailNorm === req.emailNorm && r.nameNorm === req.nameNorm && r.reason === req.reason);
+      });
+
+      if (!exists) {
+        requests.push(req);
+        saveRequests(requests);
+        publishAccessRequest(req);
+        toast("Demande d’accès importée depuis le lien partagé.", "success");
+      }
+
+      cleanUrlAfterParam();
+      return true;
+    } catch (e) {
+      console.warn("[AR-EXPERT] Lien de demande invalide:", e);
+      toast("Lien de demande invalide ou corrompu.", "error");
+      return false;
+    }
+  }
+
+  function processIncomingAccessGrantFromUrl() {
+    try {
+      var raw = getQueryParam("access_grant");
+      if (!raw) return false;
+
+      var payload = JSON.parse(b64UrlToUtf8(raw));
+      if (!payload || !payload.email) return false;
+
+      var user = upsertUser({
+        name: payload.name || payload.email,
+        email: payload.email,
+        role: "user",
+        status: "approved",
+        key: payload.key,
+        daily: { date: todayKey(), count: 0 }
+      });
+
+      setSession(user);
+      showApp();
+      toast("Accès approuvé importé. Connexion tierce réussie.", "success");
+
+      cleanUrlAfterParam();
+      return true;
+    } catch (e) {
+      console.warn("[AR-EXPERT] Lien d’accès invalide:", e);
+      toast("Lien d’accès invalide ou corrompu.", "error");
+      return false;
+    }
+  }
+
+  /* =========================================================
+     DEMANDES / NOTIFICATION ADMIN / CLOCHE
+     ========================================================= */
+  function pendingRequests() {
+    return getRequests().filter(function (r) {
+      return r.status === "pending";
+    });
+  }
+
+  function pendingSignature() {
+    return pendingRequests()
+      .map(function (r) { return r.id; })
+      .sort()
+      .join("|");
+  }
+
+  function updateNotificationBell() {
+    var bell = q("#notifBellBtn");
+    var badge = q("#notifBadge");
+
+    if (!bell) return;
+
+    if (!currentUser || currentUser.role !== "admin") {
+      bell.classList.add("hidden");
+      if (badge) badge.classList.add("hidden");
+      return;
+    }
+
+    bell.classList.remove("hidden");
+
+    var count = pendingRequests().length;
+
+    if (badge) {
+      badge.textContent = String(count);
+      badge.classList.toggle("hidden", count === 0);
+    }
+  }
+
+  function renderAdminIfOpen() {
+    var panel = q("#adminPanel");
+    if (!panel) return;
+    if (panel.classList.contains("hidden")) return;
+    if (!currentUser || currentUser.role !== "admin") return;
+    renderAdmin();
+  }
+
+  function onAccessRequestReceived(req) {
+    if (!currentUser || currentUser.role !== "admin") return;
+    if (!req) return;
+
+    var title = "Nouvelle demande d’accès";
+    var body = (req.name || "Tiers") + " — " + (req.email || "");
+
+    notify(title, body, "access-" + (req.id || Date.now()));
+
+    updateNotificationBell();
+    renderAdminIfOpen();
+
+    toast("Nouvelle demande : " + (req.name || "Tiers"), "info");
+  }
+
+  function pollAdminNotifications() {
+    if (!currentUser || currentUser.role !== "admin") return;
+
+    var sig = pendingSignature();
+
+    if (sig === lastPendingSignature) {
+      updateNotificationBell();
+      return;
+    }
+
+    var oldIds = lastPendingSignature ? lastPendingSignature.split("|") : [];
+    var newIds = sig ? sig.split("|").filter(function (id) {
+      return id && oldIds.indexOf(id) < 0;
+    }) : [];
+
+    lastPendingSignature = sig;
+    updateNotificationBell();
+
+    if (newIds.length) {
+      var all = getRequests();
+
+      newIds.forEach(function (id) {
+        var req = all.find(function (r) {
+          return r.id === id;
+        });
+
+        if (req) {
+          onAccessRequestReceived(req);
+        }
+      });
+    }
+
+    renderAdminIfOpen();
+  }
+
+  function startAdminPolling() {
+    stopAdminPolling();
+
+    lastPendingSignature = pendingSignature();
+    updateNotificationBell();
+
+    adminPollTimer = setInterval(function () {
+      pollAdminNotifications();
+    }, CONFIG.pollAdminMs || 5000);
+
+    var count = pendingRequests().length;
+    if (count > 0) {
+      toast(count + " demande(s) d’accès en attente", "info");
+    }
+  }
+
+  function stopAdminPolling() {
+    if (adminPollTimer) {
+      clearInterval(adminPollTimer);
+      adminPollTimer = null;
+    }
+  }
+
+  function publishAccessRequest(req) {
+    if (!req) return;
+
+    if (broadcast) {
+      try {
+        broadcast.postMessage({
+          type: "access-request",
+          payload: req
+        });
+      } catch (e) {}
+    }
+
+    try {
+      window.dispatchEvent(new CustomEvent("arex:access-request", {
+        detail: req
+      }));
+    } catch (e) {}
+
+    updateNotificationBell();
+  }
+
+  function enforceTierAccess() {
+    if (!currentUser || currentUser.role === "admin") return;
+
+    var fresh = findStoredUser(currentUser);
+    if (!fresh || fresh.status !== "approved") {
+      clearSession();
+      showLogin();
+      toast("Votre accès a été révoqué ou refusé par l’administrateur.", "error");
+      notify("Accès révoqué", "Contactez l’administrateur si nécessaire.");
+    } else {
+      currentUser = fresh;
+      setSession(fresh);
+      updateCounter();
+    }
+  }
+
+  /* =========================================================
+     AFFICHAGE APPLICATION / CONNEXION
+     ========================================================= */
+  function showApp() {
+    var login = q("#loginScreen");
+    if (login) {
+      login.classList.add("hidden");
+      login.style.display = "none";
+    }
+
+    var app = q("#mainApp");
+    if (app) {
+      app.classList.remove("hidden");
+      app.style.display = "block";
+    }
+
+    var badge = q("#userBadge");
+    if (badge) {
+      badge.textContent = currentUser.role === "admin"
+        ? "👑 Admin"
+        : "👤 " + currentUser.name;
+    }
+
+    var adminBtn = q("#adminPanelBtn");
+    if (adminBtn) {
+      if (currentUser.role === "admin") {
+        adminBtn.classList.remove("hidden");
+      } else {
+        adminBtn.classList.add("hidden");
+      }
+    }
+
+    updateCounter();
+    updateNotificationBell();
+    updateNotificationState();
+
+    if (currentUser && currentUser.role === "admin") {
+      startAdminPolling();
+      askNotification();
+    } else {
+      stopAdminPolling();
+    }
+
+    window.scrollTo(0, 0);
+  }
+
+  function showLogin() {
+    var login = q("#loginScreen");
+    if (login) {
+      login.classList.remove("hidden");
+      login.style.display = "flex";
+    }
+
+    var app = q("#mainApp");
+    if (app) {
+      app.classList.add("hidden");
+      app.style.display = "none";
+    }
+
+    var admin = q("#adminPanel");
+    if (admin) {
+      admin.classList.add("hidden");
+    }
+
+    stopAdminPolling();
+    updateNotificationBell();
+    updateNotificationState();
+    refreshSavedPasswordButton();
+  }
+
+  function refreshSavedPasswordButton() {
+    var btn = q("#useSavedPwdBtn");
+    var saved = load(KEYS.ADMIN_PWD_HASH, null);
+    if (!btn) return;
+
+    if (saved) btn.classList.remove("hidden");
+    else btn.classList.add("hidden");
+  }
+
+  function verifyAdminPassword(input) {
+    if (!input) return Promise.resolve(false);
+    return sha256(CONFIG.adminPassword).then(function (adminHash) {
+      return sha256(input).then(function (inputHash) {
+        return inputHash === adminHash;
+      });
+    });
+  }
+
+  function loginAdminFromHash(savedHash) {
+    if (!savedHash) return Promise.resolve(false);
+    return sha256(CONFIG.adminPassword).then(function (adminHash) {
+      return savedHash === adminHash;
+    });
+  }
+
+  /* =========================================================
+     BASE TECHNIQUE LOCALE MASSIVE 2017-2027
+     ========================================================= */
   function D(b, m, y, e, p, s, sev, wf, n, law, rec, tg) {
     return { b: b, m: m, y: y, e: e, p: p, s: s, sev: sev, wf: wf, n: n, law: law, rec: rec, tg: tg };
   }
@@ -805,868 +1581,71 @@
     return SEED_DEFECTS.concat(techUpdates || []);
   }
 
-  function notificationPermissionState() {
-    if (!("Notification" in window)) return "unsupported";
-    return Notification.permission;
+  /* =========================================================
+     MISE A JOUR AUTOMATIQUE TOUS LES 30 JOURS
+     ========================================================= */
+  function updateDataStatus(msg) {
+    var el = q("#dataStatus");
+    if (el) el.textContent = msg;
   }
 
-  function updateNotificationState() {
-    var el = q("#notifState");
-    var state = notificationPermissionState();
-
-    var labels = {
-      granted: "✅ Notifications autorisées",
-      default: "⏳ Permission non encore accordée",
-      denied: "❌ Notifications bloquées par le navigateur / Android",
-      unsupported: "⚠️ Notifications non supportées par cet environnement"
-    };
-
-    if (el) {
-      el.textContent = "État des notifications : " + (labels[state] || state);
-    }
-  }
-
-  function askNotification() {
-    if (!("Notification" in window)) {
-      updateNotificationState();
-      return Promise.resolve("unsupported");
-    }
-
-    if (Notification.permission === "granted") {
-      updateNotificationState();
-      return Promise.resolve("granted");
-    }
-
-    if (Notification.permission === "denied") {
-      updateNotificationState();
-      return Promise.resolve("denied");
-    }
-
-    return Promise.resolve(Notification.requestPermission())
-      .then(function (permission) {
-        updateNotificationState();
-        return permission;
-      })
-      .catch(function () {
-        updateNotificationState();
-        return Notification.permission || "denied";
-      });
-  }
-
-  function showSystemNotification(title, body, tag) {
-    var options = {
-      body: body || "",
-      tag: tag || "arex-" + Date.now(),
-      data: {
-        url: "./index.html"
-      }
-    };
-
-    var fallback = function () {
-      if ("Notification" in window && Notification.permission === "granted") {
-        try {
-          var n = new Notification(title, options);
-          n.onclick = function () {
-            window.focus();
-          };
-          return Promise.resolve();
-        } catch (e) {
-          console.warn("[AR-EXPERT] Notification fallback impossible:", e);
-        }
-      }
-      return Promise.resolve();
-    };
-
-    if (swRegistration && typeof swRegistration.showNotification === "function") {
-      return swRegistration.showNotification(title, options).catch(fallback);
-    }
-
-    return fallback();
-  }
-
-  function notify(title, body, tag) {
-    return showSystemNotification(title, body, tag);
-  }
-
-  function getUsers() { return load(KEYS.USERS, []); }
-  function saveUsers(users) { save(KEYS.USERS, users); }
-  function getRequests() { return load(KEYS.REQUESTS, []); }
-  function saveRequests(requests) { save(KEYS.REQUESTS, requests); }
-
-  function findUser(name, email) {
-    var n = String(name || "").trim().toLowerCase();
-    var e = String(email || "").trim().toLowerCase();
-    return getUsers().find(function (u) {
-      return u.name.toLowerCase() === n && u.email.toLowerCase() === e;
-    });
-  }
-
-  function upsertUser(user) {
-    var users = getUsers();
-    var idx = users.findIndex(function (u) {
-      return u.name.toLowerCase() === user.name.toLowerCase() && u.email.toLowerCase() === user.email.toLowerCase();
-    });
-    if (idx >= 0) users[idx] = Object.assign({}, users[idx], user);
-    else users.push(user);
-    saveUsers(users);
-  }
-
-  function setSession(user) {
-    currentUser = user;
-    save(KEYS.SESSION, user);
-  }
-
-  function clearSession() {
-    currentUser = null;
-    del(KEYS.SESSION);
-  }
-
-  function restoreSession() {
-    var session = load(KEYS.SESSION, null);
-    if (!session) return false;
-
-    if (session.role === "admin") {
-      clearSession();
-      return false;
-    }
-
-    var fresh = findUser(session.name, session.email);
-    if (fresh && fresh.status === "approved") {
-      currentUser = fresh;
-      setSession(fresh);
-      return true;
-    }
-
-    clearSession();
-    return false;
-  }
-
-  function dailyInfo() {
-    if (!currentUser) return { allowed: false, remaining: 0, unlimited: false };
-    if (currentUser.role === "admin") return { allowed: true, remaining: Infinity, unlimited: true };
-
-    var user = findUser(currentUser.name, currentUser.email) || currentUser;
-    var daily = user.daily && user.daily.date === todayKey() ? user.daily.count : 0;
-
-    return {
-      allowed: daily < CONFIG.maxDailyAnalyses,
-      remaining: Math.max(0, CONFIG.maxDailyAnalyses - daily),
-      unlimited: false
-    };
-  }
-
-  function incrementDaily() {
-    if (!currentUser || currentUser.role === "admin") return;
-
-    var users = getUsers();
-    var idx = users.findIndex(function (u) {
-      return u.name.toLowerCase() === currentUser.name.toLowerCase() &&
-             u.email.toLowerCase() === currentUser.email.toLowerCase();
-    });
-    if (idx < 0) return;
-
-    var user = users[idx];
-    if (!user.daily || user.daily.date !== todayKey()) {
-      user.daily = { date: todayKey(), count: 0 };
-    }
-    user.daily.count += 1;
-    users[idx] = user;
-    saveUsers(users);
-    currentUser = user;
-    setSession(user);
-    updateCounter();
-  }
-
-  function updateCounter() {
-    var el = q("#dailyCounter");
-    if (!el) return;
-    var info = dailyInfo();
-    el.textContent = info.unlimited
-      ? "👑 Admin — analyses illimitées"
-      : "📊 " + info.remaining + "/" + CONFIG.maxDailyAnalyses + " analyses restantes";
-  }
-
-  function authMessage(msg, type) {
-    var el = q("#authMsg");
-    if (el) {
-      el.textContent = msg;
-      el.className = "auth-msg " + type;
-    } else {
-      toast(msg, type);
-    }
-  }
-
-  function pendingRequests() {
-    return getRequests().filter(function (r) {
-      return r.status === "pending";
-    });
-  }
-
-  function pendingSignature() {
-    return pendingRequests()
-      .map(function (r) { return r.id; })
-      .sort()
-      .join("|");
-  }
-
-  function updateNotificationBell() {
-    var bell = q("#notifBellBtn");
-    var badge = q("#notifBadge");
-
-    if (!bell) return;
-
-    if (!currentUser || currentUser.role !== "admin") {
-      bell.classList.add("hidden");
-      if (badge) badge.classList.add("hidden");
-      return;
-    }
-
-    bell.classList.remove("hidden");
-
-    var count = pendingRequests().length;
-
-    if (badge) {
-      badge.textContent = String(count);
-      badge.classList.toggle("hidden", count === 0);
-    }
-  }
-
-  function renderAdminIfOpen() {
-    var panel = q("#adminPanel");
-    if (!panel) return;
-    if (panel.classList.contains("hidden")) return;
-    if (!currentUser || currentUser.role !== "admin") return;
-    renderAdmin();
-  }
-
-  function onAccessRequestReceived(req) {
-    if (!currentUser || currentUser.role !== "admin") return;
-    if (!req) return;
-
-    var title = "Nouvelle demande d’accès";
-    var body = (req.name || "Tiers") + " — " + (req.email || "");
-
-    notify(title, body, "access-" + (req.id || Date.now()));
-
-    updateNotificationBell();
-    renderAdminIfOpen();
-
-    toast("Nouvelle demande : " + (req.name || "Tiers"), "info");
-  }
-
-  function pollAdminNotifications() {
-    if (!currentUser || currentUser.role !== "admin") return;
-
-    var sig = pendingSignature();
-
-    if (sig === lastPendingSignature) {
-      updateNotificationBell();
-      return;
-    }
-
-    var oldIds = lastPendingSignature ? lastPendingSignature.split("|") : [];
-    var newIds = sig ? sig.split("|").filter(function (id) {
-      return id && oldIds.indexOf(id) < 0;
-    }) : [];
-
-    lastPendingSignature = sig;
-    updateNotificationBell();
-
-    if (newIds.length) {
-      var all = getRequests();
-
-      newIds.forEach(function (id) {
-        var req = all.find(function (r) {
-          return r.id === id;
-        });
-
-        if (req) {
-          onAccessRequestReceived(req);
-        }
-      });
-    }
-
-    renderAdminIfOpen();
-  }
-
-  function startAdminPolling() {
-    stopAdminPolling();
-
-    lastPendingSignature = pendingSignature();
-    updateNotificationBell();
-
-    adminPollTimer = setInterval(function () {
-      pollAdminNotifications();
-    }, CONFIG.pollAdminMs || 5000);
-
-    var count = pendingRequests().length;
-    if (count > 0) {
-      toast(count + " demande(s) d’accès en attente", "info");
-    }
-  }
-
-  function stopAdminPolling() {
-    if (adminPollTimer) {
-      clearInterval(adminPollTimer);
-      adminPollTimer = null;
-    }
-  }
-
-  function publishAccessRequest(req) {
-    if (!req) return;
-
-    if (broadcast) {
-      try {
-        broadcast.postMessage({
-          type: "access-request",
-          payload: req
-        });
-      } catch (e) {}
-    }
-
+  function checkAutoUpdate(manual) {
     try {
-      window.dispatchEvent(new CustomEvent("arex:access-request", {
-        detail: req
-      }));
-    } catch (e) {}
+      var last = load(KEYS.LAST_UPDATE, 0);
+      var interval = CONFIG.updateIntervalDays * 24 * 60 * 60 * 1000;
+      var due = (Date.now() - last) >= interval;
 
-    updateNotificationBell();
-  }
+      if (!due && !manual) return;
+      if (!navigator.onLine && !manual) return;
 
-  function makeAccessRequestShareUrl(req) {
-    var payload = {
-      id: req.id,
-      name: req.name,
-      email: req.email,
-      reason: req.reason,
-      date: req.date,
-      source: "lien-partage"
-    };
-
-    var baseUrl = location.href.split("?")[0].split("#")[0];
-    return baseUrl + "?access_request=" + utf8ToB64Url(JSON.stringify(payload));
-  }
-
-  function processIncomingAccessRequestFromUrl() {
-    try {
-      var raw = getQueryParam("access_request");
-      if (!raw) return;
-
-      var decoded = b64UrlToUtf8(raw);
-      var req = JSON.parse(decoded);
-
-      if (!req || !req.name || !req.email) return;
-
-      req.id = req.id || uid();
-      req.status = "pending";
-      req.date = req.date || new Date().toLocaleString("fr-FR");
-      req.source = req.source || "lien-partage";
-
-      var requests = getRequests();
-
-      var exists = requests.find(function (r) {
-        return r.id === req.id ||
-          (
-            String(r.email || "").toLowerCase() === String(req.email || "").toLowerCase() &&
-            String(r.name || "").toLowerCase() === String(req.name || "").toLowerCase() &&
-            String(r.reason || "") === String(req.reason || "")
-          );
-      });
-
-      if (!exists) {
-        requests.push(req);
-        saveRequests(requests);
-        publishAccessRequest(req);
-
-        toast("Demande d’accès importée depuis le lien partagé.", "success");
-      }
-
-      var cleanUrl = location.href.split("?")[0] + location.hash;
-
-      if (history.replaceState) {
-        history.replaceState({}, document.title, cleanUrl);
-      }
+      fetchUpdate(manual);
     } catch (e) {
-      console.warn("[AR-EXPERT] Lien de demande invalide:", e);
+      console.warn("[AR-EXPERT] Check update ignore:", e);
     }
   }
 
-  function showApp() {
-    var login = q("#loginScreen");
-    if (login) {
-      login.classList.add("hidden");
-      login.style.display = "none";
-    }
-
-    var app = q("#mainApp");
-    if (app) {
-      app.classList.remove("hidden");
-      app.style.display = "block";
-    }
-
-    var badge = q("#userBadge");
-    if (badge) {
-      badge.textContent = currentUser.role === "admin"
-        ? "👑 Admin"
-        : "👤 " + currentUser.name;
-    }
-
-    var adminBtn = q("#adminPanelBtn");
-    if (adminBtn) {
-      if (currentUser.role === "admin") {
-        adminBtn.classList.remove("hidden");
-      } else {
-        adminBtn.classList.add("hidden");
-      }
-    }
-
-    updateCounter();
-    updateNotificationBell();
-    updateNotificationState();
-
-    if (currentUser && currentUser.role === "admin") {
-      startAdminPolling();
-      askNotification();
-    } else {
-      stopAdminPolling();
-    }
-
-    window.scrollTo(0, 0);
-  }
-
-  function showLogin() {
-    var login = q("#loginScreen");
-    if (login) {
-      login.classList.remove("hidden");
-      login.style.display = "flex";
-    }
-
-    var app = q("#mainApp");
-    if (app) {
-      app.classList.add("hidden");
-      app.style.display = "none";
-    }
-
-    var admin = q("#adminPanel");
-    if (admin) {
-      admin.classList.add("hidden");
-    }
-
-    stopAdminPolling();
-    updateNotificationBell();
-    updateNotificationState();
-    refreshSavedPasswordButton();
-  }
-
-  function refreshSavedPasswordButton() {
-    var btn = q("#useSavedPwdBtn");
-    var saved = load(KEYS.ADMIN_PWD_HASH, null);
-    if (!btn) return;
-
-    if (saved) btn.classList.remove("hidden");
-    else btn.classList.add("hidden");
-  }
-
-  function verifyAdminPassword(input) {
-    if (!input) return Promise.resolve(false);
-    return sha256(CONFIG.adminPassword).then(function (adminHash) {
-      return sha256(input).then(function (inputHash) {
-        return inputHash === adminHash;
-      });
-    });
-  }
-
-  function loginAdminFromHash(savedHash) {
-    if (!savedHash) return Promise.resolve(false);
-    return sha256(CONFIG.adminPassword).then(function (adminHash) {
-      return savedHash === adminHash;
-    });
-  }
-
-  function enforceTierAccess() {
-    if (!currentUser || currentUser.role === "admin") return;
-
-    var fresh = findUser(currentUser.name, currentUser.email);
-    if (!fresh || fresh.status !== "approved") {
-      clearSession();
-      showLogin();
-      toast("Votre accès a été révoqué ou refusé par l’administrateur.", "error");
-      notify("Accès révoqué", "Contactez l’administrateur si nécessaire.");
-    } else {
-      currentUser = fresh;
-      setSession(fresh);
-      updateCounter();
-    }
-  }
-
-  setInterval(enforceTierAccess, 15000);
-
-  window.addEventListener("storage", function (e) {
-    if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS) {
-      updateNotificationBell();
-
-      if (currentUser && currentUser.role === "admin") {
-        pollAdminNotifications();
-        renderAdminIfOpen();
-      }
-
-      enforceTierAccess();
-    }
-  });
-
-  if (broadcast) {
-    broadcast.onmessage = function (event) {
-      try {
-        var data = event.data || {};
-
-        if (data.type === "access-request") {
-          onAccessRequestReceived(data.payload);
-        }
-
-        if (data.type === "access-change") {
-          enforceTierAccess();
-
-          if (currentUser && currentUser.role === "admin") {
-            updateNotificationBell();
-            renderAdminIfOpen();
-          }
-        }
-      } catch (e) {
-        console.warn("[AR-EXPERT] Broadcast message ignoré:", e);
-      }
-    };
-  }
-
-  window.addEventListener("arex:access-request", function (event) {
-    onAccessRequestReceived(event.detail);
-  });
-
-  qa(".auth-tab").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      qa(".auth-tab").forEach(function (b) { b.classList.remove("active"); });
-      qa(".auth-pane").forEach(function (p) { p.classList.remove("active"); });
-      btn.classList.add("active");
-
-      var pane = q("#" + btn.dataset.authTab + "Pane");
-      if (pane) pane.classList.add("active");
-
-      authMessage("", "");
-    });
-  });
-
-  on("#adminLoginBtn", "click", function () {
-    var pwdEl = q("#adminPassword");
-    var rememberEl = q("#rememberAdminPwd");
-    var pwd = pwdEl ? pwdEl.value : "";
-    var remember = rememberEl ? rememberEl.checked : false;
-
-    if (!pwd) {
-      authMessage("Mot de passe requis.", "error");
+  function fetchUpdate(manual) {
+    if (!window.fetch) {
+      if (manual) toast("Mise à jour impossible : fetch non supporté.", "warning");
       return;
     }
 
-    verifyAdminPassword(pwd).then(function (ok) {
-      if (!ok) {
-        authMessage("Mot de passe incorrect.", "error");
-        return;
-      }
+    updateDataStatus(manual ? "Recherche de mise à jour..." : "Mise à jour périodique en arrière-plan...");
 
-      if (remember) {
-        sha256(pwd).then(function (h) {
-          save(KEYS.ADMIN_PWD_HASH, h);
-          refreshSavedPasswordButton();
-        });
-      } else {
-        del(KEYS.ADMIN_PWD_HASH);
-        refreshSavedPasswordButton();
-      }
-
-      setSession({
-        id: "admin",
-        name: "Administrateur",
-        email: "admin@local",
-        role: "admin",
-        status: "approved"
-      });
-
-      showApp();
-      toast("Connexion admin réussie.", "success");
-      if (pwdEl) pwdEl.value = "";
-    }).catch(function () {
-      if (pwd === CONFIG.adminPassword) {
-        setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
-        showApp();
-        toast("Connexion admin réussie (mode local).", "success");
-        if (pwdEl) pwdEl.value = "";
-      } else {
-        authMessage("Vérification impossible. Réessayez.", "error");
-      }
-    });
-  });
-
-  on("#useSavedPwdBtn", "click", function () {
-    var saved = load(KEYS.ADMIN_PWD_HASH, null);
-    if (!saved) {
-      authMessage("Aucun mot de passe enregistré.", "warning");
-      return;
-    }
-
-    loginAdminFromHash(saved).then(function (ok) {
-      if (!ok) {
-        authMessage("Mot de passe enregistré invalide.", "error");
-        del(KEYS.ADMIN_PWD_HASH);
-        refreshSavedPasswordButton();
-        return;
-      }
-
-      setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
-      showApp();
-      toast("Connexion admin via mot de passe enregistré.", "success");
-    });
-  });
-
-  on("#requestBtn", "click", function () {
-    var nameEl = q("#reqName");
-    var emailEl = q("#reqEmail");
-    var reasonEl = q("#reqReason");
-
-    var name = nameEl ? nameEl.value.trim() : "";
-    var email = emailEl ? emailEl.value.trim() : "";
-    var reason = reasonEl ? reasonEl.value.trim() : "";
-
-    if (!name || !email || !reason) {
-      authMessage("Tous les champs sont requis.", "error");
-      return;
-    }
-
-    var requests = getRequests();
-
-    var alreadyPending = requests.find(function (r) {
-      return r.email.toLowerCase() === email.toLowerCase() && r.status === "pending";
-    });
-
-    if (alreadyPending) {
-      authMessage("Demande déjà en attente.", "warning");
-      return;
-    }
-
-    var existing = findUser(name, email);
-    if (existing && existing.status === "approved") {
-      authMessage("Accès déjà accordé. Utilisez Connexion tiers.", "success");
-      return;
-    }
-
-    var req = {
-      id: uid(),
-      name: name,
-      email: email,
-      reason: reason,
-      status: "pending",
-      date: new Date().toLocaleString("fr-FR"),
-      source: "formulaire-local"
-    };
-
-    requests.push(req);
-    saveRequests(requests);
-
-    lastSharedAccessRequest = req;
-
-    var shareBtn = q("#shareRequestBtn");
-    if (shareBtn) shareBtn.classList.remove("hidden");
-
-    publishAccessRequest(req);
-
-    authMessage(
-      "Demande envoyée. Si l’admin est sur le même appareil, il sera notifié. Sinon, utilisez ‘Partager la demande avec l’admin’.",
-      "success"
-    );
-
-    if (nameEl) nameEl.value = "";
-    if (emailEl) emailEl.value = "";
-    if (reasonEl) reasonEl.value = "";
-  });
-
-  on("#shareRequestBtn", "click", function () {
-    if (!lastSharedAccessRequest) {
-      toast("Aucune demande à partager.", "warning");
-      return;
-    }
-
-    var url = makeAccessRequestShareUrl(lastSharedAccessRequest);
-
-    var text =
-      "Demande d’accès Expert Auto\n" +
-      "Nom : " + lastSharedAccessRequest.name + "\n" +
-      "Email : " + lastSharedAccessRequest.email + "\n" +
-      "Motif : " + lastSharedAccessRequest.reason + "\n" +
-      "Lien admin : " + url;
-
-    if (navigator.share) {
-      navigator.share({
-        title: "Demande d’accès Expert Auto",
-        text: text,
-        url: url
-      }).catch(function () {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          navigator.clipboard.writeText(url).then(function () {
-            toast("Lien de demande copié.", "success");
-          }).catch(function () {
-            toast("Copie impossible.", "error");
-          });
-        } else {
-          toast("Partage impossible.", "warning");
-        }
-      });
-    } else if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(function () {
-        toast("Lien de demande copié.", "success");
-      }).catch(function () {
-        toast("Copie impossible.", "error");
-      });
-    } else {
-      toast("Partage non supporté.", "warning");
-    }
-  });
-
-  on("#thirdLoginBtn", "click", function () {
-    var nameEl = q("#loginName");
-    var emailEl = q("#loginEmail");
-    var name = nameEl ? nameEl.value.trim() : "";
-    var email = emailEl ? emailEl.value.trim() : "";
-
-    if (!name || !email) {
-      authMessage("Nom et email requis.", "error");
-      return;
-    }
-
-    var user = findUser(name, email);
-    if (!user) {
-      var req = getRequests().find(function (r) {
-        return r.name.toLowerCase() === name.toLowerCase() && r.email.toLowerCase() === email.toLowerCase();
-      });
-      if (req && req.status === "pending") {
-        authMessage("Votre demande est en cours de traitement.", "warning");
-        return;
-      }
-      authMessage("Aucun accès trouvé pour ces identifiants.", "error");
-      return;
-    }
-
-    if (user.status !== "approved") {
-      authMessage("Accès refusé ou révoqué.", "error");
-      return;
-    }
-
-    setSession(user);
-    showApp();
-    toast("Connexion tiers réussie.", "success");
-  });
-
-  on("#logoutBtn", "click", function () {
-    clearSession();
-    showLogin();
-    toast("Déconnexion effectuée.", "info");
-  });
-
-  on("#clearCacheBtn", "click", function () {
-    clearCacheAndReload();
-  });
-
-  function clearCacheAndReload() {
-    var unload = ("serviceWorker" in navigator)
-      ? navigator.serviceWorker.getRegistrations().then(function (regs) {
-          return Promise.all(regs.map(function (r) {
-            return r.unregister().catch(function () {});
-          }));
-        })
-      : Promise.resolve();
-
-    var delCache = ("caches" in window)
-      ? caches.keys().then(function (names) {
-          return Promise.all(names.map(function (n) {
-            return caches.delete(n).catch(function () {});
-          }));
-        })
-      : Promise.resolve();
-
-    Promise.all([unload.catch(function () {}), delCache.catch(function () {})])
-      .then(function () {
-        location.reload(true);
+    fetch(CONFIG.updateUrl, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
       })
-      .catch(function () {
-        location.reload(true);
-      });
-  }
-
-  function readFileAsArrayBuffer(file) {
-    if (file.arrayBuffer) return file.arrayBuffer();
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function () { resolve(reader.result); };
-      reader.onerror = reject;
-      reader.readAsArrayBuffer(file);
-    });
-  }
-
-  function pdfStatus(msg, type) {
-    var el = q("#pdfStatus");
-    if (el) {
-      el.textContent = msg;
-      el.className = "status " + type;
-    } else {
-      toast(msg, type);
-    }
-  }
-
-  on("#pdfUpload", "change", function (e) {
-    var file = e.target.files && e.target.files[0];
-    if (!file) return;
-
-    if (file.type !== "application/pdf") {
-      pdfStatus("Format non supporté. PDF uniquement.", "error");
-      return;
-    }
-
-    if (!window.pdfjsLib) {
-      pdfStatus("Bibliothèque PDF.js indisponible. Saisissez le texte manuellement.", "error");
-      return;
-    }
-
-    pdfStatus("Extraction du texte en cours...", "success");
-
-    readFileAsArrayBuffer(file)
-      .then(function (arrayBuffer) {
-        return window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      })
-      .then(function (pdf) {
-        var fullText = "";
-        var promises = [];
-
-        for (var i = 1; i <= pdf.numPages; i++) {
-          (function (pageNum) {
-            promises.push(
-              pdf.getPage(pageNum).then(function (page) {
-                return page.getTextContent();
-              }).then(function (tc) {
-                fullText += tc.items.map(function (item) { return item.str; }).join(" ") + "\n\n";
-              })
-            );
-          })(i);
+      .then(function (json) {
+        var incoming = Array.isArray(json) ? json : (json && Array.isArray(json.defects) ? json.defects : []);
+        if (!incoming.length) {
+          if (manual) toast("Aucune nouvelle donnée technique.", "info");
+          save(KEYS.LAST_UPDATE, Date.now());
+          updateDataStatus("Base locale à jour");
+          return;
         }
 
-        return Promise.all(promises).then(function () {
-          extractedText = fullText;
-          var textInput = q("#textInput");
-          if (textInput) textInput.value = fullText;
-          pdfStatus("PDF extrait avec succès (" + pdf.numPages + " pages).", "success");
-        });
+        techUpdates = mergeDefects(techUpdates, incoming);
+        save(KEYS.TECH_UPDATES, techUpdates);
+        save(KEYS.LAST_UPDATE, Date.now());
+        updateAdminStats();
+        updateDataStatus("Base mise à jour automatiquement");
+
+        if (manual) toast("Mise à jour technique appliquée.", "success");
+        notify("Base technique mise à jour", incoming.length + " entrées traitées.");
       })
       .catch(function (err) {
-        console.error(err);
-        pdfStatus("Erreur d’extraction PDF : " + err.message, "error");
+        console.warn("[AR-EXPERT] Mise à jour impossible:", err);
+        save(KEYS.LAST_UPDATE, Date.now());
+        updateDataStatus("Mode autonome : mise à jour indisponible");
+        if (manual) toast("Mise à jour impossible. Base locale conservée.", "warning");
       });
-  });
+  }
 
+  /* =========================================================
+     CORRELATION TECHNIQUE / JURIDIQUE
+     ========================================================= */
   function checkYearRange(rangeStr, targetYear) {
     if (!targetYear) return true;
     var parts = String(rangeStr || "").split("-").map(function (s) { return parseInt(s.trim(), 10); });
@@ -1833,12 +1812,1120 @@
     ];
   }
 
+  /* =========================================================
+     ANALYSE / RAPPORT
+     ========================================================= */
   function addTerm() {
-    for (var i = 0; i < arguments.length; i++) {
-      termesMobilises.add(arguments[i]);
-    }
-    return '<span class="termes-juridiques">(' + Array.prototype.slice.call(arguments).join(", ") + ")</span>";
+    var args = Array.prototype.slice.call(arguments);
+    args.forEach(function (t) { termesMobilises.add(t); });
+    return `<span class="termes-juridiques">(${args.join(", ")})</span>`;
   }
+
+  function runAnalysis(text, context, objective, sellerType) {
+    var all = (text + " " + context).toLowerCase();
+
+    var flags = {
+      professional: sellerType === "professional" || ["professionnel", "garage", "concession", "revendeur", "automobile", "commercial"].some(function (w) { return all.indexOf(w) >= 0; }),
+      privateSeller: sellerType === "private" || ["particulier", "entre particuliers", "leboncoin", "lavitrine"].some(function (w) { return all.indexOf(w) >= 0; }),
+      defect: ["défaut", "panne", "problème", "dysfonctionnement", "casse", "fuite", "bruit", "vibration", "perte puissance", "à-coup", "claquement", "voyant", "mode dégradé", "surchauffe", "infiltration", "court circuit", "moisiure", "odeur", "fumée", "calage", "patinage", "blocage"].some(function (w) { return all.indexOf(w) >= 0; }),
+      waterLeak: ["eau", "humidité", "infiltration", "baie", "pare brise", "pare-brise", "moisiure", "court circuit", "traces d’eau", "flaque", "égouttement"].some(function (w) { return all.indexOf(w) >= 0; }),
+      safety: ["sécurité", "frein", "airbag", "direction", "incendie", "danger", "vie", "intégrité physique", "mise en danger", "ADAS", "autopilot"].some(function (w) { return all.indexOf(w) >= 0; }),
+      ev: ["batterie", "charge", "autonomie", "electrique", "électrique", "hybride", "BMS", "DC", "AC", "recharge"].some(function (w) { return all.indexOf(w) >= 0; }),
+      invoice: all.indexOf("facture") >= 0,
+      repair: all.indexOf("réparation") >= 0 || all.indexOf("ordre de réparation") >= 0 || all.indexOf("devis") >= 0,
+      controlTech: all.indexOf("contrôle technique") >= 0 || all.indexOf(" ct ") >= 0,
+      warranty: all.indexOf("garantie") >= 0,
+      highKm: parseKm(vehicleData.kilometrage) > 120000,
+      veryHighKm: parseKm(vehicleData.kilometrage) > 180000
+    };
+
+    var matches = matchDefects(vehicleData.marque, vehicleData.modele, vehicleData.annee, vehicleData.kilometrage, text);
+
+    analysisData = {
+      date: new Date().toLocaleString("fr-FR"),
+      vehicleData: vehicleData,
+      flags: flags,
+      matches: matches,
+      sections: []
+    };
+
+    var S = [];
+    S.push(["I. ÉLÉMENTS FACTUELS ET IDENTIFICATION DU VÉHICULE", secFacts(text, context)]);
+    S.push(["II. DIAGNOSTIC TECHNIQUE — DÉFAUTS CONNUS, VÉTUSTÉ, USURE, SÉCURITÉ", secDiag(matches, flags, vehicleData)]);
+    S.push(["III. QUALIFICATION JURIDIQUE PROVISOIRE", secQualif(flags, matches)]);
+    S.push(["IV. RISQUES ET RESPONSABILITÉS SELON LA QUALITÉ DU VENDEUR", secRisques(flags, matches)]);
+    S.push(["V. TROIS CRITÈRES CUMULATIFS : ANTÉRIORITÉ, CARACTÈRE CACHÉ, GRAVITÉ", secCriteres(flags, matches, vehicleData)]);
+    S.push(["VI. RÉGIMES DE GARANTIE ET FONDEMENTS JURIDIQUES CROISÉS", secGaranties(flags, matches)]);
+    S.push(["VII. DOSSIER PROBATOIRE ET DOCUMENTS À CONSOLIDER", secDocs(flags, matches)]);
+    S.push(["VIII. JURISPRUDENCE, TEXTES ET SOURCES DE RÉFÉRENCE", secJuri(matches)]);
+    S.push(["IX. ÉVALUATION DU PRÉJUDICE", secPrejudice(flags, matches)]);
+    S.push(["X. STRATÉGIE CONTENTIEUSE RECOMMANDÉE", secStrategie(flags, matches, objective)]);
+    S.push(["XI. RECHERCHE APPROFONDIE ET VÉRIFICATIONS EXTERNES", secVerif(matches, flags)]);
+    S.push(["XII. VOIES D’ACTION POSSIBLES", secVoies(flags, matches)]);
+    S.push(["XIII. CONCLUSION ORIENTÉE EXPERT / INGÉNIEUR / JURISTE / SAPEUR-POMPIER", secConclu(objective, matches, flags, vehicleData)]);
+    S.push(["XIV. LEXIQUE JURIDIQUE ET TECHNIQUE MOBILISÉ", secLexique()]);
+
+    analysisData.sections = S;
+    renderAnalysis();
+  }
+
+  function renderAnalysis() {
+    var html = "";
+    analysisData.sections.forEach(function (pair) {
+      html += `<h3>${pair[0]}</h3>${pair[1]}`;
+    });
+
+    html += `<div class="verification-needed"><strong>Rappel méthodologique :</strong> ce rapport effectue d’abord un croisement local technique/juridique avant toute rédaction assistée par IA. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>`;
+
+    var result = q("#analysisResult");
+    if (result) result.innerHTML = html;
+
+    var section = q("#analysisSection");
+    if (section) {
+      section.classList.remove("hidden");
+      section.scrollIntoView({ behavior: "smooth" });
+    }
+  }
+
+  function secFacts(text, context) {
+    var h = `<p><strong>Objet :</strong> recensement des éléments fournis ${addTerm("éléments factuels", "faits allégués")}.</p>`;
+
+    h += `<h4>A. Véhicule déclaré</h4><ul>`;
+    h += `<li><strong>Marque :</strong> ${esc(vehicleData.marque || "non précisée")}</li>`;
+    h += `<li><strong>Modèle :</strong> ${esc(vehicleData.modele || "non précisé")}</li>`;
+    h += `<li><strong>Année :</strong> ${esc(vehicleData.annee || "non précisée")} ${addTerm("millésime", "date de première mise en circulation")}</li>`;
+    h += `<li><strong>Kilométrage :</strong> ${esc(vehicleData.kilometrage || "non précisé")} km ${addTerm("kilométrage", "usure normale", "vétusté")}</li>`;
+    h += `<li><strong>VIN :</strong> ${esc(vehicleData.vin || "non communiqué")} ${addTerm("VIN", "numéro de série", "traçabilité")}</li>`;
+    h += `</ul>`;
+
+    h += `<h4>B. Faits rapportés</h4>`;
+    h += `<p>${esc(text.substring(0, 1400))}${text.length > 1400 ? " [...] (tronqué pour affichage, analyse complète conservée en mémoire)" : ""}</p>`;
+
+    if (context) {
+      h += `<h4>C. Contexte transactionnel</h4><p>${esc(context.substring(0, 1000))}</p>`;
+    }
+
+    h += `<div class="certainty-low"><strong>Limite :</strong> faits non vérifiés par expertise contradictoire ${addTerm("faits non vérifiés", "principe du contradictoire")}.</div>`;
+    return h;
+  }
+
+  function secDiag(matches, flags, vData) {
+    var km = parseKm(vData.kilometrage);
+    var yr = parseYear(vData.annee);
+    var age = new Date().getFullYear() - (yr || new Date().getFullYear());
+
+    if (!matches.length) {
+      var h0 = `<p><strong>Objet :</strong> recherche de défauts conceptuels connus ${addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série")}.</p>`;
+      h0 += `<div class="verification-needed">`;
+      h0 += `<p>Aucune correspondance exacte trouvée dans la base locale pour Marque/Modèle/Année/Symptômes.</p>`;
+      h0 += `<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>`;
+      h0 += `<p>Une expertise individuelle est nécessaire ${addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine")}.</p>`;
+      h0 += `</div>`;
+      return h0;
+    }
+
+    var h = `<p><strong>Objet :</strong> croisement technique local avec défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA et bases de sécurité ${addTerm("vice caché notoire", "défaut de série", "défaut de conception")}.</p>`;
+
+    matches.forEach(function (m, i) {
+      var cls = m.severite === "critique" ? "rappel-critical" : "rappel-info";
+      var confColor = m.confiance === "Haute" ? "#10b981" : (m.confiance === "Moyenne" ? "#f59e0b" : "#ef4444");
+
+      h += `<div class="${cls}">`;
+      h += `<h4>${i + 1}. ${esc(m.moteur)} — ${esc(m.puissance)} — ${esc(m.periode)}</h4>`;
+      h += `<p><strong>Constructeur :</strong> ${esc(m.constructeur)}</p>`;
+      h += `<p><strong>Modèles concernés :</strong> ${esc(m.modeles.join(", "))}</p>`;
+      h += `<p><strong>Symptômes détectés :</strong> ${esc(m.symptomes.join(", "))}</p>`;
+      h += `<p><strong>Tags système :</strong> ${esc(m.tags || "non précisé")}</p>`;
+      h += `<p><strong>Description technique :</strong> ${esc(m.description)}</p>`;
+      h += `<p><strong>Gravité :</strong> <span style="font-weight:bold;color:${m.severite === "critique" ? "#dc3545" : "#ffc107"}">${esc(m.severite.toUpperCase())}</span></p>`;
+      h += `<p><strong>Confiance vs usure :</strong> <span style="color:${confColor};font-weight:bold">${esc(m.confiance)}</span> — indice de non-usure : ${Math.round(m.wearFactor * 100)}%</p>`;
+      h += `<p style="background:#fff3cd;padding:8px;border-radius:4px;">⚠️ ${esc(m.alerteUsure)}</p>`;
+      h += `<p><strong>Croisement juridique local :</strong> ${esc(m.baseLegale)} ${addTerm("vice caché", "défaut de conformité", "tromperie")}</p>`;
+      h += `<p><strong>Rappel / TSB / source :</strong> ${esc(m.rappelRef)} ${addTerm("rappel constructeur", "campagne technique", "TSB")}</p>`;
+      h += `</div>`;
+    });
+
+    h += `<h4>Analyse de vétusté et kilométrage</h4><ul>`;
+    h += `<li><strong>Âge approximatif :</strong> ${age} ans</li>`;
+    h += `<li><strong>Kilométrage :</strong> ${km.toLocaleString("fr-FR")} km</li>`;
+    h += `<li><strong>Rythme estimé :</strong> ${age > 0 ? Math.round(km / age).toLocaleString("fr-FR") : "N/A"} km/an</li>`;
+
+    if (km > 200000) {
+      h += `<li class="certainty-low">Kilométrage très élevé : usure normale fortement plausible. Expertise indispensable pour distinguer défaut et usure.</li>`;
+    } else if (km > 120000) {
+      h += `<li class="certainty-medium">Kilométrage élevé : usure possible, mais défaut de série documenté maintient une suspicion forte.</li>`;
+    } else {
+      h += `<li class="certainty-high">Kilométrage modéré : la thèse du vice caché / défaut de conception est renforcée.</li>`;
+    }
+    h += `</ul>`;
+
+    if (flags.waterLeak) {
+      h += `<div class="rappel-critical"><h4>💧 Alerte infiltration d’eau — angle ingénieur / sapeur-pompier</h4>`;
+      h += `<p>Les symptômes évoquent une infiltration d’eau (baie de pare-brise, joints, évacuations, toit ouvrant, climatisation).</p>`;
+      h += `<p><strong>Point expert :</strong> ce type de désordre relève souvent d’un défaut de montage ou de conception, indépendant du kilométrage.</p>`;
+      h += `<p><strong>Risques :</strong> court-circuit, destruction de calculateurs, corrosion, dysfonctionnement ABS/ESP, airbag, direction, risque d’incendie électrique.</p>`;
+      h += `<p><strong>Constat recommandé :</strong> photos des moisiures, boîtier fusibles, connecteurs sous tableau de bord, cavillon, joints de pare-brise, évacuations.</p>`;
+      h += `</div>`;
+    }
+
+    if (flags.ev) {
+      h += `<div class="rappel-info"><h4>🔋 Angle électrique / batterie / charge</h4>`;
+      h += `<p>Le dossier évoque batterie, charge, autonomie ou système électrique/hybride.</p>`;
+      h += `<p><strong>Vérifications :</strong> état de santé batterie (SOH), équilibrage cellules, BMS, charge AC/DC, température, logiciel, batterie 12V, DC-DC, isolation HV.</p>`;
+      h += `<p><strong>Sécurité :</strong> en cas d’odeur, fumée, échauffement, gonflement batterie ou erreur isolement, immobiliser le véhicule et éloigner les personnes.</p>`;
+      h += `</div>`;
+    }
+
+    if (matches.some(function (m) { return m.severite === "critique"; })) {
+      h += `<div class="rappel-critical"><h4>🚨 Alerte sécurité civile / sapeur-pompier</h4>`;
+      h += `<p>Un défaut critique est identifié : risque moteur, incendie, perte de contrôle, airbag, batterie ou immobilisation brutale.</p>`;
+      h += `<p>En attendant expertise, limiter l’usage du véhicule, éviter autoroutes, transports d’enfants, trajets de nuit et longue durée.</p>`;
+      h += `</div>`;
+    }
+
+    h += `<div class="certainty-medium"><strong>Synthèse :</strong> faisceau d’indices techniques ${addTerm("faisceau d’indices", "indice grave précis et concordant")} en faveur d’un défaut antérieur, caché et grave. Le vendeur professionnel aurait pu connaître ce risque ${addTerm("obligation de renseignement", "présomption de connaissance")}.</div>`;
+
+    return h;
+  }
+
+  function secQualif(flags, matches) {
+    var h = `<p><strong>Objet :</strong> qualification juridique provisoire ${addTerm("qualification juridique", "qualification incertaine")}.</p>`;
+
+    if (flags.professional && !flags.privateSeller) {
+      h += `<div class="certainty-high"><p>Vendeur présumé professionnel ${addTerm("vendeur professionnel")}. Protection consommateur renforcée : garantie légale de conformité, charge de la preuve allégée, obligation d’information et de vérification des rappels.</p></div>`;
+    } else if (flags.privateSeller && !flags.professional) {
+      h += `<div class="certainty-medium"><p>Vendeur présumé particulier ${addTerm("vente entre particuliers")}. Garantie des vices cachés du Code civil. Charge de la preuve plus lourde pour l’acquéreur.</p></div>`;
+    } else {
+      h += `<div class="certainty-low"><p>Statut du vendeur incertain ${addTerm("ambiguïté statut vendeur")}. Qualifier d’abord le vendeur avant action.</p></div>`;
+    }
+
+    if (matches.length) {
+      h += `<p>La probabilité d’un ${addTerm("défaut de conception", "vice caché notoire")} renforce la non-conformité initiale du bien.</p>`;
+    }
+
+    return h;
+  }
+
+  function secRisques(flags, matches) {
+    var h = `<p><strong>Objet :</strong> risques et responsabilités ${addTerm("risques encourus", "responsabilité contractuelle", "responsabilité délictuelle")}.</p>`;
+
+    if (matches.some(function (m) { return m.severite === "critique"; })) {
+      h += `<div class="rappel-critical"><h4>⚠️ Responsabilité aggravée</h4><ul>`;
+      h += `<li>Professionnel : faute lourde ou dolosive possible ${addTerm("faute lourde", "faute dolosive")}.</li>`;
+      h += `<li>Particulier : mauvaise foi si défaut connu ou dissimulé ${addTerm("mauvaise foi", "réticence dolosive")}.</li>`;
+      h += `<li>Pénal possible en cas d’accident ${addTerm("homicide involontaire", "blessures involontaires", "mise en danger")}.</li>`;
+      h += `<li>Constructeur : produits défectueux ${addTerm("article 1245 C.civ.")}.</li>`;
+      h += `</ul></div>`;
+    }
+
+    h += `<h4>A. Si professionnel</h4><ul>`;
+    h += `<li>${addTerm("garantie légale de conformité", "L.217-4 C.consom.")} : réparation, remplacement, réduction, résolution.</li>`;
+    h += `<li>${addTerm("présomption d’antériorité")} pendant 12 mois, 24 mois depuis 2022.</li>`;
+    h += `<li>${addTerm("responsabilité contractuelle", "1231-1 C.civ.")} : dommages-intérêts.</li>`;
+    h += `<li>${addTerm("tromperie", "L.213-1 C.consom.")} si dissimulation.</li>`;
+    h += `<li>${addTerm("DGCCRF", "rappel conso", "sanctions administratives")}.</li>`;
+    h += `</ul>`;
+
+    h += `<h4>B. Si particulier</h4><ul>`;
+    h += `<li>${addTerm("garantie des vices cachés", "1641 C.civ.")}.</li>`;
+    h += `<li>${addTerm("action rédhibitoire")} ou ${addTerm("action estimatoire")}.</li>`;
+    h += `<li>${addTerm("charge de la preuve")} sur l’acquéreur.</li>`;
+    h += `<li>${addTerm("clause vendu en l’état")} inopposable en cas de mauvaise foi.</li>`;
+    h += `</ul>`;
+
+    return h;
+  }
+
+  function secCriteres(flags, matches, vData) {
+    var km = parseKm(vData.kilometrage);
+    var best = matches[0];
+
+    var h = `<p><strong>Objet :</strong> critères cumulatifs adaptés à l’usure et à la vétusté ${addTerm("critères cumulatifs", "usure normale", "vétusté")}.</p>`;
+
+    h += `<h4>A. Antériorité ${addTerm("antériorité")}</h4>`;
+    if (best && best.confiance === "Haute") {
+      h += `<p class="certainty-high">Défaut de série/conception/software : antériorité fortement présumée, souvent indépendante du kilométrage.</p>`;
+    } else if (best && best.confiance === "Moyenne") {
+      h += `<p class="certainty-medium">Antériorité probable, mais km élevé (${km.toLocaleString("fr-FR")}) : expertise pour écarter l’usure.</p>`;
+    } else if (best) {
+      h += `<p class="certainty-low">Antériorité difficile à établir sans expertise : km très élevé, usure normale plausible.</p>`;
+    } else {
+      h += `<p class="verification-needed">Antériorité à prouver par expertise contradictoire.</p>`;
+    }
+
+    h += `<h4>B. Caractère caché ${addTerm("caractère caché")}</h4>`;
+    if (best && best.wearFactor >= 0.8) {
+      h += `<p class="certainty-high">Défaut non apparent lors d’un examen visuel standard et d’un essai court.</p>`;
+    } else if (best) {
+      h += `<p class="certainty-medium">Caractère caché soutenable, mais dépend de la diligence de l’acheteur et de la visibilité du symptôme.</p>`;
+    } else {
+      h += `<p>Caractère caché à apprécier concrètement.</p>`;
+    }
+
+    h += `<h4>C. Gravité ${addTerm("gravité")}</h4>`;
+    if (matches.some(function (m) { return m.severite === "critique"; })) {
+      h += `<p class="certainty-high">Gravité élevée : sécurité, casse moteur, incendie, immobilisation, coût disproportionné.</p>`;
+    } else if (matches.length) {
+      h += `<p class="certainty-medium">Gravité à mesurer par rapport au coût de réparation et à la valeur du véhicule.</p>`;
+    } else {
+      h += `<p>Gravité à évaluer par devis et usage normal du véhicule.</p>`;
+    }
+
+    h += `<div class="verification-needed">Réunion des critères à confirmer par expertise ${addTerm("confirmation expertise")}.</div>`;
+    return h;
+  }
+
+  function secGaranties(flags, matches) {
+    var h = `<p><strong>Objet :</strong> régimes de garantie et croisement juridique local ${addTerm("régimes de garantie", "cumul des garanties")}.</p>`;
+
+    if (flags.professional) {
+      h += `<h4>Professionnel</h4><ul>`;
+      h += `<li>${addTerm("garantie légale de conformité", "L.217-4 et s. C.consom.")}</li>`;
+      h += `<li>${addTerm("garantie des vices cachés", "1641 C.civ.")} cumulable</li>`;
+      h += `<li>${addTerm("responsabilité contractuelle", "1231-1 C.civ.")}</li>`;
+      h += `<li>${addTerm("tromperie", "L.213-1 C.consom.")}</li>`;
+      h += `<li>${addTerm("pratique commerciale trompeuse", "L.121-2 C.consom.")}</li>`;
+      h += `</ul>`;
+    } else {
+      h += `<h4>Particulier</h4><ul>`;
+      h += `<li>${addTerm("garantie des vices cachés", "1641 à 1649 C.civ.")}</li>`;
+      h += `<li>${addTerm("action rédhibitoire")} / ${addTerm("action estimatoire")}</li>`;
+      h += `<li>${addTerm("dol", "1137 C.civ.")} si dissimulation</li>`;
+      h += `<li>${addTerm("obligation d’information précontractuelle", "1112-1 C.civ.")}</li>`;
+      h += `</ul>`;
+    }
+
+    if (matches.some(function (m) { return m.severite === "critique"; })) {
+      h += `<h4>Constructeur / sécurité</h4><ul>`;
+      h += `<li>${addTerm("produits défectueux", "1245 C.civ.")}</li>`;
+      h += `<li>${addTerm("défaut de sécurité", "L.423-1 C.consom.")}</li>`;
+      h += `<li>${addTerm("rappel obligatoire", "DGCCRF", "NHTSA", "KBA")}</li>`;
+      h += `</ul>`;
+    }
+
+    return h;
+  }
+
+  function secDocs(flags, matches) {
+    var h = `<p><strong>Objet :</strong> preuve documentaire ${addTerm("preuve documentaire", "dossier probatoire")}.</p><ul>`;
+    h += `<li>Facture : ${flags.invoice ? "présente" : "à récupérer"}</li>`;
+    h += `<li>Certificat de cession : à conserver</li>`;
+    h += `<li>Carte grise : vérifier cohérence kilométrage</li>`;
+    h += `<li>Contrôle technique : ${flags.controlTech ? "présent" : "à récupérer"}</li>`;
+    h += `<li>Historique entretien / carnet / factures garage</li>`;
+    h += `<li>Preuve des rappels effectués via VIN</li>`;
+    h += `<li>Devis réparation (minimum 2)</li>`;
+    h += `<li>Lecture OBD / codes défaut DTC</li>`;
+    h += `<li>Photos : moisiure, eau, corrosion, voyants, niveaux, batterie, charge</li>`;
+    if (matches.length) {
+      h += `<li>Vérification VIN sur sites constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate</li>`;
+    }
+    h += `</ul>`;
+    h += `<div class="verification-needed">Sans facture, CT ou historique, la preuve de l’antériorité sera fragilisée ${addTerm("insuffisance probatoire")}.</div>`;
+    return h;
+  }
+
+  function secJuri(matches) {
+    var h = `<p><strong>Objet :</strong> textes et jurisprudence ${addTerm("jurisprudence", "doctrine")}.</p>`;
+    h += `<h4>Textes</h4><ul>`;
+    h += `<li>1641 à 1649 C.civ. — vices cachés</li>`;
+    h += `<li>1130 à 1144 C.civ. — vices du consentement</li>`;
+    h += `<li>1112-1 C.civ. — information précontractuelle</li>`;
+    h += `<li>1231-1 C.civ. — responsabilité contractuelle</li>`;
+    h += `<li>1240, 1241 C.civ. — responsabilité délictuelle</li>`;
+    h += `<li>1245 et s. C.civ. — produits défectueux</li>`;
+    h += `<li>L.217-3 à L.217-20 C.consom. — conformité</li>`;
+    h += `<li>L.213-1 C.consom. — tromperie</li>`;
+    h += `<li>L.121-2 C.consom. — pratique commerciale trompeuse</li>`;
+    h += `<li>L.423-1 C.consom. — sécurité des produits</li>`;
+    h += `<li>221-6, 222-19, 223-1, 313-1, 441-1 C.pénal</li>`;
+    h += `</ul>`;
+
+    h += `<h4>Jurisprudence / références</h4><ul>`;
+    h += `<li>Cass. civ. 1ère, 3 mai 2006 — caractère caché</li>`;
+    h += `<li>Cass. civ. 1ère, 12 juill. 2018 — vérification des rappels par pro</li>`;
+    h += `<li>Cass. civ. 1ère, 27 févr. 2019 — clause vendu en l’état et mauvaise foi</li>`;
+    h += `<li>CJUE, 5 avril 2023, C-277/22 — defeat device et conformité</li>`;
+    h += `<li>TGI Paris, 15 janv. 2020 — Renault 1.5 dCi bielles</li>`;
+    h += `<li>NHTSA / KBA / DGCCRF — rappels sécurité, batteries, ADAS, incendies</li>`;
+    h += `</ul>`;
+
+    if (matches.length) {
+      h += `<h4>Références spécifiques aux défauts détectés</h4><ul>`;
+      matches.forEach(function (m) {
+        h += `<li><strong>${esc(m.moteur)} :</strong> ${esc(m.rappelRef)}</li>`;
+      });
+      h += `</ul>`;
+    }
+
+    return h;
+  }
+
+  function secPrejudice(flags, matches) {
+    var h = `<p><strong>Objet :</strong> préjudice ${addTerm("évaluation du préjudice", "réparation intégrale")}.</p>`;
+    h += `<h4>Préjudices matériels</h4><ul>`;
+    h += `<li>Coût réparations / devis</li>`;
+    h += `<li>Remboursement prix si résolution</li>`;
+    h += `<li>Moins-value</li>`;
+    h += `<li>Location véhicule remplacement</li>`;
+    h += `<li>Frais expertise / avocat / dépens</li>`;
+    h += `<li>Manque à gagner si usage professionnel</li>`;
+    h += `</ul>`;
+
+    h += `<h4>Préjudices moraux / corporels</h4><ul>`;
+    h += `<li>Préjudice d’anxiété si dangerosité</li>`;
+    h += `<li>Trouble dans les conditions d’existence</li>`;
+    h += `<li>Souffrances endurées / préjudice esthétique / DFT / DFP si accident</li>`;
+    h += `</ul>`;
+
+    if (matches.some(function (m) { return m.severite === "critique"; })) {
+      h += `<div class="rappel-critical"><strong>Angle sapeur-pompier / sécurité :</strong> la peur de conduire un véhicule dangereux peut justifier un préjudice moral même sans accident ${addTerm("préjudice d’anxiété")}.</div>`;
+    }
+
+    return h;
+  }
+
+  function secStrategie(flags, matches, objective) {
+    var h = `<p><strong>Objet :</strong> stratégie ${addTerm("stratégie contentieuse", "MARD")}.</p>`;
+
+    h += `<h4>Phase 1 — consolidation probatoire</h4><ol>`;
+    h += `<li>Expertise amiable contradictoire</li>`;
+    h += `<li>Devis réparation</li>`;
+    h += `<li>Lecture OBD</li>`;
+    h += `<li>Vérification VIN / rappels</li>`;
+    h += `<li>Photos et constats</li>`;
+    h += `</ol>`;
+
+    h += `<h4>Phase 2 — mise en demeure</h4><ol>`;
+    h += `<li>LRAR au vendeur</li>`;
+    if (matches.length) {
+      h += `<li>Invoquer le défaut de série documenté ${addTerm("défaut de série", "présomption de connaissance")}</li>`;
+    }
+    h += `<li>Délai 15 jours</li>`;
+    h += `<li>Joindre rapport, devis, photos</li>`;
+    h += `</ol>`;
+
+    h += `<h4>Phase 3 — résolution amiable</h4><ol>`;
+    h += `<li>Conciliation</li>`;
+    if (flags.professional) h += `<li>Médiation de la consommation</li>`;
+    h += `<li>Transaction écrite si accord</li>`;
+    h += `</ol>`;
+
+    h += `<h4>Phase 4 — judiciaire</h4><ol>`;
+    h += `<li>Assignation TJ / tribunal de proximité</li>`;
+    h += `<li>Demande d’expertise judiciaire si nécessaire</li>`;
+    h += `<li>Référé si urgence / danger</li>`;
+    if (matches.length && matches.some(function (m) { return m.severite === "critique"; })) {
+      h += `<li>Signalement DGCCRF / préfet / NHTSA / KBA si danger collectif</li>`;
+    }
+    h += `</ol>`;
+
+    if (objective) {
+      h += `<p><strong>Objectif déclaré :</strong> ${esc(objective)}</p>`;
+    }
+
+    return h;
+  }
+
+  function secVerif(matches, flags) {
+    var h = `<p><strong>Objet :</strong> vérifications et recherche approfondie ${addTerm("vérifications complémentaires")}.</p>`;
+
+    h += `<ul>`;
+    h += `<li>Vérifier VIN sur site constructeur</li>`;
+    h += `<li>Consulter rappel.conso.gouv.fr</li>`;
+    h += `<li>Consulter NHTSA si véhicule importé / groupe international</li>`;
+    h += `<li>Consulter KBA pour rappels allemands</li>`;
+    h += `<li>Consulter SafetyGate / bases européennes</li>`;
+    h += `<li>Rechercher TSB / notes techniques atelier</li>`;
+    h += `<li>Consulter forums spécialisés et retours propriétaires</li>`;
+    h += `<li>Vérifier historique entretien et rappels effectués</li>`;
+    h += `<li>Faire lire les codes défaut OBD</li>`;
+    if (flags.waterLeak) {
+      h += `<li>Inspecter baie de pare-brise, cavillon, évacuations, boîtier fusibles, connecteurs</li>`;
+    }
+    if (flags.ev) {
+      h += `<li>Contrôler SOH batterie, BMS, charge AC/DC, température, isolation HV, batterie 12V</li>`;
+    }
+    h += `</ul>`;
+
+    var links = researchLinks(
+      vehicleData.marque,
+      vehicleData.modele,
+      matches[0] ? matches[0].moteur : "",
+      matches[0] ? matches[0].symptomes : []
+    );
+
+    h += `<h4>Pistes de recherche externe à ouvrir manuellement</h4><ul>`;
+    links.forEach(function (l) {
+      h += `<li><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a></li>`;
+    });
+    h += `</ul>`;
+
+    h += `<div class="verification-needed">Ces liens ne sont pas appelés automatiquement par l’application. Ils servent à confirmer localement la notoriété du défaut avant conclusion finale.</div>`;
+
+    return h;
+  }
+
+  function secVoies(flags, matches) {
+    var h = `<p><strong>Objet :</strong> voies d’action ${addTerm("voies d’action")}.</p><ul>`;
+    h += `<li>Action civile en garantie des vices cachés</li>`;
+    if (flags.professional) {
+      h += `<li>Garantie légale de conformité</li>`;
+      h += `<li>Signalement DGCCRF / rappel.conso</li>`;
+      h += `<li>Médiation de la consommation</li>`;
+    }
+    if (matches.some(function (m) { return m.severite === "critique"; })) {
+      h += `<li>Action contre constructeur : produits défectueux</li>`;
+      h += `<li>Plainte pénale si danger dissimulé</li>`;
+      h += `<li>Action collective si défaut massif</li>`;
+    }
+    h += `<li>Expertise judiciaire</li>`;
+    h += `</ul>`;
+    return h;
+  }
+
+  function secConclu(objective, matches, flags, vData) {
+    var high = matches.some(function (m) { return m.confiance === "Haute"; });
+    var critical = matches.some(function (m) { return m.severite === "critique"; });
+
+    var h = `<p><strong>Objet :</strong> conclusion prudente ${addTerm("synthèse")}.</p>`;
+
+    h += `<p>`;
+    if (high && critical) {
+      h += `Le croisement local technique/juridique oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave. La voie du vice caché et/ou de la conformité est sérieusement ouverte.`;
+    } else if (matches.length) {
+      h += `Un défaut connu est probable, mais le kilométrage ou la nature du symptôme impose une expertise pour écarter l’usure normale.`;
+    } else {
+      h += `Aucun défaut de série identifié localement. Le problème peut être individuel : diagnostic et expertise nécessaires.`;
+    }
+    h += `</p>`;
+
+    h += `<p><strong>Recommandation opérationnelle :</strong> ne pas effectuer de réparation destructrice avant constat/expertise. Conserver le véhicule en l’état si possible, photographier, obtenir devis, puis mise en demeure LRAR.</p>`;
+
+    if (flags.professional) {
+      h += `<p><strong>Si vendeur professionnel :</strong> privilégier garantie légale de conformité + signalement DGCCRF si danger.</p>`;
+    } else {
+      h += `<p><strong>Si vendeur particulier :</strong> privilégier expertise amiable puis action en vices cachés.</p>`;
+    }
+
+    h += `<div class="certainty-low"><strong>Avertissement :</strong> document d’aide à la rédaction. Ne constitue pas un avis juridique définitif.</div>`;
+
+    return h;
+  }
+
+  function secLexique() {
+    var terms = Array.from(termesMobilises).sort();
+    var h = `<p><strong>Termes mobilisés :</strong> ${terms.length}</p><div class="lexique-section">`;
+    terms.forEach(function (t) {
+      h += `<div class="lexique-item"><strong>${esc(t)}</strong></div>`;
+    });
+    h += `</div>`;
+    return h;
+  }
+
+  /* =========================================================
+     ADMIN PANEL
+     ========================================================= */
+  function updateAdminStats() {
+    var brands = {};
+    allDefects().forEach(function (d) {
+      if (d.b && d.b !== "Toutes marques") brands[d.b] = true;
+    });
+
+    var statEntries = q("#statEntries");
+    var statBrands = q("#statBrands");
+    var statSync = q("#statSync");
+
+    if (statEntries) statEntries.textContent = allDefects().length;
+    if (statBrands) statBrands.textContent = Object.keys(brands).length;
+
+    var last = load(KEYS.LAST_UPDATE, 0);
+    if (statSync) statSync.textContent = last ? new Date(last).toLocaleString("fr-FR") : "Jamais";
+  }
+
+  function renderRequests() {
+    var box = q("#pendingRequests");
+    if (!box) return;
+
+    var all = getRequests().slice().sort(function (a, b) {
+      return (b.ts || 0) - (a.ts || 0);
+    });
+
+    var pending = all.filter(function (r) {
+      return r.status === "pending";
+    });
+
+    var processed = all.filter(function (r) {
+      return r.status !== "pending";
+    }).slice(0, 30);
+
+    var count = q("#pendingCount");
+    if (count) count.textContent = pending.length;
+
+    if (!all.length) {
+      box.innerHTML = `<p class="empty-state">Aucune demande.</p>`;
+      return;
+    }
+
+    var html = "";
+
+    html += `<h4>À traiter (${pending.length})</h4>`;
+
+    if (!pending.length) {
+      html += `<p class="empty-state">Aucune demande en attente.</p>`;
+    } else {
+      html += pending.map(function (r) {
+        return `<div class="card pending">
+          <strong>${esc(r.name)}</strong> <small>${esc(r.email)}</small>
+          <p>${esc(r.reason)}</p>
+          <small>${esc(r.date || "")} • source : ${esc(r.source || "locale")}</small>
+          <div class="actions">
+            <button class="btn-ok" data-action="approve" data-id="${esc(r.id)}" type="button">Accepter</button>
+            <button class="btn-no" data-action="refuse" data-id="${esc(r.id)}" type="button">Refuser</button>
+          </div>
+        </div>`;
+      }).join("");
+    }
+
+    if (processed.length) {
+      html += `<h4>Dernières demandes traitées</h4>`;
+
+      html += processed.map(function (r) {
+        var cls = r.status === "approved" ? "approved" : "refused";
+        var label = r.status === "approved" ? "Acceptée" : "Refusée";
+        var actions = "";
+
+        if (r.status === "approved") {
+          actions =
+            `<button class="btn-ok" data-action="share-grant" data-email="${esc(r.email)}" data-name="${esc(r.name)}" type="button">` +
+            `📤 Envoyer l’accès au tiers` +
+            `</button>`;
+        }
+
+        return `<div class="card ${cls}">
+          <strong>${esc(r.name)}</strong> <small>${esc(r.email)}</small>
+          <p>${esc(r.reason)}</p>
+          <small>Statut : ${esc(label)} • ${esc(r.processedDate || r.date || "")}</small>
+          ${actions ? `<div class="actions">${actions}</div>` : ""}
+        </div>`;
+      }).join("");
+    }
+
+    box.innerHTML = html;
+  }
+
+  function renderUsers() {
+    var box = q("#authorizedUsers");
+    if (!box) return;
+
+    var users = getUsers().filter(function (u) { return u.role !== "admin"; });
+
+    if (!users.length) {
+      box.innerHTML = `<p class="empty-state">Aucun tiers.</p>`;
+      return;
+    }
+
+    box.innerHTML = users.map(function (u) {
+      var action = u.status === "approved"
+        ? `<button class="btn-warn" data-action="revoke" data-email="${esc(u.email)}" data-name="${esc(u.name)}" type="button">Révoquer</button>`
+        : `<button class="btn-ok" data-action="restore" data-email="${esc(u.email)}" data-name="${esc(u.name)}" type="button">Rétablir</button>`;
+
+      return `<div class="card ${esc(u.status)}">
+        <strong>${esc(u.name)}</strong> <small>${esc(u.email)} • ${esc(u.status)}</small>
+        <div class="actions">${action}</div>
+      </div>`;
+    }).join("");
+  }
+
+  function renderAdmin() {
+    renderRequests();
+    renderUsers();
+    updateAdminStats();
+  }
+
+  /* =========================================================
+     PDF UPLOAD / EXPORT
+     ========================================================= */
+  function readFileAsArrayBuffer(file) {
+    if (file.arrayBuffer) return file.arrayBuffer();
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () { resolve(reader.result); };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  function pdfStatus(msg, type) {
+    var el = q("#pdfStatus");
+    if (el) {
+      el.textContent = msg;
+      el.className = "status " + type;
+    } else {
+      toast(msg, type);
+    }
+  }
+
+  function buildPrintHtml() {
+    var body = "";
+    if (analysisData && analysisData.sections) {
+      analysisData.sections.forEach(function (pair) {
+        body += `<h2>${pair[0]}</h2>${pair[1]}`;
+      });
+    }
+
+    return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>Rapport Expert Auto</title>
+<style>
+body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
+h1 { text-align: center; }
+h2 { margin-top: 28px; border-bottom: 1px solid #999; padding-bottom: 6px; }
+.termes-juridiques { background: #eee; padding: 2px 6px; border-radius: 4px; font-style: italic; }
+.rappel-critical, .certainty-low { border-left: 4px solid #c00; background: #fff5f5; padding: 10px; margin: 10px 0; }
+.rappel-info, .certainty-medium, .verification-needed { border-left: 4px solid #06c; background: #f5fbff; padding: 10px; margin: 10px 0; }
+.certainty-high { border-left: 4px solid #090; background: #f5fff7; padding: 10px; margin: 10px 0; }
+</style>
+</head>
+<body>
+<h1>Rapport d’analyse expert auto</h1>
+<p><strong>Date :</strong> ${esc(analysisData.date || "")}</p>
+<p><strong>Véhicule :</strong> ${esc(vehicleData.marque || "")} ${esc(vehicleData.modele || "")} ${esc(vehicleData.annee || "")}</p>
+<p><strong>Kilométrage :</strong> ${esc(vehicleData.kilometrage || "")} km</p>
+${body}
+</body>
+</html>`;
+  }
+
+  function downloadHtmlReport() {
+    var html = buildPrintHtml();
+    var blob = new Blob([html], { type: "text/html;charset=utf-8" });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "rapport-expert-auto.html";
+    a.click();
+    toast("Rapport HTML téléchargé. Ouvrez-le et imprimez en PDF.", "info");
+  }
+
+  function printReportFallback() {
+    var win = window.open("", "_blank");
+    if (!win) {
+      downloadHtmlReport();
+      return;
+    }
+
+    win.document.open();
+    win.document.write(buildPrintHtml());
+    win.document.close();
+
+    setTimeout(function () {
+      try {
+        win.focus();
+        win.print();
+      } catch (e) {
+        downloadHtmlReport();
+      }
+    }, 350);
+  }
+
+  function generatePdfWithJsPdf() {
+    return ensureJsPdf().then(function (jsPDF) {
+      var doc = new jsPDF();
+      var y = 20;
+
+      doc.setFontSize(16);
+      doc.text("RAPPORT D'ANALYSE EXPERT AUTO", 105, y, { align: "center" });
+      y += 10;
+
+      doc.setFontSize(10);
+      doc.text("Date : " + analysisData.date, 20, y);
+      y += 6;
+
+      doc.text("Véhicule : " + (vehicleData.marque || "") + " " + (vehicleData.modele || "") + " " + (vehicleData.annee || ""), 20, y);
+      y += 6;
+
+      doc.text("Kilométrage : " + (vehicleData.kilometrage || "") + " km", 20, y);
+      y += 10;
+
+      analysisData.sections.forEach(function (pair) {
+        var title = pair[0];
+        var content = pair[1];
+
+        if (y > 265) {
+          doc.addPage();
+          y = 20;
+        }
+
+        doc.setFont(undefined, "bold");
+        doc.setFontSize(11);
+        var titleLines = doc.splitTextToSize(title, 170);
+        doc.text(titleLines, 20, y);
+        y += titleLines.length * 5 + 2;
+
+        doc.setFont(undefined, "normal");
+        doc.setFontSize(9);
+        var plain = stripTags(content);
+        var lines = doc.splitTextToSize(plain, 170);
+
+        lines.forEach(function (line) {
+          if (y > 280) {
+            doc.addPage();
+            y = 20;
+          }
+          doc.text(line, 20, y);
+          y += 4;
+        });
+
+        y += 5;
+      });
+
+      doc.save("analyse-experte-" + new Date().toISOString().slice(0, 10) + ".pdf");
+      toast("PDF généré.", "success");
+    });
+  }
+
+  /* =========================================================
+     SERVICE WORKER
+     ========================================================= */
+  function registerServiceWorker() {
+    try {
+      if ("serviceWorker" in navigator && location.protocol !== "file:") {
+        navigator.serviceWorker
+          .register("./sw.js")
+          .then(function (reg) {
+            swRegistration = reg;
+            return navigator.serviceWorker.ready;
+          })
+          .then(function (reg) {
+            swRegistration = reg;
+            console.log("[AR-EXPERT] Service Worker prêt.");
+          })
+          .catch(function (err) {
+            console.warn("[AR-EXPERT] Service Worker non enregistré:", err);
+          });
+      }
+    } catch (e) {
+      console.warn("[AR-EXPERT] Enregistrement SW impossible:", e);
+    }
+  }
+
+  function clearCacheAndReload() {
+    var unload = ("serviceWorker" in navigator)
+      ? navigator.serviceWorker.getRegistrations().then(function (regs) {
+          return Promise.all(regs.map(function (r) {
+            return r.unregister().catch(function () {});
+          }));
+        })
+      : Promise.resolve();
+
+    var delCache = ("caches" in window)
+      ? caches.keys().then(function (names) {
+          return Promise.all(names.map(function (n) {
+            return caches.delete(n).catch(function () {});
+          }));
+        })
+      : Promise.resolve();
+
+    Promise.all([unload.catch(function () {}), delCache.catch(function () {})])
+      .then(function () {
+        location.reload(true);
+      })
+      .catch(function () {
+        location.reload(true);
+      });
+  }
+
+  /* =========================================================
+     EVENEMENTS UI
+     ========================================================= */
+  qa(".auth-tab").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      qa(".auth-tab").forEach(function (b) { b.classList.remove("active"); });
+      qa(".auth-pane").forEach(function (p) { p.classList.remove("active"); });
+      btn.classList.add("active");
+
+      var pane = q("#" + btn.dataset.authTab + "Pane");
+      if (pane) pane.classList.add("active");
+
+      authMessage("", "");
+    });
+  });
+
+  on("#adminLoginBtn", "click", function () {
+    var pwdEl = q("#adminPassword");
+    var rememberEl = q("#rememberAdminPwd");
+    var pwd = pwdEl ? pwdEl.value : "";
+    var remember = rememberEl ? rememberEl.checked : false;
+
+    if (!pwd) {
+      authMessage("Mot de passe requis.", "error");
+      return;
+    }
+
+    verifyAdminPassword(pwd).then(function (ok) {
+      if (!ok) {
+        authMessage("Mot de passe incorrect.", "error");
+        return;
+      }
+
+      if (remember) {
+        sha256(pwd).then(function (h) {
+          save(KEYS.ADMIN_PWD_HASH, h);
+          refreshSavedPasswordButton();
+        });
+      } else {
+        del(KEYS.ADMIN_PWD_HASH);
+        refreshSavedPasswordButton();
+      }
+
+      setSession({
+        id: "admin",
+        name: "Administrateur",
+        email: "admin@local",
+        role: "admin",
+        status: "approved"
+      });
+
+      showApp();
+      toast("Connexion admin réussie.", "success");
+      if (pwdEl) pwdEl.value = "";
+    }).catch(function () {
+      if (pwd === CONFIG.adminPassword) {
+        setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
+        showApp();
+        toast("Connexion admin réussie (mode local).", "success");
+        if (pwdEl) pwdEl.value = "";
+      } else {
+        authMessage("Vérification impossible. Réessayez.", "error");
+      }
+    });
+  });
+
+  on("#useSavedPwdBtn", "click", function () {
+    var saved = load(KEYS.ADMIN_PWD_HASH, null);
+    if (!saved) {
+      authMessage("Aucun mot de passe enregistré.", "warning");
+      return;
+    }
+
+    loginAdminFromHash(saved).then(function (ok) {
+      if (!ok) {
+        authMessage("Mot de passe enregistré invalide.", "error");
+        del(KEYS.ADMIN_PWD_HASH);
+        refreshSavedPasswordButton();
+        return;
+      }
+
+      setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
+      showApp();
+      toast("Connexion admin via mot de passe enregistré.", "success");
+    });
+  });
+
+  on("#requestBtn", "click", function () {
+    var nameEl = q("#reqName");
+    var emailEl = q("#reqEmail");
+    var reasonEl = q("#reqReason");
+
+    var name = nameEl ? nameEl.value.trim() : "";
+    var email = emailEl ? emailEl.value.trim() : "";
+    var reason = reasonEl ? reasonEl.value.trim() : "";
+
+    if (!name || !email || !reason) {
+      authMessage("Nom, email et motif sont requis.", "error");
+      return;
+    }
+
+    var requests = getRequests();
+    var emailKey = userEmailKey(email);
+
+    var alreadyPending = requests.find(function (r) {
+      return r.emailNorm === emailKey && r.status === "pending";
+    });
+
+    if (alreadyPending) {
+      authMessage("Demande déjà en attente.", "warning");
+      return;
+    }
+
+    var existingApproved = findApprovedUser(name, email);
+    if (existingApproved) {
+      authMessage("Accès déjà accordé. Utilisez Connexion tiers.", "success");
+      return;
+    }
+
+    var req = migrateRequest({
+      id: uid(),
+      name: name,
+      email: email,
+      reason: reason,
+      status: "pending",
+      date: new Date().toLocaleString("fr-FR"),
+      ts: Date.now(),
+      source: "formulaire-local"
+    });
+
+    requests.push(req);
+    saveRequests(requests);
+
+    lastSharedAccessRequest = req;
+
+    var shareBtn = q("#shareRequestBtn");
+    if (shareBtn) shareBtn.classList.remove("hidden");
+
+    publishAccessRequest(req);
+
+    authMessage(
+      "Demande envoyée. Si l’admin est sur le même appareil, il sera notifié. Sinon, utilisez ‘Partager la demande avec l’admin’.",
+      "success"
+    );
+
+    if (nameEl) nameEl.value = "";
+    if (emailEl) emailEl.value = "";
+    if (reasonEl) reasonEl.value = "";
+  });
+
+  on("#shareRequestBtn", "click", function () {
+    if (!lastSharedAccessRequest) {
+      toast("Aucune demande à partager.", "warning");
+      return;
+    }
+
+    var url = makeAccessRequestShareUrl(lastSharedAccessRequest);
+
+    var text =
+      "Demande d’accès Expert Auto\n" +
+      "Nom : " + lastSharedAccessRequest.name + "\n" +
+      "Email : " + lastSharedAccessRequest.email + "\n" +
+      "Motif : " + lastSharedAccessRequest.reason + "\n" +
+      "Lien admin : " + url;
+
+    if (navigator.share) {
+      navigator.share({
+        title: "Demande d’accès Expert Auto",
+        text: text,
+        url: url
+      }).catch(function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(url).then(function () {
+            toast("Lien de demande copié.", "success");
+          }).catch(function () {
+            toast("Copie impossible.", "error");
+          });
+        } else {
+          toast("Partage impossible.", "warning");
+        }
+      });
+    } else if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(function () {
+        toast("Lien de demande copié.", "success");
+      }).catch(function () {
+        toast("Copie impossible.", "error");
+      });
+    } else {
+      toast("Partage non supporté.", "warning");
+    }
+  });
+
+  on("#thirdLoginBtn", "click", function () {
+    var nameEl = q("#loginName");
+    var emailEl = q("#loginEmail");
+
+    var name = nameEl ? nameEl.value.trim() : "";
+    var email = emailEl ? emailEl.value.trim() : "";
+
+    if (!email) {
+      authMessage("Email requis.", "error");
+      return;
+    }
+
+    var user = findApprovedUser(name, email);
+
+    if (!user) {
+      var emailKey = userEmailKey(email);
+      var pending = getRequests().find(function (r) {
+        return r.status === "pending" && r.emailNorm === emailKey;
+      });
+
+      if (pending) {
+        authMessage(
+          "Votre demande est en attente de validation admin. Nom enregistré : " + pending.name,
+          "warning"
+        );
+        return;
+      }
+
+      authMessage(
+        "Aucun accès approuvé trouvé pour cet email. Demandez l’accès puis attendez la validation admin, ou ouvrez le lien d’accès envoyé par l’admin.",
+        "error"
+      );
+      return;
+    }
+
+    setSession(user);
+    showApp();
+    toast("Connexion tiers réussie.", "success");
+  });
+
+  on("#logoutBtn", "click", function () {
+    clearSession();
+    showLogin();
+    toast("Déconnexion effectuée.", "info");
+  });
+
+  on("#clearCacheBtn", "click", function () {
+    clearCacheAndReload();
+  });
+
+  on("#pdfUpload", "change", function (e) {
+    var file = e.target.files && e.target.files[0];
+    if (!file) return;
+
+    if (file.type !== "application/pdf") {
+      pdfStatus("Format non supporté. PDF uniquement.", "error");
+      return;
+    }
+
+    pdfStatus("Chargement de la bibliothèque PDF...", "success");
+
+    ensurePdfJs()
+      .then(function () {
+        pdfStatus("Extraction du texte en cours...", "success");
+        return readFileAsArrayBuffer(file);
+      })
+      .then(function (arrayBuffer) {
+        return window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      })
+      .then(function (pdf) {
+        var fullText = "";
+        var promises = [];
+
+        for (var i = 1; i <= pdf.numPages; i++) {
+          (function (pageNum) {
+            promises.push(
+              pdf.getPage(pageNum).then(function (page) {
+                return page.getTextContent();
+              }).then(function (tc) {
+                fullText += tc.items.map(function (item) { return item.str; }).join(" ") + "\n\n";
+              })
+            );
+          })(i);
+        }
+
+        return Promise.all(promises).then(function () {
+          extractedText = fullText;
+          var textInput = q("#textInput");
+          if (textInput) textInput.value = fullText;
+          pdfStatus("PDF extrait avec succès (" + pdf.numPages + " pages).", "success");
+        });
+      })
+      .catch(function (err) {
+        console.warn(err);
+        pdfStatus("Extraction PDF indisponible : " + err.message + ". Saisissez le texte manuellement.", "error");
+      });
+  });
 
   on("#analyzeBtn", "click", function () {
     if (!currentUser) {
@@ -1903,578 +2990,6 @@
     }, 700);
   });
 
-  function runAnalysis(text, context, objective, sellerType) {
-    var all = (text + " " + context).toLowerCase();
-
-    var flags = {
-      professional: sellerType === "professional" || ["professionnel", "garage", "concession", "revendeur", "automobile", "commercial"].some(function (w) { return all.indexOf(w) >= 0; }),
-      privateSeller: sellerType === "private" || ["particulier", "entre particuliers", "leboncoin", "lavitrine"].some(function (w) { return all.indexOf(w) >= 0; }),
-      defect: ["défaut", "panne", "problème", "dysfonctionnement", "casse", "fuite", "bruit", "vibration", "perte puissance", "à-coup", "claquement", "voyant", "mode dégradé", "surchauffe", "infiltration", "court circuit", "moisiure", "odeur", "fumée", "calage", "patinage", "blocage"].some(function (w) { return all.indexOf(w) >= 0; }),
-      waterLeak: ["eau", "humidité", "infiltration", "baie", "pare brise", "pare-brise", "moisiure", "court circuit", "traces d’eau", "flaque", "égouttement"].some(function (w) { return all.indexOf(w) >= 0; }),
-      safety: ["sécurité", "frein", "airbag", "direction", "incendie", "danger", "vie", "intégrité physique", "mise en danger", "ADAS", "autopilot"].some(function (w) { return all.indexOf(w) >= 0; }),
-      ev: ["batterie", "charge", "autonomie", "electrique", "électrique", "hybride", "BMS", "DC", "AC", "recharge"].some(function (w) { return all.indexOf(w) >= 0; }),
-      invoice: all.indexOf("facture") >= 0,
-      repair: all.indexOf("réparation") >= 0 || all.indexOf("ordre de réparation") >= 0 || all.indexOf("devis") >= 0,
-      controlTech: all.indexOf("contrôle technique") >= 0 || all.indexOf(" ct ") >= 0,
-      warranty: all.indexOf("garantie") >= 0,
-      highKm: parseKm(vehicleData.kilometrage) > 120000,
-      veryHighKm: parseKm(vehicleData.kilometrage) > 180000
-    };
-
-    var matches = matchDefects(vehicleData.marque, vehicleData.modele, vehicleData.annee, vehicleData.kilometrage, text);
-
-    analysisData = {
-      date: new Date().toLocaleString("fr-FR"),
-      vehicleData: vehicleData,
-      flags: flags,
-      matches: matches,
-      sections: []
-    };
-
-    var S = [];
-    S.push(["I. ÉLÉMENTS FACTUELS ET IDENTIFICATION DU VÉHICULE", secFacts(text, context)]);
-    S.push(["II. DIAGNOSTIC TECHNIQUE — DÉFAUTS CONNUS, VÉTUSTÉ, USURE, SÉCURITÉ", secDiag(matches, flags, vehicleData)]);
-    S.push(["III. QUALIFICATION JURIDIQUE PROVISOIRE", secQualif(flags, matches)]);
-    S.push(["IV. RISQUES ET RESPONSABILITÉS SELON LA QUALITÉ DU VENDEUR", secRisques(flags, matches)]);
-    S.push(["V. TROIS CRITÈRES CUMULATIFS : ANTÉRIORITÉ, CARACTÈRE CACHÉ, GRAVITÉ", secCriteres(flags, matches, vehicleData)]);
-    S.push(["VI. RÉGIMES DE GARANTIE ET FONDEMENTS JURIDIQUES CROISÉS", secGaranties(flags, matches)]);
-    S.push(["VII. DOSSIER PROBATOIRE ET DOCUMENTS À CONSOLIDER", secDocs(flags, matches)]);
-    S.push(["VIII. JURISPRUDENCE, TEXTES ET SOURCES DE RÉFÉRENCE", secJuri(matches)]);
-    S.push(["IX. ÉVALUATION DU PRÉJUDICE", secPrejudice(flags, matches)]);
-    S.push(["X. STRATÉGIE CONTENTIEUSE RECOMMANDÉE", secStrategie(flags, matches, objective)]);
-    S.push(["XI. RECHERCHE APPROFONDIE ET VÉRIFICATIONS EXTERNES", secVerif(matches, flags)]);
-    S.push(["XII. VOIES D’ACTION POSSIBLES", secVoies(flags, matches)]);
-    S.push(["XIII. CONCLUSION ORIENTÉE EXPERT / INGÉNIEUR / JURISTE / SAPEUR-POMPIER", secConclu(objective, matches, flags, vehicleData)]);
-    S.push(["XIV. LEXIQUE JURIDIQUE ET TECHNIQUE MOBILISÉ", secLexique()]);
-
-    analysisData.sections = S;
-    renderAnalysis();
-  }
-
-  function renderAnalysis() {
-    var html = "";
-    analysisData.sections.forEach(function (pair) {
-      html += "<h3>" + pair[0] + "</h3>" + pair[1];
-    });
-
-    html += '<div class="verification-needed"><strong>Rappel méthodologique :</strong> ce rapport effectue d’abord un croisement local technique/juridique avant toute rédaction assistée par IA. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>';
-
-    var result = q("#analysisResult");
-    if (result) result.innerHTML = html;
-
-    var section = q("#analysisSection");
-    if (section) {
-      section.classList.remove("hidden");
-      section.scrollIntoView({ behavior: "smooth" });
-    }
-  }
-
-  function secFacts(text, context) {
-    var h = "<p><strong>Objet :</strong> recensement des éléments fournis " + addTerm("éléments factuels", "faits allégués") + ".</p>";
-
-    h += "<h4>A. Véhicule déclaré</h4><ul>";
-    h += "<li><strong>Marque :</strong> " + esc(vehicleData.marque || "non précisée") + "</li>";
-    h += "<li><strong>Modèle :</strong> " + esc(vehicleData.modele || "non précisé") + "</li>";
-    h += "<li><strong>Année :</strong> " + esc(vehicleData.annee || "non précisée") + " " + addTerm("millésime", "date de première mise en circulation") + "</li>";
-    h += "<li><strong>Kilométrage :</strong> " + esc(vehicleData.kilometrage || "non précisé") + " km " + addTerm("kilométrage", "usure normale", "vétusté") + "</li>";
-    h += "<li><strong>VIN :</strong> " + esc(vehicleData.vin || "non communiqué") + " " + addTerm("VIN", "numéro de série", "traçabilité") + "</li>";
-    h += "</ul>";
-
-    h += "<h4>B. Faits rapportés</h4>";
-    h += "<p>" + esc(text.substring(0, 1400)) + (text.length > 1400 ? " [...] (tronqué pour affichage, analyse complète conservée en mémoire)" : "") + "</p>";
-
-    if (context) {
-      h += "<h4>C. Contexte transactionnel</h4><p>" + esc(context.substring(0, 1000)) + "</p>";
-    }
-
-    h += '<div class="certainty-low"><strong>Limite :</strong> faits non vérifiés par expertise contradictoire ' + addTerm("faits non vérifiés", "principe du contradictoire") + ".</div>";
-    return h;
-  }
-
-  function secDiag(matches, flags, vData) {
-    var km = parseKm(vData.kilometrage);
-    var yr = parseYear(vData.annee);
-    var age = new Date().getFullYear() - (yr || new Date().getFullYear());
-
-    if (!matches.length) {
-      var h0 = "<p><strong>Objet :</strong> recherche de défauts conceptuels connus " + addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série") + ".</p>";
-      h0 += '<div class="verification-needed">';
-      h0 += "<p>Aucune correspondance exacte trouvée dans la base locale pour Marque/Modèle/Année/Symptômes.</p>";
-      h0 += "<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>";
-      h0 += "<p>Une expertise individuelle est nécessaire " + addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine") + ".</p>";
-      h0 += "</div>";
-      return h0;
-    }
-
-    var h = "<p><strong>Objet :</strong> croisement technique local avec défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA et bases de sécurité " + addTerm("vice caché notoire", "défaut de série", "défaut de conception") + ".</p>";
-
-    matches.forEach(function (m, i) {
-      var cls = m.severite === "critique" ? "rappel-critical" : "rappel-info";
-      var confColor = m.confiance === "Haute" ? "#10b981" : (m.confiance === "Moyenne" ? "#f59e0b" : "#ef4444");
-
-      h += '<div class="' + cls + '">';
-      h += "<h4>" + (i + 1) + ". " + esc(m.moteur) + " — " + esc(m.puissance) + " — " + esc(m.periode) + "</h4>";
-      h += "<p><strong>Constructeur :</strong> " + esc(m.constructeur) + "</p>";
-      h += "<p><strong>Modèles concernés :</strong> " + esc(m.modeles.join(", ")) + "</p>";
-      h += "<p><strong>Symptômes détectés :</strong> " + esc(m.symptomes.join(", ")) + "</p>";
-      h += "<p><strong>Tags système :</strong> " + esc(m.tags || "non précisé") + "</p>";
-      h += "<p><strong>Description technique :</strong> " + esc(m.description) + "</p>";
-      h += '<p><strong>Gravité :</strong> <span style="font-weight:bold;color:' + (m.severite === "critique" ? "#dc3545" : "#ffc107") + '">' + esc(m.severite.toUpperCase()) + "</span></p>";
-      h += '<p><strong>Confiance vs usure :</strong> <span style="color:' + confColor + ';font-weight:bold">' + esc(m.confiance) + "</span> — indice de non-usure : " + Math.round(m.wearFactor * 100) + "%</p>";
-      h += '<p style="background:#fff3cd;padding:8px;border-radius:4px;">⚠️ ' + esc(m.alerteUsure) + "</p>";
-      h += "<p><strong>Croisement juridique local :</strong> " + esc(m.baseLegale) + " " + addTerm("vice caché", "défaut de conformité", "tromperie") + "</p>";
-      h += "<p><strong>Rappel / TSB / source :</strong> " + esc(m.rappelRef) + " " + addTerm("rappel constructeur", "campagne technique", "TSB") + "</p>";
-      h += "</div>";
-    });
-
-    h += "<h4>Analyse de vétusté et kilométrage</h4><ul>";
-    h += "<li><strong>Âge approximatif :</strong> " + age + " ans</li>";
-    h += "<li><strong>Kilométrage :</strong> " + km.toLocaleString("fr-FR") + " km</li>";
-    h += "<li><strong>Rythme estimé :</strong> " + (age > 0 ? Math.round(km / age).toLocaleString("fr-FR") : "N/A") + " km/an</li>";
-
-    if (km > 200000) {
-      h += '<li class="certainty-low">Kilométrage très élevé : usure normale fortement plausible. Expertise indispensable pour distinguer défaut et usure.</li>';
-    } else if (km > 120000) {
-      h += '<li class="certainty-medium">Kilométrage élevé : usure possible, mais défaut de série documenté maintient une suspicion forte.</li>';
-    } else {
-      h += '<li class="certainty-high">Kilométrage modéré : la thèse du vice caché / défaut de conception est renforcée.</li>';
-    }
-    h += "</ul>";
-
-    if (flags.waterLeak) {
-      h += '<div class="rappel-critical"><h4>💧 Alerte infiltration d’eau — angle ingénieur / sapeur-pompier</h4>';
-      h += "<p>Les symptômes évoquent une infiltration d’eau (baie de pare-brise, joints, évacuations, toit ouvrant, climatisation).</p>";
-      h += "<p><strong>Point expert :</strong> ce type de désordre relève souvent d’un défaut de montage ou de conception, indépendant du kilométrage.</p>";
-      h += "<p><strong>Risques :</strong> court-circuit, destruction de calculateurs, corrosion, dysfonctionnement ABS/ESP, airbag, direction, risque d’incendie électrique.</p>";
-      h += "<p><strong>Constat recommandé :</strong> photos des moisiures, boîtier fusibles, connecteurs sous tableau de bord, cavillon, joints de pare-brise, évacuations.</p>";
-      h += "</div>";
-    }
-
-    if (flags.ev) {
-      h += '<div class="rappel-info"><h4>🔋 Angle électrique / batterie / charge</h4>';
-      h += "<p>Le dossier évoque batterie, charge, autonomie ou système électrique/hybride.</p>";
-      h += "<p><strong>Vérifications :</strong> état de santé batterie (SOH), équilibrage cellules, BMS, charge AC/DC, température, logiciel, batterie 12V, DC-DC, isolation HV.</p>";
-      h += "<p><strong>Sécurité :</strong> en cas d’odeur, fumée, échauffement, gonflement batterie ou erreur isolement, immobiliser le véhicule et éloigner les personnes.</p>";
-      h += "</div>";
-    }
-
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += '<div class="rappel-critical"><h4>🚨 Alerte sécurité civile / sapeur-pompier</h4>';
-      h += "<p>Un défaut critique est identifié : risque moteur, incendie, perte de contrôle, airbag, batterie ou immobilisation brutale.</p>";
-      h += "<p>En attendant expertise, limiter l’usage du véhicule, éviter autoroutes, transports d’enfants, trajets de nuit et longue durée.</p>";
-      h += "</div>";
-    }
-
-    h += '<div class="certainty-medium"><strong>Synthèse :</strong> faisceau d’indices techniques ' + addTerm("faisceau d’indices", "indice grave précis et concordant") + " en faveur d’un défaut antérieur, caché et grave. Le vendeur professionnel aurait pu connaître ce risque " + addTerm("obligation de renseignement", "présomption de connaissance") + ".</div>";
-
-    return h;
-  }
-
-  function secQualif(flags, matches) {
-    var h = "<p><strong>Objet :</strong> qualification juridique provisoire " + addTerm("qualification juridique", "qualification incertaine") + ".</p>";
-
-    if (flags.professional && !flags.privateSeller) {
-      h += '<div class="certainty-high"><p>Vendeur présumé professionnel ' + addTerm("vendeur professionnel") + ". Protection consommateur renforcée : garantie légale de conformité, charge de la preuve allégée, obligation d’information et de vérification des rappels.</p></div>";
-    } else if (flags.privateSeller && !flags.professional) {
-      h += '<div class="certainty-medium"><p>Vendeur présumé particulier ' + addTerm("vente entre particuliers") + ". Garantie des vices cachés du Code civil. Charge de la preuve plus lourde pour l’acquéreur.</p></div>";
-    } else {
-      h += '<div class="certainty-low"><p>Statut du vendeur incertain ' + addTerm("ambiguïté statut vendeur") + ". Qualifier d’abord le vendeur avant action.</p></div>";
-    }
-
-    if (matches.length) {
-      h += "<p>La probabilité d’un " + addTerm("défaut de conception", "vice caché notoire") + " renforce la non-conformité initiale du bien.</p>";
-    }
-
-    return h;
-  }
-
-  function secRisques(flags, matches) {
-    var h = "<p><strong>Objet :</strong> risques et responsabilités " + addTerm("risques encourus", "responsabilité contractuelle", "responsabilité délictuelle") + ".</p>";
-
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += '<div class="rappel-critical"><h4>⚠️ Responsabilité aggravée</h4><ul>';
-      h += "<li>Professionnel : faute lourde ou dolosive possible " + addTerm("faute lourde", "faute dolosive") + ".</li>";
-      h += "<li>Particulier : mauvaise foi si défaut connu ou dissimulé " + addTerm("mauvaise foi", "réticence dolosive") + ".</li>";
-      h += "<li>Pénal possible en cas d’accident " + addTerm("homicide involontaire", "blessures involontaires", "mise en danger") + ".</li>";
-      h += "<li>Constructeur : produits défectueux " + addTerm("article 1245 C.civ.") + ".</li>";
-      h += "</ul></div>";
-    }
-
-    h += "<h4>A. Si professionnel</h4><ul>";
-    h += "<li>" + addTerm("garantie légale de conformité", "L.217-4 C.consom.") + " : réparation, remplacement, réduction, résolution.</li>";
-    h += "<li>" + addTerm("présomption d’antériorité") + " pendant 12 mois, 24 mois depuis 2022.</li>";
-    h += "<li>" + addTerm("responsabilité contractuelle", "1231-1 C.civ.") + " : dommages-intérêts.</li>";
-    h += "<li>" + addTerm("tromperie", "L.213-1 C.consom.") + " si dissimulation.</li>";
-    h += "<li>" + addTerm("DGCCRF", "rappel conso", "sanctions administratives") + ".</li>";
-    h += "</ul>";
-
-    h += "<h4>B. Si particulier</h4><ul>";
-    h += "<li>" + addTerm("garantie des vices cachés", "1641 C.civ.") + ".</li>";
-    h += "<li>" + addTerm("action rédhibitoire") + " ou " + addTerm("action estimatoire") + ".</li>";
-    h += "<li>" + addTerm("charge de la preuve") + " sur l’acquéreur.</li>";
-    h += "<li>" + addTerm("clause vendu en l’état") + " inopposable en cas de mauvaise foi.</li>";
-    h += "</ul>";
-
-    return h;
-  }
-
-  function secCriteres(flags, matches, vData) {
-    var km = parseKm(vData.kilometrage);
-    var best = matches[0];
-
-    var h = "<p><strong>Objet :</strong> critères cumulatifs adaptés à l’usure et à la vétusté " + addTerm("critères cumulatifs", "usure normale", "vétusté") + ".</p>";
-
-    h += "<h4>A. Antériorité " + addTerm("antériorité") + "</h4>";
-    if (best && best.confiance === "Haute") {
-      h += '<p class="certainty-high">Défaut de série/conception/software : antériorité fortement présumée, souvent indépendante du kilométrage.</p>';
-    } else if (best && best.confiance === "Moyenne") {
-      h += '<p class="certainty-medium">Antériorité probable, mais km élevé (' + km.toLocaleString("fr-FR") + ") : expertise pour écarter l’usure.</p>";
-    } else if (best) {
-      h += '<p class="certainty-low">Antériorité difficile à établir sans expertise : km très élevé, usure normale plausible.</p>';
-    } else {
-      h += '<p class="verification-needed">Antériorité à prouver par expertise contradictoire.</p>';
-    }
-
-    h += "<h4>B. Caractère caché " + addTerm("caractère caché") + "</h4>";
-    if (best && best.wearFactor >= 0.8) {
-      h += '<p class="certainty-high">Défaut non apparent lors d’un examen visuel standard et d’un essai court.</p>';
-    } else if (best) {
-      h += '<p class="certainty-medium">Caractère caché soutenable, mais dépend de la diligence de l’acheteur et de la visibilité du symptôme.</p>';
-    } else {
-      h += "<p>Caractère caché à apprécier concrètement.</p>";
-    }
-
-    h += "<h4>C. Gravité " + addTerm("gravité") + "</h4>";
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += '<p class="certainty-high">Gravité élevée : sécurité, casse moteur, incendie, immobilisation, coût disproportionné.</p>';
-    } else if (matches.length) {
-      h += '<p class="certainty-medium">Gravité à mesurer par rapport au coût de réparation et à la valeur du véhicule.</p>';
-    } else {
-      h += "<p>Gravité à évaluer par devis et usage normal du véhicule.</p>";
-    }
-
-    h += '<div class="verification-needed">Réunion des critères à confirmer par expertise ' + addTerm("confirmation expertise") + ".</div>";
-    return h;
-  }
-
-  function secGaranties(flags, matches) {
-    var h = "<p><strong>Objet :</strong> régimes de garantie et croisement juridique local " + addTerm("régimes de garantie", "cumul des garanties") + ".</p>";
-
-    if (flags.professional) {
-      h += "<h4>Professionnel</h4><ul>";
-      h += "<li>" + addTerm("garantie légale de conformité", "L.217-4 et s. C.consom.") + "</li>";
-      h += "<li>" + addTerm("garantie des vices cachés", "1641 C.civ.") + " cumulable</li>";
-      h += "<li>" + addTerm("responsabilité contractuelle", "1231-1 C.civ.") + "</li>";
-      h += "<li>" + addTerm("tromperie", "L.213-1 C.consom.") + "</li>";
-      h += "<li>" + addTerm("pratique commerciale trompeuse", "L.121-2 C.consom.") + "</li>";
-      h += "</ul>";
-    } else {
-      h += "<h4>Particulier</h4><ul>";
-      h += "<li>" + addTerm("garantie des vices cachés", "1641 à 1649 C.civ.") + "</li>";
-      h += "<li>" + addTerm("action rédhibitoire") + " / " + addTerm("action estimatoire") + "</li>";
-      h += "<li>" + addTerm("dol", "1137 C.civ.") + " si dissimulation</li>";
-      h += "<li>" + addTerm("obligation d’information précontractuelle", "1112-1 C.civ.") + "</li>";
-      h += "</ul>";
-    }
-
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += "<h4>Constructeur / sécurité</h4><ul>";
-      h += "<li>" + addTerm("produits défectueux", "1245 C.civ.") + "</li>";
-      h += "<li>" + addTerm("défaut de sécurité", "L.423-1 C.consom.") + "</li>";
-      h += "<li>" + addTerm("rappel obligatoire", "DGCCRF", "NHTSA", "KBA") + "</li>";
-      h += "</ul>";
-    }
-
-    return h;
-  }
-
-  function secDocs(flags, matches) {
-    var h = "<p><strong>Objet :</strong> preuve documentaire " + addTerm("preuve documentaire", "dossier probatoire") + ".</p><ul>";
-    h += "<li>Facture : " + (flags.invoice ? "présente" : "à récupérer") + "</li>";
-    h += "<li>Certificat de cession : à conserver</li>";
-    h += "<li>Carte grise : vérifier cohérence kilométrage</li>";
-    h += "<li>Contrôle technique : " + (flags.controlTech ? "présent" : "à récupérer") + "</li>";
-    h += "<li>Historique entretien / carnet / factures garage</li>";
-    h += "<li>Preuve des rappels effectués via VIN</li>";
-    h += "<li>Devis réparation (minimum 2)</li>";
-    h += "<li>Lecture OBD / codes défaut DTC</li>";
-    h += "<li>Photos : moisiure, eau, corrosion, voyants, niveaux, batterie, charge</li>";
-    if (matches.length) {
-      h += "<li>Vérification VIN sur sites constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate</li>";
-    }
-    h += "</ul>";
-    h += '<div class="verification-needed">Sans facture, CT ou historique, la preuve de l’antériorité sera fragilisée ' + addTerm("insuffisance probatoire") + ".</div>";
-    return h;
-  }
-
-  function secJuri(matches) {
-    var h = "<p><strong>Objet :</strong> textes et jurisprudence " + addTerm("jurisprudence", "doctrine") + ".</p>";
-    h += "<h4>Textes</h4><ul>";
-    h += "<li>1641 à 1649 C.civ. — vices cachés</li>";
-    h += "<li>1130 à 1144 C.civ. — vices du consentement</li>";
-    h += "<li>1112-1 C.civ. — information précontractuelle</li>";
-    h += "<li>1231-1 C.civ. — responsabilité contractuelle</li>";
-    h += "<li>1240, 1241 C.civ. — responsabilité délictuelle</li>";
-    h += "<li>1245 et s. C.civ. — produits défectueux</li>";
-    h += "<li>L.217-3 à L.217-20 C.consom. — conformité</li>";
-    h += "<li>L.213-1 C.consom. — tromperie</li>";
-    h += "<li>L.121-2 C.consom. — pratique commerciale trompeuse</li>";
-    h += "<li>L.423-1 C.consom. — sécurité des produits</li>";
-    h += "<li>221-6, 222-19, 223-1, 313-1, 441-1 C.pénal</li>";
-    h += "</ul>";
-
-    h += "<h4>Jurisprudence / références</h4><ul>";
-    h += "<li>Cass. civ. 1ère, 3 mai 2006 — caractère caché</li>";
-    h += "<li>Cass. civ. 1ère, 12 juill. 2018 — vérification des rappels par pro</li>";
-    h += "<li>Cass. civ. 1ère, 27 févr. 2019 — clause vendu en l’état et mauvaise foi</li>";
-    h += "<li>CJUE, 5 avril 2023, C-277/22 — defeat device et conformité</li>";
-    h += "<li>TGI Paris, 15 janv. 2020 — Renault 1.5 dCi bielles</li>";
-    h += "<li>NHTSA / KBA / DGCCRF — rappels sécurité, batteries, ADAS, incendies</li>";
-    h += "</ul>";
-
-    if (matches.length) {
-      h += "<h4>Références spécifiques aux défauts détectés</h4><ul>";
-      matches.forEach(function (m) {
-        h += "<li><strong>" + esc(m.moteur) + " :</strong> " + esc(m.rappelRef) + "</li>";
-      });
-      h += "</ul>";
-    }
-
-    return h;
-  }
-
-  function secPrejudice(flags, matches) {
-    var h = "<p><strong>Objet :</strong> préjudice " + addTerm("évaluation du préjudice", "réparation intégrale") + ".</p>";
-    h += "<h4>Préjudices matériels</h4><ul>";
-    h += "<li>Coût réparations / devis</li>";
-    h += "<li>Remboursement prix si résolution</li>";
-    h += "<li>Moins-value</li>";
-    h += "<li>Location véhicule remplacement</li>";
-    h += "<li>Frais expertise / avocat / dépens</li>";
-    h += "<li>Manque à gagner si usage professionnel</li>";
-    h += "</ul>";
-
-    h += "<h4>Préjudices moraux / corporels</h4><ul>";
-    h += "<li>Préjudice d’anxiété si dangerosité</li>";
-    h += "<li>Trouble dans les conditions d’existence</li>";
-    h += "<li>Souffrances endurées / préjudice esthétique / DFT / DFP si accident</li>";
-    h += "</ul>";
-
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += '<div class="rappel-critical"><strong>Angle sapeur-pompier / sécurité :</strong> la peur de conduire un véhicule dangereux peut justifier un préjudice moral même sans accident ' + addTerm("préjudice d’anxiété") + ".</div>";
-    }
-
-    return h;
-  }
-
-  function secStrategie(flags, matches, objective) {
-    var h = "<p><strong>Objet :</strong> stratégie " + addTerm("stratégie contentieuse", "MARD") + ".</p>";
-
-    h += "<h4>Phase 1 — consolidation probatoire</h4><ol>";
-    h += "<li>Expertise amiable contradictoire</li>";
-    h += "<li>Devis réparation</li>";
-    h += "<li>Lecture OBD</li>";
-    h += "<li>Vérification VIN / rappels</li>";
-    h += "<li>Photos et constats</li>";
-    h += "</ol>";
-
-    h += "<h4>Phase 2 — mise en demeure</h4><ol>";
-    h += "<li>LRAR au vendeur</li>";
-    if (matches.length) {
-      h += "<li>Invoquer le défaut de série documenté " + addTerm("défaut de série", "présomption de connaissance") + "</li>";
-    }
-    h += "<li>Délai 15 jours</li>";
-    h += "<li>Joindre rapport, devis, photos</li>";
-    h += "</ol>";
-
-    h += "<h4>Phase 3 — résolution amiable</h4><ol>";
-    h += "<li>Conciliation</li>";
-    if (flags.professional) h += "<li>Médiation de la consommation</li>";
-    h += "<li>Transaction écrite si accord</li>";
-    h += "</ol>";
-
-    h += "<h4>Phase 4 — judiciaire</h4><ol>";
-    h += "<li>Assignation TJ / tribunal de proximité</li>";
-    h += "<li>Demande d’expertise judiciaire si nécessaire</li>";
-    h += "<li>Référé si urgence / danger</li>";
-    if (matches.length && matches.some(function (m) { return m.severite === "critique"; })) {
-      h += "<li>Signalement DGCCRF / préfet / NHTSA / KBA si danger collectif</li>";
-    }
-    h += "</ol>";
-
-    if (objective) {
-      h += "<p><strong>Objectif déclaré :</strong> " + esc(objective) + "</p>";
-    }
-
-    return h;
-  }
-
-  function secVerif(matches, flags) {
-    var h = "<p><strong>Objet :</strong> vérifications et recherche approfondie " + addTerm("vérifications complémentaires") + ".</p>";
-
-    h += "<ul>";
-    h += "<li>Vérifier VIN sur site constructeur</li>";
-    h += "<li>Consulter rappel.conso.gouv.fr</li>";
-    h += "<li>Consulter NHTSA si véhicule importé / groupe international</li>";
-    h += "<li>Consulter KBA pour rappels allemands</li>";
-    h += "<li>Consulter SafetyGate / bases européennes</li>";
-    h += "<li>Rechercher TSB / notes techniques atelier</li>";
-    h += "<li>Consulter forums spécialisés et retours propriétaires</li>";
-    h += "<li>Vérifier historique entretien et rappels effectués</li>";
-    h += "<li>Faire lire les codes défaut OBD</li>";
-    if (flags.waterLeak) {
-      h += "<li>Inspecter baie de pare-brise, cavillon, évacuations, boîtier fusibles, connecteurs</li>";
-    }
-    if (flags.ev) {
-      h += "<li>Contrôler SOH batterie, BMS, charge AC/DC, température, isolation HV, batterie 12V</li>";
-    }
-    h += "</ul>";
-
-    var links = researchLinks(
-      vehicleData.marque,
-      vehicleData.modele,
-      matches[0] ? matches[0].moteur : "",
-      matches[0] ? matches[0].symptomes : []
-    );
-
-    h += "<h4>Pistes de recherche externe à ouvrir manuellement</h4><ul>";
-    links.forEach(function (l) {
-      h += '<li><a href="' + esc(l.url) + '" target="_blank" rel="noopener noreferrer">' + esc(l.label) + "</a></li>";
-    });
-    h += "</ul>";
-
-    h += '<div class="verification-needed">Ces liens ne sont pas appelés automatiquement par l’application. Ils servent à confirmer localement la notoriété du défaut avant conclusion finale.</div>';
-
-    return h;
-  }
-
-  function secVoies(flags, matches) {
-    var h = "<p><strong>Objet :</strong> voies d’action " + addTerm("voies d’action") + ".</p><ul>";
-    h += "<li>Action civile en garantie des vices cachés</li>";
-    if (flags.professional) {
-      h += "<li>Garantie légale de conformité</li>";
-      h += "<li>Signalement DGCCRF / rappel.conso</li>";
-      h += "<li>Médiation de la consommation</li>";
-    }
-    if (matches.some(function (m) { return m.severite === "critique"; })) {
-      h += "<li>Action contre constructeur : produits défectueux</li>";
-      h += "<li>Plainte pénale si danger dissimulé</li>";
-      h += "<li>Action collective si défaut massif</li>";
-    }
-    h += "<li>Expertise judiciaire</li>";
-    h += "</ul>";
-    return h;
-  }
-
-  function secConclu(objective, matches, flags, vData) {
-    var high = matches.some(function (m) { return m.confiance === "Haute"; });
-    var critical = matches.some(function (m) { return m.severite === "critique"; });
-
-    var h = "<p><strong>Objet :</strong> conclusion prudente " + addTerm("synthèse") + ".</p>";
-
-    h += "<p>";
-    if (high && critical) {
-      h += "Le croisement local technique/juridique oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave. La voie du vice caché et/ou de la conformité est sérieusement ouverte.";
-    } else if (matches.length) {
-      h += "Un défaut connu est probable, mais le kilométrage ou la nature du symptôme impose une expertise pour écarter l’usure normale.";
-    } else {
-      h += "Aucun défaut de série identifié localement. Le problème peut être individuel : diagnostic et expertise nécessaires.";
-    }
-    h += "</p>";
-
-    h += "<p><strong>Recommandation opérationnelle :</strong> ne pas effectuer de réparation destructrice avant constat/expertise. Conserver le véhicule en l’état si possible, photographier, obtenir devis, puis mise en demeure LRAR.</p>";
-
-    if (flags.professional) {
-      h += "<p><strong>Si vendeur professionnel :</strong> privilégier garantie légale de conformité + signalement DGCCRF si danger.</p>";
-    } else {
-      h += "<p><strong>Si vendeur particulier :</strong> privilégier expertise amiable puis action en vices cachés.</p>";
-    }
-
-    h += '<div class="certainty-low"><strong>Avertissement :</strong> document d’aide à la rédaction. Ne constitue pas un avis juridique définitif.</div>';
-
-    return h;
-  }
-
-  function secLexique() {
-    var terms = Array.from(termesMobilises).sort();
-    var h = "<p><strong>Termes mobilisés :</strong> " + terms.length + '</p><div class="lexique-section">';
-    terms.forEach(function (t) {
-      h += '<div class="lexique-item"><strong>' + esc(t) + "</strong></div>";
-    });
-    h += "</div>";
-    return h;
-  }
-
-  function updateAdminStats() {
-    var brands = {};
-    allDefects().forEach(function (d) {
-      if (d.b && d.b !== "Toutes marques") brands[d.b] = true;
-    });
-
-    var statEntries = q("#statEntries");
-    var statBrands = q("#statBrands");
-    var statSync = q("#statSync");
-
-    if (statEntries) statEntries.textContent = allDefects().length;
-    if (statBrands) statBrands.textContent = Object.keys(brands).length;
-
-    var last = load(KEYS.LAST_UPDATE, 0);
-    if (statSync) statSync.textContent = last ? new Date(last).toLocaleString("fr-FR") : "Jamais";
-  }
-
-  function renderRequests() {
-    var box = q("#pendingRequests");
-    if (!box) return;
-
-    var pending = pendingRequests();
-    var count = q("#pendingCount");
-    if (count) count.textContent = pending.length;
-
-    if (!pending.length) {
-      box.innerHTML = '<p class="empty-state">Aucune demande.</p>';
-      return;
-    }
-
-    box.innerHTML = pending.map(function (r) {
-      return '<div class="card pending">' +
-        "<strong>" + esc(r.name) + "</strong> <small>" + esc(r.email) + "</small>" +
-        "<p>" + esc(r.reason) + "</p>" +
-        '<div class="actions">' +
-        '<button class="btn-ok" data-action="approve" data-id="' + esc(r.id) + '" type="button">Accepter</button>' +
-        '<button class="btn-no" data-action="refuse" data-id="' + esc(r.id) + '" type="button">Refuser</button>' +
-        "</div></div>";
-    }).join("");
-  }
-
-  function renderUsers() {
-    var box = q("#authorizedUsers");
-    if (!box) return;
-
-    var users = getUsers().filter(function (u) { return u.role !== "admin"; });
-
-    if (!users.length) {
-      box.innerHTML = '<p class="empty-state">Aucun tiers.</p>';
-      return;
-    }
-
-    box.innerHTML = users.map(function (u) {
-      var action = u.status === "approved"
-        ? '<button class="btn-warn" data-action="revoke" data-email="' + esc(u.email) + '" data-name="' + esc(u.name) + '" type="button">Révoquer</button>'
-        : '<button class="btn-ok" data-action="restore" data-email="' + esc(u.email) + '" data-name="' + esc(u.name) + '" type="button">Rétablir</button>';
-
-      return '<div class="card ' + esc(u.status) + '">' +
-        "<strong>" + esc(u.name) + "</strong> <small>" + esc(u.email) + " • " + esc(u.status) + "</small>" +
-        '<div class="actions">' + action + "</div>" +
-        "</div>";
-    }).join("");
-  }
-
-  function renderAdmin() {
-    renderRequests();
-    renderUsers();
-    updateAdminStats();
-  }
-
   on("#adminPanelBtn", "click", function () {
     if (!currentUser || currentUser.role !== "admin") return;
     var panel = q("#adminPanel");
@@ -2506,14 +3021,18 @@
     if (action === "approve" || action === "refuse") {
       var id = btn.dataset.id;
       var reqs = getRequests();
-      var req = reqs.find(function (r) { return r.id === id; });
+      var req = reqs.find(function (r) {
+        return r.id === id;
+      });
+
       if (!req) return;
 
       req.status = action === "approve" ? "approved" : "refused";
-      saveRequests(reqs);
+      req.processedAt = Date.now();
+      req.processedDate = new Date(req.processedAt).toLocaleString("fr-FR");
 
       if (action === "approve") {
-        upsertUser({
+        var user = upsertUser({
           id: req.id,
           name: req.name,
           email: req.email,
@@ -2521,36 +3040,115 @@
           status: "approved",
           daily: { date: todayKey(), count: 0 }
         });
-        notify("Accès approuvé", req.name);
+
+        req.userId = user.key;
+        notify("Accès approuvé", req.name + " (" + req.email + ")");
       }
 
+      saveRequests(reqs);
+
       if (broadcast) {
-        try { broadcast.postMessage({ type: "access-change", payload: { email: req.email, status: req.status } }); } catch (e2) {}
+        try {
+          broadcast.postMessage({
+            type: "access-change",
+            payload: {
+              email: req.email,
+              status: req.status
+            }
+          });
+        } catch (e2) {}
       }
 
       renderAdmin();
-      toast(action === "approve" ? "Demande acceptée." : "Demande refusée.", action === "approve" ? "success" : "warning");
+
+      toast(
+        action === "approve"
+          ? "Demande acceptée. Si le tiers est sur un autre appareil, envoyez-lui le lien d’accès."
+          : "Demande refusée.",
+        action === "approve" ? "success" : "warning"
+      );
     }
 
     if (action === "revoke" || action === "restore") {
-      var email = btn.dataset.email;
-      var name = btn.dataset.name;
+      var emailKey = userEmailKey(btn.dataset.email || "");
       var users = getUsers();
-      var user = users.find(function (u) {
-        return u.email.toLowerCase() === String(email).toLowerCase() && u.name.toLowerCase() === String(name).toLowerCase();
+
+      var idx = users.findIndex(function (u) {
+        return u.emailNorm === emailKey && u.role !== "admin";
       });
 
-      if (user) {
-        user.status = action === "revoke" ? "revoked" : "approved";
+      if (idx >= 0) {
+        users[idx].status = action === "revoke" ? "revoked" : "approved";
+        users[idx].updatedAt = Date.now();
+
         saveUsers(users);
 
         if (broadcast) {
-          try { broadcast.postMessage({ type: "access-change", payload: { email: user.email, status: user.status } }); } catch (e2) {}
+          try {
+            broadcast.postMessage({
+              type: "access-change",
+              payload: {
+                email: users[idx].email,
+                status: users[idx].status
+              }
+            });
+          } catch (e2) {}
         }
 
         renderAdmin();
         enforceTierAccess();
-        toast(action === "revoke" ? "Accès révoqué." : "Accès rétabli.", action === "revoke" ? "warning" : "success");
+
+        toast(
+          action === "revoke" ? "Accès révoqué." : "Accès rétabli.",
+          action === "revoke" ? "warning" : "success"
+        );
+      }
+    }
+
+    if (action === "share-grant") {
+      var name = btn.dataset.name || "";
+      var email = btn.dataset.email || "";
+
+      var user = findApprovedUser(name, email);
+
+      if (!user) {
+        toast("Aucun utilisateur approuvé trouvé pour cet email.", "error");
+        return;
+      }
+
+      var url = makeAccessGrantUrl(user);
+
+      var text =
+        "Accès Expert Auto accordé\n" +
+        "Nom : " + user.name + "\n" +
+        "Email : " + user.email + "\n" +
+        "Ouvrez ce lien dans l’application pour être connecté automatiquement :\n" +
+        url;
+
+      if (navigator.share) {
+        navigator.share({
+          title: "Accès Expert Auto",
+          text: text,
+          url: url
+        }).catch(function () {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(url).then(function () {
+              toast("Lien d’accès copié.", "success");
+            }).catch(function () {
+              toast("Copie impossible.", "error");
+            });
+          } else {
+            toast("Partage impossible.", "warning");
+          }
+        });
+      } else if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(function () {
+          toast("Lien d’accès copié.", "success");
+        }).catch(function () {
+          toast("Copie impossible.", "error");
+        });
+      } else {
+        toast("Partage non supporté.", "warning");
       }
     }
   });
@@ -2708,68 +3306,10 @@
       return;
     }
 
-    if (!window.jspdf || !window.jspdf.jsPDF) {
-      toast("Bibliothèque PDF indisponible. Vérifiez la connexion ou rechargez.", "error");
-      return;
-    }
-
-    try {
-      var jsPDF = window.jspdf.jsPDF;
-      var doc = new jsPDF();
-      var y = 20;
-
-      doc.setFontSize(16);
-      doc.text("RAPPORT D'ANALYSE EXPERT AUTO", 105, y, { align: "center" });
-      y += 10;
-
-      doc.setFontSize(10);
-      doc.text("Date : " + analysisData.date, 20, y);
-      y += 6;
-
-      doc.text("Véhicule : " + (vehicleData.marque || "") + " " + (vehicleData.modele || "") + " " + (vehicleData.annee || ""), 20, y);
-      y += 6;
-
-      doc.text("Kilométrage : " + (vehicleData.kilometrage || "") + " km", 20, y);
-      y += 10;
-
-      analysisData.sections.forEach(function (pair) {
-        var title = pair[0];
-        var content = pair[1];
-
-        if (y > 265) {
-          doc.addPage();
-          y = 20;
-        }
-
-        doc.setFont(undefined, "bold");
-        doc.setFontSize(11);
-        var titleLines = doc.splitTextToSize(title, 170);
-        doc.text(titleLines, 20, y);
-        y += titleLines.length * 5 + 2;
-
-        doc.setFont(undefined, "normal");
-        doc.setFontSize(9);
-        var plain = stripTags(content);
-        var lines = doc.splitTextToSize(plain, 170);
-
-        lines.forEach(function (line) {
-          if (y > 280) {
-            doc.addPage();
-            y = 20;
-          }
-          doc.text(line, 20, y);
-          y += 4;
-        });
-
-        y += 5;
-      });
-
-      doc.save("analyse-experte-" + new Date().toISOString().slice(0, 10) + ".pdf");
-      toast("PDF généré.", "success");
-    } catch (err) {
-      console.error(err);
-      toast("Erreur PDF : " + err.message, "error");
-    }
+    generatePdfWithJsPdf().catch(function () {
+      toast("Bibliothèque PDF indisponible. Impression/fallback HTML activé.", "warning");
+      printReportFallback();
+    });
   });
 
   on("#shareBtn", "click", function () {
@@ -2798,99 +3338,62 @@
     }
   });
 
-  function registerServiceWorker() {
-    try {
-      if ("serviceWorker" in navigator && location.protocol !== "file:") {
-        navigator.serviceWorker
-          .register("./sw.js")
-          .then(function (reg) {
-            swRegistration = reg;
-            return navigator.serviceWorker.ready;
-          })
-          .then(function (reg) {
-            swRegistration = reg;
-            console.log("[AR-EXPERT] Service Worker prêt.");
-          })
-          .catch(function (err) {
-            console.warn("[AR-EXPERT] Service Worker non enregistré:", err);
-          });
+  /* =========================================================
+     TEMPS REEL LOCAL
+     ========================================================= */
+  setInterval(enforceTierAccess, 15000);
+
+  window.addEventListener("storage", function (e) {
+    if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS) {
+      updateNotificationBell();
+
+      if (currentUser && currentUser.role === "admin") {
+        pollAdminNotifications();
+        renderAdminIfOpen();
       }
-    } catch (e) {
-      console.warn("[AR-EXPERT] Enregistrement SW impossible:", e);
+
+      enforceTierAccess();
     }
-  }
+  });
 
-  function updateDataStatus(msg) {
-    var el = q("#dataStatus");
-    if (el) el.textContent = msg;
-  }
+  if (broadcast) {
+    broadcast.onmessage = function (event) {
+      try {
+        var data = event.data || {};
 
-  function checkAutoUpdate(manual) {
-    try {
-      var last = load(KEYS.LAST_UPDATE, 0);
-      var interval = CONFIG.updateIntervalDays * 24 * 60 * 60 * 1000;
-      var due = (Date.now() - last) >= interval;
-
-      if (!due && !manual) return;
-      if (!navigator.onLine && !manual) return;
-
-      fetchUpdate(manual);
-    } catch (e) {
-      console.warn("[AR-EXPERT] Check update ignore:", e);
-    }
-  }
-
-  function fetchUpdate(manual) {
-    if (!window.fetch) {
-      if (manual) toast("Mise à jour impossible : fetch non supporté.", "warning");
-      return;
-    }
-
-    var statusEl = q("#dataStatus");
-    if (statusEl) statusEl.textContent = manual ? "Recherche de mise à jour..." : "Mise à jour périodique en arrière-plan...";
-
-    fetch(CONFIG.updateUrl, { cache: "no-store", method: "GET" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-      })
-      .then(function (json) {
-        var incoming = Array.isArray(json) ? json : (json && Array.isArray(json.defects) ? json.defects : []);
-        if (!incoming.length) {
-          if (manual) toast("Aucune nouvelle donnée technique.", "info");
-          save(KEYS.LAST_UPDATE, Date.now());
-          updateDataStatus("Base locale à jour");
-          return;
+        if (data.type === "access-request") {
+          onAccessRequestReceived(data.payload);
         }
 
-        techUpdates = mergeDefects(techUpdates, incoming);
-        save(KEYS.TECH_UPDATES, techUpdates);
-        save(KEYS.LAST_UPDATE, Date.now());
-        updateAdminStats();
-        updateDataStatus("Base mise à jour automatiquement");
+        if (data.type === "access-change") {
+          enforceTierAccess();
 
-        if (manual) toast("Mise à jour technique appliquée.", "success");
-        notify("Base technique mise à jour", incoming.length + " entrées traitées.");
-      })
-      .catch(function (err) {
-        console.warn("[AR-EXPERT] Mise à jour impossible:", err);
-        save(KEYS.LAST_UPDATE, Date.now());
-        updateDataStatus("Mode autonome : mise à jour indisponible");
-        if (manual) toast("Mise à jour impossible. Base locale conservée.", "warning");
-      });
+          if (currentUser && currentUser.role === "admin") {
+            updateNotificationBell();
+            renderAdminIfOpen();
+          }
+        }
+      } catch (e) {
+        console.warn("[AR-EXPERT] Broadcast message ignoré:", e);
+      }
+    };
   }
 
+  window.addEventListener("arex:access-request", function (event) {
+    onAccessRequestReceived(event.detail);
+  });
+
+  /* =========================================================
+     INIT
+     ========================================================= */
   function init() {
     try {
-      if (window.pdfjsLib) {
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-          "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-      }
-    } catch (e) {}
-
-    techUpdates = (load(KEYS.TECH_UPDATES, []) || [])
-      .map(normalizeDefect)
-      .filter(isValidDefect);
+      techUpdates = (load(KEYS.TECH_UPDATES, []) || [])
+        .map(normalizeDefect)
+        .filter(isValidDefect);
+    } catch (e) {
+      techUpdates = [];
+    }
 
     updateAdminStats();
     updateDataStatus("Base locale ingénieur chargée");
@@ -2901,20 +3404,41 @@
 
     refreshSavedPasswordButton();
 
+    processIncomingAccessRequestFromUrl();
+
+    if (processIncomingAccessGrantFromUrl()) {
+      updateNotificationBell();
+      return;
+    }
+
     if (restoreSession()) {
       showApp();
     } else {
       showLogin();
     }
 
-    processIncomingAccessRequestFromUrl();
-
     toast("Application prête. Base locale chargée.", "success");
   }
 
+  function boot() {
+    try {
+      init();
+    } catch (e) {
+      console.warn("[AR-EXPERT] Boot dégradé:", e);
+      try {
+        var status = q("#dataStatus");
+        if (status) status.textContent = "Mode dégradé actif";
+        var login = q("#loginScreen");
+        if (login) login.style.display = "flex";
+        var app = q("#mainApp");
+        if (app) app.classList.add("hidden");
+      } catch (_) {}
+    }
+  }
+
   if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+    document.addEventListener("DOMContentLoaded", boot);
   } else {
-    init();
+    boot();
   }
 })();
