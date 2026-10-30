@@ -1,27 +1,17 @@
-const CACHE_NAME = "arex-expert-v12-notif-fix";
+const CACHE_NAME = "arex-expert-v13";
 
-const ASSETS = [
+const CORE_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./manifest.json",
-  "./icon-192.png",
-  "./icon-512.png"
+  "./manifest.json"
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(ASSETS).catch(() => {
-        return cache.addAll([
-          "./",
-          "./index.html",
-          "./styles.css",
-          "./app.js",
-          "./manifest.json"
-        ]);
-      });
+      return cache.addAll(CORE_ASSETS);
     })
   );
   self.skipWaiting();
@@ -47,6 +37,23 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Mise à jour technique : réseau d'abord, cache fallback.
+  if (url.pathname.endsWith("/data/technical-updates.json")) {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, clone);
+          });
+          return response;
+        })
+        .catch(() => caches.match(event.request))
+    );
+    return;
+  }
+
+  // Application : cache d'abord, réseau fallback, puis index.html hors-ligne.
   event.respondWith(
     caches.match(event.request).then((cached) => {
       if (cached) return cached;
@@ -72,6 +79,24 @@ self.addEventListener("fetch", (event) => {
         });
     })
   );
+});
+
+self.addEventListener("message", (event) => {
+  const data = event.data || {};
+
+  if (data.type === "show-notification") {
+    event.waitUntil(
+      self.registration.showNotification(data.title || "Expert Auto", {
+        body: data.body || "",
+        tag: data.tag || "arex-notification",
+        icon: data.icon || "./icon-192.png",
+        badge: data.badge || "./icon-192.png",
+        data: {
+          url: "./index.html"
+        }
+      })
+    );
+  }
 });
 
 self.addEventListener("notificationclick", (event) => {
