@@ -68,6 +68,19 @@
     try { localStorage.removeItem(key); } catch (e) {}
   }
 
+  function loadWithMigration(newKey, oldKey, fallback) {
+    var current = load(newKey, null);
+    if (current != null) return current;
+
+    var old = load(oldKey, null);
+    if (old != null) {
+      save(newKey, old);
+      return old;
+    }
+
+    return fallback;
+  }
+
   function esc(value) {
     return String(value == null ? "" : value)
       .replace(/&/g, "&amp;")
@@ -81,6 +94,14 @@
     var s = String(str == null ? "" : str).toLowerCase();
     if (s.normalize) s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     return s.trim();
+  }
+
+  function containsAny(text, list) {
+    var t = norm(text);
+    for (var i = 0; i < list.length; i++) {
+      if (t.indexOf(norm(list[i])) >= 0) return true;
+    }
+    return false;
   }
 
   function parseKm(v) {
@@ -206,7 +227,6 @@
 
   /* =========================================================
      CHARGEMENT DYNAMIQUE DES BIBLIOTHEQUES
-     L'application démarre même si ces bibliothèques échouent.
      ========================================================= */
   var scriptCache = {};
 
@@ -280,6 +300,7 @@
     maxDailyAnalyses: 10,
     updateIntervalDays: 30,
     updateUrl: "./data/technical-updates.json",
+    engineCatalogUrl: "./data/engine-catalog.json",
     pollAdminMs: 5000,
     autoDiagnostic: {
       baseUrl: "https://expertkevin06-cell.github.io/auto-diagnostic/",
@@ -288,6 +309,8 @@
         "data/base.json",
         "data/pannes.json",
         "data/models.json",
+        "data/motorisations.json",
+        "data/engine-catalog.json",
         "data/dtc.json",
         "data/technical-updates.json",
         "db.json",
@@ -307,6 +330,19 @@
   };
 
   var KEYS = {
+    SESSION: "arex_session_v15",
+    USERS: "arex_users_v15",
+    REQUESTS: "arex_requests_v15",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v15",
+    TECH_UPDATES: "arex_tech_updates_v15",
+    LAST_UPDATE: "arex_last_update_v15",
+    AUTO_DB: "arex_auto_db_v15",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v15",
+    AUTO_CFG: "arex_auto_cfg_v15",
+    ENGINE_EXTRA: "arex_engine_extra_v15"
+  };
+
+  var OLD_KEYS = {
     SESSION: "arex_session_v14",
     USERS: "arex_users_v14",
     REQUESTS: "arex_requests_v14",
@@ -315,7 +351,8 @@
     LAST_UPDATE: "arex_last_update_v14",
     AUTO_DB: "arex_auto_db_v14",
     AUTO_LAST_SYNC: "arex_auto_last_sync_v14",
-    AUTO_CFG: "arex_auto_cfg_v14"
+    AUTO_CFG: "arex_auto_cfg_v14",
+    ENGINE_EXTRA: "arex_engine_extra_v14"
   };
 
   var currentUser = null;
@@ -328,6 +365,10 @@
   var autoDb = [];
   var autoLastSync = 0;
   var autoConfig = Object.assign({}, CONFIG.autoDiagnostic);
+  var engineExtra = [];
+  var engineCatalogCache = null;
+  var engineOptionMap = {};
+  var engineRefreshTimer = null;
   var swRegistration = null;
   var adminPollTimer = null;
   var lastPendingSignature = "";
@@ -457,7 +498,7 @@
   }
 
   function getUsers() {
-    var raw = load(KEYS.USERS, []) || [];
+    var raw = loadWithMigration(KEYS.USERS, OLD_KEYS.USERS, []) || [];
     var changed = false;
 
     var users = raw.map(function (u) {
@@ -489,7 +530,7 @@
   }
 
   function getRequests() {
-    var raw = load(KEYS.REQUESTS, []) || [];
+    var raw = loadWithMigration(KEYS.REQUESTS, OLD_KEYS.REQUESTS, []) || [];
     var changed = false;
 
     var requests = raw.map(function (r) {
@@ -582,7 +623,7 @@
   }
 
   function restoreSession() {
-    var session = load(KEYS.SESSION, null);
+    var session = loadWithMigration(KEYS.SESSION, OLD_KEYS.SESSION, null);
     if (!session) return false;
 
     if (session.role === "admin") {
@@ -953,6 +994,7 @@
     updateCounter();
     updateNotificationBell();
     updateNotificationState();
+    refreshEngineOptions();
 
     if (currentUser && currentUser.role === "admin") {
       startAdminPolling();
@@ -990,7 +1032,7 @@
 
   function refreshSavedPasswordButton() {
     var btn = q("#useSavedPwdBtn");
-    var saved = load(KEYS.ADMIN_PWD_HASH, null);
+    var saved = loadWithMigration(KEYS.ADMIN_PWD_HASH, OLD_KEYS.ADMIN_PWD_HASH, null);
     if (!btn) return;
 
     if (saved) btn.classList.remove("hidden");
@@ -1010,6 +1052,488 @@
     if (!savedHash) return Promise.resolve(false);
     return sha256(CONFIG.adminPassword).then(function (adminHash) {
       return savedHash === adminHash;
+    });
+  }
+
+  /* =========================================================
+     MOTORISATION : TYPES / CATALOGUE / FILTRE
+     ========================================================= */
+  var ENGINE_TYPES_ORDER = [
+    "Essence",
+    "Diesel",
+    "Hybride",
+    "Hybride rechargeable",
+    "Hybride léger 48V",
+    "Hybride / électrique",
+    "Électrique",
+    "GPL",
+    "E85 / Bioéthanol",
+    "Non précisé / mixte"
+  ];
+
+  function inferEngineType(engine, tags, symptoms, note) {
+    var t = norm(engine + " " + tags + " " + symptoms + " " + note);
+
+    if (containsAny(t, [
+      "hybride rechargeable", "plug-in", "phev", "e-tense", "4xe", "prime",
+      "e-hybrid", "xdrive45e", "tucson phev", "sportage phev", "niro phev",
+      "compass 4xe", "wrangler 4xe", "grand cherokee 4xe", "tonale phev"
+    ])) return "Hybride rechargeable";
+
+    if (containsAny(t, [
+      "48v", "mild hybrid", "micro-hybridation", "eq boost", "boosterjet",
+      "firefly hybrid", "hybrid 48"
+    ])) return "Hybride léger 48V";
+
+    var hy = containsAny(t, [
+      "hybride", "hybrid", "ths", "i-mmd", "e-power", "self-charging",
+      "prius", "yaris hybrid", "corolla hybrid", "c-hr hybrid", "rav4 hybrid"
+    ]);
+
+    var el = containsAny(t, [
+      "electrique", "electric", "bev", "battery", "bms", "charge", "autonomie",
+      "tesla", "id.3", "id.4", "id.5", "id.7", "ioniq", "atto", "model 3",
+      "model y", "e-tron", "e-cmp", "megane e-tech", "scenic e-tech",
+      "austral e-tech", "captur e-tech", "spring", "500e", "e-corsa",
+      "e-208", "e-2008", "enyaq", "born", "taycan", "mach-e", "i-pace",
+      "ariya", "leaf", "mx-30", "eqs", "eqe", "eqb", "eqa", "q4 e-tron"
+    ]);
+
+    if (hy && el) return "Hybride / électrique";
+    if (hy) return "Hybride";
+    if (el) return "Électrique";
+
+    if (containsAny(t, [
+      "diesel", "dci", "tdi", "hdi", "bluehdi", "bluemotion", "cdti",
+      "ddis", "crdi", "k9k", "dv6", "om654", "b47", "ea288", "d-4d",
+      "gasoil", "gasoil"
+    ])) return "Diesel";
+
+    if (containsAny(t, [
+      "essence", "tsi", "tfsi", "tce", "puretech", "firefly", "ecoboost",
+      "skyactiv-g", "skyactiv-x", "smartstream", "gamma", "theta", "b38",
+      "b46", "b48", "b58", "ea211", "ea888", "ingenium", "turbo essence",
+      "1.0 tce", "1.3 tce", "1.2 puretech", "1.5 tsi", "2.0 tsi", "2.3 ecoboost"
+    ]) && !containsAny(t, ["diesel", "electrique", "hybride"])) return "Essence";
+
+    if (containsAny(t, ["gpl", "lp/g", "liquefied petroleum"])) return "GPL";
+    if (containsAny(t, ["e85", "bioethanol", "superethanol"])) return "E85 / Bioéthanol";
+
+    return "Non précisé / mixte";
+  }
+
+  function isMotorisationType(type) {
+    return type && type !== "Non précisé / mixte";
+  }
+
+  function isElectricLike(type) {
+    var t = norm(type);
+    return t.indexOf("electrique") >= 0 ||
+           t.indexOf("hybride") >= 0 ||
+           t.indexOf("48v") >= 0;
+  }
+
+  function isMotorisationEntry(d) {
+    var t = norm(d.e + " " + d.tg);
+
+    if (containsAny(t, [
+      "boite", "embrayage", "convertisseur", "mecatronique", "synchro",
+      "dsg", "edc", "pdk", "cvt", "dct", "eat8", "ddct", "powershift",
+      "transmission"
+    ])) {
+      if (!containsAny(t, ["essence", "diesel", "electrique", "hybride", "moteur"])) return false;
+    }
+
+    if (containsAny(t, [
+      "adas", "camera", "radar", "lidar", "frein", "abs", "esp", "direction",
+      "suspension", "pneu", "tpms", "clim", "ecran", "gps", "bluetooth",
+      "logiciel", "ota", "corrosion", "carrosserie", "infiltration", "eau",
+      "court circuit", "fuite", "refroidissement", "thermostat", "radiateur",
+      "pompe a eau", "ventilateur", "joint culasse", "capteur", "sonde"
+    ])) {
+      if (!containsAny(t, [
+        "essence", "diesel", "electrique", "hybride", "turbo", "courroie",
+        "chaine", "distribution", "injecteur", "pompe a huile", "bielle",
+        "coussinet"
+      ])) return false;
+    }
+
+    return true;
+  }
+
+  function engineTypeRank(type) {
+    var idx = ENGINE_TYPES_ORDER.indexOf(type);
+    return idx >= 0 ? idx : 999;
+  }
+
+  function normalizeEngineRecord(r, sourceUrl) {
+    if (!r || typeof r !== "object") return null;
+
+    var brand = valToString(firstVal(r, ["b", "brand", "marque", "constructeur"]));
+    var model = valToString(firstVal(r, ["m", "models", "model", "modele", "modèle"]));
+    var years = valToString(firstVal(r, ["y", "years", "annee", "année", "period", "range"]));
+    var engine = valToString(firstVal(r, ["e", "engine", "motorisation", "moteur", "powertrain"]));
+    var power = valToString(firstVal(r, ["p", "power", "puissance", "ch", "kw"]));
+    var type = valToString(firstVal(r, ["t", "type", "engineType", "typeMotorisation", "energie"]));
+
+    if (!brand || !engine) return null;
+
+    if (!type) {
+      type = inferEngineType(
+        engine,
+        valToString(firstVal(r, ["tg", "tags", "categorie", "category"])),
+        valToString(firstVal(r, ["s", "symptoms", "symptomes", "panne", "pannes"])),
+        valToString(firstVal(r, ["n", "note", "description"]))
+      );
+    }
+
+    if (!isMotorisationType(type)) return null;
+
+    return {
+      b: brand,
+      m: model || "*",
+      y: years || "2017-2027",
+      e: engine,
+      p: power || "N/A",
+      t: type,
+      sourceUrl: sourceUrl || valToString(firstVal(r, ["sourceUrl", "url", "lien", "link"]))
+    };
+  }
+
+  function collectEngineRecordsFromJson(json, sourceUrl, depth) {
+    depth = depth || 0;
+    var out = [];
+    if (!json || depth > 4) return out;
+
+    if (Array.isArray(json)) {
+      json.forEach(function (item) {
+        var rec = normalizeEngineRecord(item, sourceUrl);
+        if (rec) out.push(rec);
+
+        if (item && typeof item === "object") {
+          ["motorisations", "engines", "engineCatalog", "catalogue", "data", "items"].forEach(function (key) {
+            if (item[key]) out = out.concat(collectEngineRecordsFromJson(item[key], sourceUrl, depth + 1));
+          });
+        }
+      });
+      return out;
+    }
+
+    if (typeof json === "object") {
+      var direct = normalizeEngineRecord(json, sourceUrl);
+      if (direct) out.push(direct);
+
+      ["motorisations", "engines", "engineCatalog", "catalogue", "data", "items"].forEach(function (key) {
+        if (json[key]) out = out.concat(collectEngineRecordsFromJson(json[key], sourceUrl, depth + 1));
+      });
+    }
+
+    return out;
+  }
+
+  function engineRecordKey(e) {
+    return norm(e.b) + "|" + norm(e.m) + "|" + norm(e.e) + "|" + norm(e.p) + "|" + norm(e.t);
+  }
+
+  function mergeEngineRecords(base, incoming) {
+    var map = new Map();
+    (base || []).forEach(function (e) { map.set(engineRecordKey(e), e); });
+    (incoming || []).forEach(function (e) {
+      var k = engineRecordKey(e);
+      if (!map.has(k)) map.set(k, e);
+    });
+    return Array.from(map.values());
+  }
+
+  function invalidateEngineCatalog() {
+    engineCatalogCache = null;
+    engineOptionMap = {};
+    refreshEngineOptions();
+  }
+
+  function addEngineCatalogEntry(cat, brand, model, entry) {
+    var nb = norm(brand || "Toutes marques");
+    var nm = norm(model || "*");
+    if (!nb) nb = "toutes-marques";
+    if (!nm) nm = "*";
+
+    if (!cat[nb]) cat[nb] = {};
+    if (!cat[nb][nm]) cat[nb][nm] = [];
+
+    var id = nb + "|" + nm + "|" + norm(entry.engine) + "|" + norm(entry.power) + "|" + norm(entry.type);
+    var exists = cat[nb][nm].some(function (x) { return x.id === id; });
+    if (!exists) {
+      cat[nb][nm].push({
+        id: id,
+        brand: brand || "Toutes marques",
+        model: model || "*",
+        engine: entry.engine,
+        power: entry.power || "N/A",
+        years: entry.years || "2017-2027",
+        type: entry.type,
+        source: entry.source || "base locale",
+        sourceUrl: entry.sourceUrl || ""
+      });
+    }
+  }
+
+  function engineCatalog() {
+    if (engineCatalogCache) return engineCatalogCache;
+
+    var cat = {};
+
+    allDefects().forEach(function (d) {
+      var type = d.et || inferEngineType(d.e, d.tg, d.s, d.n);
+      if (!isMotorisationType(type)) return;
+      if (!isMotorisationEntry(d)) return;
+
+      var brands = d.b === "Toutes marques" ? ["Toutes marques"] : [d.b];
+      var models = d.m === "*" ? ["*"] : String(d.m || "").split("|");
+
+      brands.forEach(function (b) {
+        models.forEach(function (m) {
+          addEngineCatalogEntry(cat, b, m, {
+            engine: d.e,
+            power: d.p,
+            years: d.y,
+            type: type,
+            source: d.source || "base locale",
+            sourceUrl: d.sourceUrl || ""
+          });
+        });
+      });
+    });
+
+    (engineExtra || []).forEach(function (e) {
+      addEngineCatalogEntry(cat, e.b, e.m, {
+        engine: e.e,
+        power: e.p,
+        years: e.y,
+        type: e.t,
+        source: "catalogue motorisation",
+        sourceUrl: e.sourceUrl || ""
+      });
+    });
+
+    engineCatalogCache = cat;
+    return cat;
+  }
+
+  function findClosestNormalizedKey(map, value) {
+    var n = norm(value);
+    if (!n) return null;
+    if (map[n]) return n;
+
+    var keys = Object.keys(map);
+    for (var i = 0; i < keys.length; i++) {
+      if (keys[i].indexOf(n) >= 0 || n.indexOf(keys[i]) >= 0) return keys[i];
+    }
+    return null;
+  }
+
+  function formatEngineLabel(o) {
+    var label = o.type + " — " + o.engine;
+    if (o.power && o.power !== "N/A") label += " (" + o.power + ")";
+    if (o.years) label += " • " + o.years;
+    if (o.model === "*") label += " • générique marque";
+    return label;
+  }
+
+  function getEngineOptions(brand, model, year) {
+    var cat = engineCatalog();
+    var nb = norm(brand);
+    var brandKey = nb ? findClosestNormalizedKey(cat, nb) : null;
+    if (!brandKey && cat["toutes-marques"]) brandKey = "toutes-marques";
+    if (!brandKey) brandKey = "toutes-marques";
+
+    var modelsMap = cat[brandKey] || {};
+    var nm = norm(model);
+    var modelKeys = [];
+
+    if (nm) {
+      var exact = findClosestNormalizedKey(modelsMap, nm);
+      if (exact) modelKeys.push(exact);
+
+      Object.keys(modelsMap).forEach(function (k) {
+        if (k !== "*" && k.indexOf(nm) >= 0 && modelKeys.indexOf(k) < 0) {
+          modelKeys.push(k);
+        }
+      });
+    }
+
+    modelKeys.push("*");
+
+    var out = [];
+    modelKeys.forEach(function (mk) {
+      (modelsMap[mk] || []).forEach(function (e) {
+        if (year && !checkYearRange(e.years, year)) return;
+        out.push(e);
+      });
+    });
+
+    var seen = {};
+    var dedup = [];
+    out.forEach(function (e) {
+      if (!seen[e.id]) {
+        seen[e.id] = true;
+        dedup.push(e);
+      }
+    });
+
+    dedup.sort(function (a, b) {
+      var ra = engineTypeRank(a.type);
+      var rb = engineTypeRank(b.type);
+      if (ra !== rb) return ra - rb;
+      return norm(a.engine).localeCompare(norm(b.engine));
+    });
+
+    if (!dedup.length) {
+      var stdTypes = [
+        "Essence",
+        "Diesel",
+        "Hybride",
+        "Hybride rechargeable",
+        "Hybride léger 48V",
+        "Électrique",
+        "GPL",
+        "E85 / Bioéthanol"
+      ];
+
+      stdTypes.forEach(function (type) {
+        var id = "std|" + norm(type);
+        dedup.push({
+          id: id,
+          brand: brand || "Toutes marques",
+          model: model || "*",
+          engine: type,
+          power: "N/A",
+          years: year ? year + "-" + year : "2017-2027",
+          type: type,
+          source: "référentiel standard",
+          sourceUrl: ""
+        });
+      });
+    }
+
+    return dedup;
+  }
+
+  function refreshEngineOptions() {
+    var select = q("#vehicleEngine");
+    if (!select) return;
+
+    var brandEl = q("#vehicleBrand");
+    var modelEl = q("#vehicleModel");
+    var yearEl = q("#vehicleYear");
+
+    var brand = brandEl ? brandEl.value.trim() : "";
+    var model = modelEl ? modelEl.value.trim() : "";
+    var year = yearEl ? parseYear(yearEl.value) : 0;
+
+    var oldValue = select.value;
+    var oldOption = engineOptionMap[oldValue] || null;
+
+    var options = getEngineOptions(brand, model, year);
+    engineOptionMap = {};
+
+    select.innerHTML = '<option value="">Automatique / non précisée</option>';
+
+    options.forEach(function (o) {
+      engineOptionMap[o.id] = o;
+      var opt = document.createElement("option");
+      opt.value = o.id;
+      opt.textContent = formatEngineLabel(o);
+      select.appendChild(opt);
+    });
+
+    if (oldValue && engineOptionMap[oldValue]) {
+      select.value = oldValue;
+    } else if (oldOption) {
+      var match = options.find(function (o) {
+        return o.type === oldOption.type &&
+          norm(o.engine) === norm(oldOption.engine) &&
+          norm(o.power) === norm(oldOption.power);
+      });
+      select.value = match ? match.id : "";
+    } else {
+      select.value = "";
+    }
+
+    var help = q("#engineHelp");
+    if (help) {
+      if (!brand && !model) {
+        help.textContent = "Saisissez marque, modèle et année pour charger les motorisations compatibles.";
+      } else if (options.length && options[0].source === "référentiel standard") {
+        help.textContent = "Aucune motorisation spécifique trouvée dans la base locale / auto-diagnostic. Propositions standard affichées.";
+      } else {
+        help.textContent = options.length + " motorisation(s) proposée(s) selon marque, modèle et année.";
+      }
+    }
+  }
+
+  function scheduleEngineRefresh() {
+    clearTimeout(engineRefreshTimer);
+    engineRefreshTimer = setTimeout(refreshEngineOptions, 250);
+  }
+
+  function fetchJsonUrl(url) {
+    return fetch(url, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      });
+  }
+
+  function fetchTextUrl(url) {
+    return fetch(url, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      });
+  }
+
+  function fetchEngineCatalogs(manual) {
+    if (!window.fetch) {
+      if (manual) toast("Catalogue motorisation impossible : fetch non supporté.", "warning");
+      return Promise.resolve(false);
+    }
+
+    var urls = [CONFIG.engineCatalogUrl];
+
+    if (autoConfig.baseUrl) {
+      urls.push(resolveUrl(autoConfig.baseUrl, "data/engine-catalog.json"));
+      urls.push(resolveUrl(autoConfig.baseUrl, "data/motorisations.json"));
+    }
+
+    return Promise.all(urls.map(function (url) {
+      return fetchJsonUrl(url)
+        .then(function (json) {
+          return collectEngineRecordsFromJson(json, url, 0);
+        })
+        .catch(function () {
+          return [];
+        });
+    })).then(function (results) {
+      var incoming = [];
+      results.forEach(function (arr) {
+        incoming = incoming.concat(arr);
+      });
+
+      if (incoming.length) {
+        engineExtra = mergeEngineRecords(engineExtra, incoming);
+        save(KEYS.ENGINE_EXTRA, engineExtra);
+        invalidateEngineCatalog();
+        updateAdminStats();
+        if (manual) toast("Catalogue motorisation chargé : " + incoming.length + " entrées.", "success");
+        return true;
+      }
+
+      if (manual) toast("Aucun catalogue motorisation additionnel trouvé.", "info");
+      return false;
+    }).catch(function (err) {
+      console.warn("[AR-EXPERT] Catalogue motorisation impossible:", err);
+      if (manual) toast("Catalogue motorisation indisponible.", "warning");
+      return false;
     });
   }
 
@@ -1076,521 +1600,523 @@
 
   var GENERATED_DEFECTS = buildGeneratedDefects();
 
-  var SPECIFIC_DEFECTS = [
-    D("Renault", "Clio V|Captur II|Megane IV|Austral|Scenic", "2017-2027", "1.0 TCe / 1.3 TCe", "90ch-160ch",
+  var SPECIFIC_RAW = [
+    ["Renault", "Clio V|Captur II|Megane IV|Austral|Scenic", "2017-2027", "1.0 TCe / 1.3 TCe", "90ch-160ch",
       "consommation huile|turbo|chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe|huile",
       "critique", 0.75,
       "Downsizing turbo : surconsommation huile, turbo, chaîne, PCV, perte de puissance.",
       "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.; tromperie L.213-1.",
       "TSB Renault; forums; rappel.conso",
-      "moteur|turbo|huile|distribution|puissance"),
+      "moteur|turbo|huile|distribution|puissance"],
 
-    D("Renault", "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", "2017-2022", "K9K / 1.5 dCi", "75ch-110ch",
+    ["Renault", "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", "2017-2022", "K9K / 1.5 dCi", "75ch-110ch",
       "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
       "critique", 0.9,
       "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
       "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
       "Programme technique Renault K9K; TSB; jurisprudences",
-      "moteur|huile|bielle|pompe|bruit|critique"),
+      "moteur|huile|bielle|pompe|bruit|critique"],
 
-    D("Renault", "Clio IV|Captur|Megane III|Kadjar|Austral", "2017-2024", "EDC6 / double embrayage", "N/A boite",
+    ["Renault", "Clio IV|Captur|Megane III|Kadjar|Austral", "2017-2024", "EDC6 / double embrayage", "N/A boite",
       "a-coups boite|blocage rapport|patinage|voyant boite|odeur brulee|vibrations|mode degrade|perte traction",
       "critique", 0.7,
       "Boîte EDC : module mécatronique fragile, surchauffe embrayage en ville.",
       "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.",
       "Programme qualité EDC Renault; forums",
-      "boite|embrayage|mecatronique|a-coups"),
+      "boite|embrayage|mecatronique|a-coups"],
 
-    D("Renault", "Trafic II|Master III|Espace V|Talisman", "2017-2027", "Baie de pare-brise / étanchéité", "N/A",
+    ["Renault", "Trafic II|Master III|Espace V|Talisman", "2017-2027", "Baie de pare-brise / étanchéité", "N/A",
       "infiltration eau|court circuit|moisiure|panne electronique|voyants aleatoires|erreur ABS|erreur ESP|corrosion|odeur humidite",
       "critique", 0.95,
       "Défaut d’étanchéité de la baie de pare-brise. Eau vers calculateurs et faisceaux. Indépendant du km.",
       "Vice caché 1641 C.civ.; sécurité L.423-1 C.consom.; produits défectueux 1245 C.civ.",
       "Campagnes Renault; forums; DGCCRF",
-      "eau|electricite|court-circuit|securite|carrosserie"),
+      "eau|electricite|court-circuit|securite|carrosserie"],
 
-    D("Renault", "Megane E-Tech|Scenic E-Tech|Austral E-Tech|Captur E-Tech", "2022-2027", "E-Tech hybride / électrique", "145ch-220ch",
+    ["Renault", "Megane E-Tech|Scenic E-Tech|Austral E-Tech|Captur E-Tech", "2022-2027", "E-Tech hybride / électrique", "145ch-220ch",
       "autonomie reduite|voyant batterie|charge lente|charge DC|DC-DC|batterie 12V|BMS|software|ADAS|camera|radar|mode degrade",
       "critique", 0.9,
       "Plateformes électrifiées récentes : BMS, batterie 12V, charge, logiciel, capteurs ADAS, autonomie réelle.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245 C.civ.",
       "Rappels Renault EV/hybride; DGCCRF; NHTSA si import",
-      "batterie|charge|autonomie|adas|logiciel|electricite"),
+      "batterie|charge|autonomie|adas|logiciel|electricite"],
 
-    D("Dacia", "Sandero|Duster|Logan|Lodgy|Jogger|Spring", "2017-2027", "K9K 1.5 dCi / EDC / Spring électrique", "75ch-110ch",
+    ["Dacia", "Sandero|Duster|Logan|Lodgy|Jogger|Spring", "2017-2027", "K9K 1.5 dCi / EDC / Spring électrique", "75ch-110ch",
       "casse bielle|pompe huile|bruit moteur|a-coups|patinage|voyant boite|autonomie|charge|batterie 12V",
       "critique", 0.85,
       "Base Renault K9K/EDC pour thermique; Spring : batterie, charge, autonomie, logiciel.",
       "Vice caché 1641 C.civ.; conformité L.217-4 si pro.",
       "TSB Dacia/Renault; forums",
-      "moteur|boite|batterie|charge"),
+      "moteur|boite|batterie|charge"],
 
-    D("Peugeot", "208|2008|308|3008|5008|Partner|Rifter|Boxer", "2017-2024", "EB2 / 1.2 PureTech", "100ch-155ch",
+    ["Peugeot", "208|2008|308|3008|5008|Partner|Rifter|Boxer", "2017-2024", "EB2 / 1.2 PureTech", "100ch-155ch",
       "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
       "critique", 0.85,
       "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
       "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
       "Extension garantie Stellantis PureTech; TSB; DGCCRF",
-      "moteur|distribution|courroie|huile|pompe|critique"),
+      "moteur|distribution|courroie|huile|pompe|critique"],
 
-    D("Peugeot", "308|3008|508|Expert|Boxer", "2017-2024", "DV6 / 1.6 BlueHDi", "92ch-130ch",
+    ["Peugeot", "308|3008|508|Expert|Boxer", "2017-2024", "DV6 / 1.6 BlueHDi", "92ch-130ch",
       "EGR encrasse|FAP colmate|turbo HS|AdBlue|cristallisation|voyant antipollution|puissance reduite|mode degrade|fumee noire|conso gasoil",
       "moyen", 0.5,
       "Systèmes de dépollution sensibles aux trajets courts, à-froids, qualité carburant et entretien.",
       "Vice caché 1641 C.civ.; usure normale à écarter par expertise.",
       "TSB PSA/Stellantis; forums",
-      "diesel|EGR|FAP|AdBlue|turbo|pollution"),
+      "diesel|EGR|FAP|AdBlue|turbo|pollution"],
 
-    D("Peugeot", "308|3008|5008|e-208|e-2008", "2017-2027", "EAT8 / e-CMP électrique", "N/A",
+    ["Peugeot", "308|3008|5008|e-208|e-2008", "2017-2027", "EAT8 / e-CMP électrique", "N/A",
       "a-coups|convertisseur|vibrations|patinage|voyant boite|autonomie|charge|BMS|batterie 12V|software|ADAS",
       "critique", 0.65,
       "Boîte EAT8 et plateformes électriques e-CMP : convertisseur, logiciel, batterie, charge, ADAS.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Programme qualité Stellantis; rappels EV",
-      "boite|batterie|charge|adas|logiciel"),
+      "boite|batterie|charge|adas|logiciel"],
 
-    D("Citroen", "C3|C3 Aircross|C4|C4 Cactus|C5 Aircross|Berlingo|Jumper", "2017-2024", "EB2 1.2 PureTech / BlueHDi", "100ch-130ch",
+    ["Citroen", "C3|C3 Aircross|C4|C4 Cactus|C5 Aircross|Berlingo|Jumper", "2017-2024", "EB2 1.2 PureTech / BlueHDi", "100ch-130ch",
       "courroie distribution|casse moteur|bruit metallique|EGR|FAP|turbo|consommation huile|voyant moteur|surchauffe",
       "critique", 0.85,
       "Mêmes architectures PSA/Stellantis : wet belt, dépollution, turbo, huile.",
       "Vice caché 1641 C.civ.; tromperie L.213-1.",
       "TSB Stellantis; forums",
-      "moteur|distribution|diesel|turbo|huile"),
+      "moteur|distribution|diesel|turbo|huile"],
 
-    D("Citroen", "e-C3|e-C4|C5 Aircross Hybrid", "2020-2027", "Électrique / hybride rechargeable", "N/A",
+    ["Citroen", "e-C3|e-C4|C5 Aircross Hybrid", "2020-2027", "Électrique / hybride rechargeable", "N/A",
       "autonomie|charge AC|charge DC|batterie|BMS|12V|software|ADAS|camera|radar|chauffage|climatisation",
       "critique", 0.9,
       "Batterie, charge, logiciel, autonomie réelle, capteurs ADAS, confort thermique.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels Stellantis EV; DGCCRF",
-      "batterie|charge|autonomie|adas|logiciel"),
+      "batterie|charge|autonomie|adas|logiciel"],
 
-    D("DS", "DS 3 Crossback E-Tense|DS 4|DS 7 Crossback E-Tense", "2019-2027", "PureTech / BlueHDi / E-Tense 4x4", "130ch-360ch",
+    ["DS", "DS 3 Crossback E-Tense|DS 4|DS 7 Crossback E-Tense", "2019-2027", "PureTech / BlueHDi / E-Tense 4x4", "130ch-360ch",
       "courroie|EGR|FAP|AdBlue|hybride|batterie|charge|software|ADAS|voyant moteur|perte puissance",
       "critique", 0.8,
       "Combine défauts PSA thermiques et plateformes hybrides rechargeables complexes.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "TSB Stellantis; forums DS",
-      "moteur|hybride|batterie|adas|logiciel"),
+      "moteur|hybride|batterie|adas|logiciel"],
 
-    D("Volkswagen", "Golf 8|Polo|T-Cross|Taigo|Tiguan|Touran|Caddy", "2017-2027", "EA211 1.0 TSI / 1.5 TSI", "95ch-150ch",
+    ["Volkswagen", "Golf 8|Polo|T-Cross|Taigo|Tiguan|Touran|Caddy", "2017-2027", "EA211 1.0 TSI / 1.5 TSI", "95ch-150ch",
       "consommation huile|turbo|chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe|carbonisation",
       "moyen", 0.6,
       "Moteurs downsizing turbo : surveillance huile, turbo, chaîne, encrassement, logiciel moteur.",
       "Vice caché 1641; conformité L.217-4 si pro.",
       "TSB VAG; forums Golf 8",
-      "moteur|turbo|huile|distribution"),
+      "moteur|turbo|huile|distribution"],
 
-    D("Volkswagen", "Golf|Passat|Tiguan|Touran|Sharan|Caddy", "2017-2024", "EA288 Evo 2.0 TDI", "115ch-200ch",
+    ["Volkswagen", "Golf|Passat|Tiguan|Touran|Sharan|Caddy", "2017-2024", "EA288 Evo 2.0 TDI", "115ch-200ch",
       "AdBlue|cristallisation|pompe AdBlue|NOx|EGR|FAP|capteur NOx|voyant antipollution|mode degrade|impossibilite redemarrer",
       "moyen", 0.45,
       "Chaîne de dépollution diesel : AdBlue, NOx, EGR, FAP, logiciel moteur.",
       "Vice caché 1641; tromperie L.213-1 si dissimulation; conformité L.217-4.",
       "Rappels VAG diesel; CJUE; DGCCRF",
-      "diesel|AdBlue|NOx|EGR|FAP|pollution"),
+      "diesel|AdBlue|NOx|EGR|FAP|pollution"],
 
-    D("Volkswagen", "Golf|Polo|T-Cross|Taigo|Tiguan|Touran", "2017-2024", "DSG DQ200 / DQ381", "N/A boite",
+    ["Volkswagen", "Golf|Polo|T-Cross|Taigo|Tiguan|Touran", "2017-2024", "DSG DQ200 / DQ381", "N/A boite",
       "a-coups|mecatronique|patinage|bruit claquement|voyant boite|mode degrade|blocage vitesse|odeur brulee",
       "critique", 0.7,
       "Boîtes DSG : mécatronique, embrayage, convertisseur, logiciel boîte.",
       "Vice caché 1641; conformité L.217-4; tromperie L.213-1.",
       "Rappels/TSB VAG DSG; class actions",
-      "boite|DSG|mecatronique|embrayage"),
+      "boite|DSG|mecatronique|embrayage"],
 
-    D("Volkswagen", "ID.3|ID.4|ID.5|ID.7", "2020-2027", "MEB électrique", "145ch-286ch",
+    ["Volkswagen", "ID.3|ID.4|ID.5|ID.7", "2020-2027", "MEB électrique", "145ch-286ch",
       "autonomie|charge AC|charge DC|BMS|cellules|logiciel|software|ADAS|Travel Assist|camera|radar|12V|DC-DC|thermal derating",
       "critique", 0.92,
       "Plateforme MEB : logiciel, charge, batterie, autonomie, ADAS, batterie 12V, DC-DC.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels VW ID; KBA Allemagne; NHTSA; DGCCRF",
-      "batterie|charge|autonomie|adas|logiciel|electricite"),
+      "batterie|charge|autonomie|adas|logiciel|electricite"],
 
-    D("Audi", "A1|A3|A4|A5|Q2|Q3|Q5", "2017-2027", "EA211 / EA888 / DSG", "110ch-265ch",
+    ["Audi", "A1|A3|A4|A5|Q2|Q3|Q5", "2017-2027", "EA211 / EA888 / DSG", "110ch-265ch",
       "consommation huile|turbo|chaine|DSG|mecatronique|a-coups|voyant moteur|mode degrade|AdBlue|FAP",
       "critique", 0.7,
       "Groupe VAG : moteurs turbo, DSG, dépollution diesel, logiciel.",
       "Vice caché 1641; conformité L.217-4; tromperie L.213-1.",
       "TSB Audi/VAG; rappels",
-      "moteur|boite|DSG|diesel|turbo"),
+      "moteur|boite|DSG|diesel|turbo"],
 
-    D("Audi", "Q4 e-tron|e-tron GT|A6 e-tron|Q6 e-tron", "2021-2027", "Électrique PPE/MEB", "204ch-544ch",
+    ["Audi", "Q4 e-tron|e-tron GT|A6 e-tron|Q6 e-tron", "2021-2027", "Électrique PPE/MEB", "204ch-544ch",
       "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|DC-DC|thermal|logiciel",
       "critique", 0.92,
       "Modèles électriques Audi : batterie, charge rapide, logiciel, ADAS, gestion thermique.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels Audi e-tron; KBA; NHTSA",
-      "batterie|charge|ADAS|logiciel|electricite"),
+      "batterie|charge|ADAS|logiciel|electricite"],
 
-    D("Skoda", "Fabia|Octavia|Superb|Karoq|Kodiaq|Enyaq", "2017-2027", "TSI / TDI / DSG / MEB", "95ch-299ch",
+    ["Skoda", "Fabia|Octavia|Superb|Karoq|Kodiaq|Enyaq", "2017-2027", "TSI / TDI / DSG / MEB", "95ch-299ch",
       "consommation huile|turbo|DSG|AdBlue|FAP|batterie|charge|autonomie|software|ADAS",
       "critique", 0.7,
       "Base VAG : TSI/TDI, DSG, Enyaq MEB, logiciel et ADAS.",
       "Vice caché 1641; conformité L.217-4.",
       "TSB Skoda/VAG; rappels Enyaq",
-      "moteur|boite|batterie|ADAS|logiciel"),
+      "moteur|boite|batterie|ADAS|logiciel"],
 
-    D("Seat", "Ibiza|Leon|Ateca|Arona|Toledo|Born|Tavascan", "2017-2027", "TSI / TDI / DSG / MEB", "95ch-326ch",
+    ["Seat", "Ibiza|Leon|Ateca|Arona|Toledo|Born|Tavascan", "2017-2027", "TSI / TDI / DSG / MEB", "95ch-326ch",
       "DSG|mecatronique|a-coups|consommation huile|turbo|batterie|charge|autonomie|software|ADAS",
       "critique", 0.7,
       "Groupe VAG : DSG, moteurs turbo, Cupra Born/Tavascan sur base MEB.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "TSB Seat/Cupra; rappels VAG",
-      "boite|DSG|batterie|ADAS|logiciel"),
+      "boite|DSG|batterie|ADAS|logiciel"],
 
-    D("Cupra", "Leon|Ateca|Arona|Born|Tavascan|Formentor", "2018-2027", "TSI / DSG / MEB", "150ch-340ch",
+    ["Cupra", "Leon|Ateca|Arona|Born|Tavascan|Formentor", "2018-2027", "TSI / DSG / MEB", "150ch-340ch",
       "DSG|mecatronique|a-coups|turbo|batterie|charge|autonomie|software|ADAS",
       "critique", 0.7,
       "Marque sportive du groupe VAG : DSG, turbo, plateformes électriques MEB.",
       "Vice caché 1641; conformité L.217-4.",
       "TSB Cupra/VAG",
-      "boite|DSG|batterie|ADAS|logiciel"),
+      "boite|DSG|batterie|ADAS|logiciel"],
 
-    D("BMW", "Serie 1|Serie 2|Serie 3|Serie 4|X1|X2|X3|X4", "2017-2027", "B38 / B46 / B48 / B58", "136ch-387ch",
+    ["BMW", "Serie 1|Serie 2|Serie 3|Serie 4|X1|X2|X3|X4", "2017-2027", "B38 / B46 / B48 / B58", "136ch-387ch",
       "consommation huile|turbo|vanne PCV|refroidissement|pompe a eau|voyant moteur|perte puissance|surchauffe|fuite liquide|fuite huile",
       "critique", 0.75,
       "Moteurs BMW turbo : PCV, refroidissement, pompes à eau, fuites huile/liquide, logiciel moteur.",
       "Vice caché 1641; défaut de sécurité L.423-1 si fuite sur échappement; conformité L.217-4.",
       "TSB BMW; rappels pompe à eau; forums",
-      "moteur|turbo|huile|liquide|refroidissement|fuite"),
+      "moteur|turbo|huile|liquide|refroidissement|fuite"],
 
-    D("BMW", "Serie 3|Serie 5|X3|X5|X7", "2017-2027", "B47 / 2.0d / 3.0d", "150ch-400ch",
+    ["BMW", "Serie 3|Serie 5|X3|X5|X7", "2017-2027", "B47 / 2.0d / 3.0d", "150ch-400ch",
       "chaine distribution|tensionneur|bruit crecelle|claquement|voyant moteur|mode degrade|AdBlue|NOx|FAP",
       "critique", 0.8,
       "Chaînes de distribution diesel/essence, tensionneurs, dépollution AdBlue/NOx.",
       "Vice caché 1641; tromperie L.213-1 si dissimulation.",
       "Rappels BMW chaîne; TSB diesel",
-      "distribution|chaine|diesel|AdBlue|bruit"),
+      "distribution|chaine|diesel|AdBlue|bruit"],
 
-    D("BMW", "iX1|iX3|i4|iX|i7", "2021-2027", "Électrique / PHEV", "204ch-650ch",
+    ["BMW", "iX1|iX3|i4|iX|i7", "2021-2027", "Électrique / PHEV", "204ch-650ch",
       "batterie|charge AC|charge DC|autonomie|BMS|software|iDrive|ADAS|camera|radar|12V|DC-DC|thermal",
       "critique", 0.9,
       "Plateformes électrifiées BMW : batterie, charge, logiciel, ADAS, gestion thermique.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels BMW i; KBA; NHTSA",
-      "batterie|charge|ADAS|logiciel|electricite"),
+      "batterie|charge|ADAS|logiciel|electricite"],
 
-    D("Mini", "Cooper|Cooper S|Countryman|Clubman|Aceman", "2017-2027", "B38 / B48 / Getrag / Aisin / Électrique", "136ch-306ch",
+    ["Mini", "Cooper|Cooper S|Countryman|Clubman|Aceman", "2017-2027", "B38 / B48 / Getrag / Aisin / Électrique", "136ch-306ch",
       "chaine distribution|consommation huile|turbo|water pump|boite|a-coups|patinage|batterie|charge|software|ADAS",
       "critique", 0.8,
       "Moteurs BMW/PSA Prince puis BMW : chaîne, huile, turbo, boîtes, électrification.",
       "Vice caché 1641; conformité L.217-4.",
       "Rappels MINI/BMW; TSB",
-      "distribution|huile|turbo|boite|batterie"),
+      "distribution|huile|turbo|boite|batterie"],
 
-    D("Mercedes-Benz", "Classe A|Classe B|CLA|GLA|Classe C|Classe E|GLC|GLE", "2017-2027", "M254 / OM654 / 48V", "120ch-435ch",
+    ["Mercedes-Benz", "Classe A|Classe B|CLA|GLA|Classe C|Classe E|GLC|GLE", "2017-2027", "M254 / OM654 / 48V", "120ch-435ch",
       "turbo|AdBlue|NOx|capteur|voyant moteur|mode degrade|consommation huile|fuite|48V|batterie secondaire|EQ Boost",
       "critique", 0.7,
       "Motorisations récentes : turbo, AdBlue, NOx, micro-hybridation 48V, fuites, logiciel.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "TSB Mercedes; rappels diesel/48V",
-      "moteur|turbo|AdBlue|48V|fuite|logiciel"),
+      "moteur|turbo|AdBlue|48V|fuite|logiciel"],
 
-    D("Mercedes-Benz", "Classe C|Classe E|GLC|GLE|EQE|EQS|EQB|EQA", "2017-2027", "9G-Tronic / EQ électrique", "N/A",
+    ["Mercedes-Benz", "Classe C|Classe E|GLC|GLE|EQE|EQS|EQB|EQA", "2017-2027", "9G-Tronic / EQ électrique", "N/A",
       "a-coups|convertisseur|calculateur boite|voyant boite|batterie|charge|autonomie|MBUX|software|ADAS|Distance Pilot|Active Brake",
       "critique", 0.65,
       "Boîtes 9G et plateformes EQ : logiciel, ADAS, batterie, charge, autonomie.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Mercedes EQ/ADAS; KBA",
-      "boite|batterie|ADAS|logiciel|charge"),
+      "boite|batterie|ADAS|logiciel|charge"],
 
-    D("Volvo", "XC40|XC60|XC90|V60|V90|S60|S90|C40|EX30|EX40|EC40", "2017-2027", "Drive-E / 48V / PHEV / Recharge", "150ch-455ch",
+    ["Volvo", "XC40|XC60|XC90|V60|V90|S60|S90|C40|EX30|EX40|EC40", "2017-2027", "Drive-E / 48V / PHEV / Recharge", "150ch-455ch",
       "consommation huile|turbo|compresseur|chaine|48V|batterie PHEV|charge|autonomie|Pilot Assist|camera|radar|software",
       "critique", 0.8,
       "Drive-E essence : huile/turbo/chaîne. Électrification : 48V, PHEV, batterie, ADAS Pilot Assist.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Volvo; TSB Drive-E; DGCCRF",
-      "moteur|huile|turbo|batterie|ADAS|logiciel"),
+      "moteur|huile|turbo|batterie|ADAS|logiciel"],
 
-    D("Porsche", "Macan|Cayenne|Panamera|Taycan|911", "2017-2027", "PDK / Turbo / Taycan électrique", "245ch-761ch",
+    ["Porsche", "Macan|Cayenne|Panamera|Taycan|911", "2017-2027", "PDK / Turbo / Taycan électrique", "245ch-761ch",
       "PDK|a-coups|embrayage|volant moteur|batterie|charge|autonomie|software|ADAS|thermal|12V",
       "critique", 0.7,
       "PDK, hybrides, Taycan : batterie, charge, logiciel, gestion thermique, ADAS.",
       "Vice caché 1641; conformité L.217-4; produits défectueux 1245.",
       "Rappels Porsche; TSB Taycan",
-      "boite|PDK|batterie|charge|ADAS"),
+      "boite|PDK|batterie|charge|ADAS"],
 
-    D("Land Rover", "Defender|Discovery|Range Rover|Evoque|Velar", "2017-2027", "Ingenium / PHEV / électrique", "163ch-550ch",
+    ["Land Rover", "Defender|Discovery|Range Rover|Evoque|Velar", "2017-2027", "Ingenium / PHEV / électrique", "163ch-550ch",
       "consommation huile|turbo|refroidissement|fuite liquide|incendie|PHEV|batterie|charge|software|Pivi|ADAS|camera|radar",
       "critique", 0.8,
       "Ingenium : huile/refroidissement/fuites. PHEV/électrique : batterie, charge, logiciel, ADAS.",
       "Vice caché 1641; sécurité L.423-1; produits défectueux 1245.",
       "Rappels JLR; incendie Ingenium; forums",
-      "moteur|fuite|incendie|batterie|ADAS|logiciel"),
+      "moteur|fuite|incendie|batterie|ADAS|logiciel"],
 
-    D("Jaguar", "F-Pace|E-Pace|I-Pace|XF|XE", "2017-2027", "Ingenium / I-Pace électrique", "163ch-400ch",
+    ["Jaguar", "F-Pace|E-Pace|I-Pace|XF|XE", "2017-2027", "Ingenium / I-Pace électrique", "163ch-400ch",
       "consommation huile|refroidissement|fuite liquide|incendie|batterie|charge|software|Pivi Pro|ADAS",
       "critique", 0.8,
       "Moteurs Ingenium et plateforme I-Pace : fuites, incendie, batterie, logiciel, ADAS.",
       "Vice caché 1641; sécurité L.423-1.",
       "Rappels JLR; forums",
-      "moteur|fuite|incendie|batterie|ADAS"),
+      "moteur|fuite|incendie|batterie|ADAS"],
 
-    D("Opel", "Corsa|Astra|Mokka|Grandland|Zafira|Combo", "2017-2027", "PureTech / BlueHDi / e-Corsa", "75ch-130ch",
+    ["Opel", "Corsa|Astra|Mokka|Grandland|Zafira|Combo", "2017-2027", "PureTech / BlueHDi / e-Corsa", "75ch-130ch",
       "courroie distribution|EGR|FAP|AdBlue|batterie|charge|autonomie|software|ADAS",
       "critique", 0.8,
       "Base PSA/Stellantis : wet belt, dépollution, e-Corsa batterie/charge.",
       "Vice caché 1641; conformité L.217-4.",
       "TSB Opel/Stellantis",
-      "moteur|distribution|diesel|batterie"),
+      "moteur|distribution|diesel|batterie"],
 
-    D("Fiat", "500|500e|Panda|Tipo|Tonale|Doblo", "2017-2027", "FireFly / Hybrid / 500e électrique", "70ch-150ch",
+    ["Fiat", "500|500e|Panda|Tipo|Tonale|Doblo", "2017-2027", "FireFly / Hybrid / 500e électrique", "70ch-150ch",
       "hybridation 48V|batterie 12V|charge|autonomie|software|Dualogic|a-coups|embrayage|robot",
       "critique", 0.75,
       "Micro-hybridation 48V, 500e électrique, boîtes robotisées Dualogic/EDC selon modèles.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Fiat 500e/Hybrid; TSB Stellantis",
-      "48V|batterie|charge|boite|logiciel"),
+      "48V|batterie|charge|boite|logiciel"],
 
-    D("Alfa Romeo", "Giulia|Stelvio|Tonale", "2017-2027", "2.0 Turbo / PHEV Tonale", "160ch-280ch",
+    ["Alfa Romeo", "Giulia|Stelvio|Tonale", "2017-2027", "2.0 Turbo / PHEV Tonale", "160ch-280ch",
       "turbo|consommation huile|refroidissement|PHEV|batterie|charge|software|ADAS|boite ZF",
       "critique", 0.75,
       "2.0 turbo, plateforme Giorgio, Tonale PHEV : batterie, charge, logiciel, ADAS.",
       "Vice caché 1641; conformité L.217-4.",
       "TSB Alfa/Stellantis; forums",
-      "moteur|turbo|PHEV|batterie|ADAS"),
+      "moteur|turbo|PHEV|batterie|ADAS"],
 
-    D("Ford", "Fiesta|Focus|Puma|Kuga|Explorer|Transit", "2017-2027", "EcoBoost 1.0 / 1.5 / 2.3 / PowerShift", "95ch-280ch",
+    ["Ford", "Fiesta|Focus|Puma|Kuga|Explorer|Transit", "2017-2027", "EcoBoost 1.0 / 1.5 / 2.3 / PowerShift", "95ch-280ch",
       "joint culasse|surchauffe|refroidissement|pompe a eau|eau dans huile|fumee blanche|PowerShift|a-coups|embrayage|vibrations|odeur brulee",
       "critique", 0.85,
       "EcoBoost 1.0 : refroidissement/joint culasse. PowerShift : embrayage sec fragile.",
       "Vice caché 1641; tromperie L.213-1; conformité L.217-4.",
       "Class actions PowerShift; TSB Ford EcoBoost",
-      "moteur|refroidissement|culasse|boite|embrayage"),
+      "moteur|refroidissement|culasse|boite|embrayage"],
 
-    D("Ford", "Mustang Mach-E", "2021-2027", "Électrique", "269ch-487ch",
+    ["Ford", "Mustang Mach-E", "2021-2027", "Électrique", "269ch-487ch",
       "batterie|charge|autonomie|BMS|software|BlueCruise|ADAS|camera|radar|12V|porte de charge|thermal",
       "critique", 0.9,
       "Plateforme électrique Ford : batterie, charge, logiciel, BlueCruise, ADAS.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels Ford Mach-E; NHTSA",
-      "batterie|charge|ADAS|logiciel"),
+      "batterie|charge|ADAS|logiciel"],
 
-    D("Tesla", "Model 3|Model Y|Model S|Model X", "2017-2027", "Électrique", "283ch-1020ch",
+    ["Tesla", "Model 3|Model Y|Model S|Model X", "2017-2027", "Électrique", "283ch-1020ch",
       "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
       "critique", 0.92,
       "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
       "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
       "NHTSA Tesla recalls; DGCCRF; SafetyGate",
-      "ADAS|batterie|charge|logiciel|securite"),
+      "ADAS|batterie|charge|logiciel|securite"],
 
-    D("Jeep", "Renegade|Compass|Wrangler|Grand Cherokee|Grand Cherokee 4xe", "2017-2027", "DDCT / Hurricane / 4xe PHEV", "120ch-490ch",
+    ["Jeep", "Renegade|Compass|Wrangler|Grand Cherokee|Grand Cherokee 4xe", "2017-2027", "DDCT / Hurricane / 4xe PHEV", "120ch-490ch",
       "DDCT|surchauffe embrayage|a-coups|bruit boite|mode limp|PHEV|batterie|charge|autonomie|software|ADAS",
       "critique", 0.75,
       "Boîte DDCT en ville, 4xe : batterie, charge, logiciel, ADAS.",
       "Vice caché 1641; conformité L.217-4.",
       "TSB FCA/Stellantis; rappels 4xe",
-      "boite|embrayage|PHEV|batterie|ADAS"),
+      "boite|embrayage|PHEV|batterie|ADAS"],
 
-    D("Toyota", "Yaris|Corolla|Camry|RAV4|C-HR|Prius|Hilux|Land Cruiser", "2017-2027", "Hybride THS / Dynamic Force / D-4D", "100ch-309ch",
+    ["Toyota", "Yaris|Corolla|Camry|RAV4|C-HR|Prius|Hilux|Land Cruiser", "2017-2027", "Hybride THS / Dynamic Force / D-4D", "100ch-309ch",
       "batterie hybride|refroidissement batterie|CVT|bruit|vibration|12V|Toyota Safety Sense|camera|radar|ADAS|consommation|mode degrade",
       "critique", 0.65,
       "Hybrides Toyota : batterie, ventilation, CVT, 12V, ADAS Toyota Safety Sense.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Toyota hybride/ADAS; NHTSA",
-      "hybride|batterie|CVT|ADAS|12V"),
+      "hybride|batterie|CVT|ADAS|12V"],
 
-    D("Lexus", "UX|NX|RX|ES|IS|LBX", "2017-2027", "Hybride / Multi-stage Hybrid", "180ch-414ch",
+    ["Lexus", "UX|NX|RX|ES|IS|LBX", "2017-2027", "Hybride / Multi-stage Hybrid", "180ch-414ch",
       "batterie hybride|CVT|refroidissement|ADAS|camera|radar|software|12V|autonomie hybride",
       "moyen", 0.6,
       "Architecture hybride Lexus : batterie, CVT, ADAS, logiciel.",
       "Vice caché 1641; conformité L.217-4.",
       "TSB Lexus/Toyota",
-      "hybride|batterie|ADAS|CVT"),
+      "hybride|batterie|ADAS|CVT"],
 
-    D("Honda", "Jazz|Civic|HR-V|CR-V|Accord|e:Ny1", "2017-2027", "1.0 / 1.5 Turbo / i-MMD / électrique", "130ch-212ch",
+    ["Honda", "Jazz|Civic|HR-V|CR-V|Accord|e:Ny1", "2017-2027", "1.0 / 1.5 Turbo / i-MMD / électrique", "130ch-212ch",
       "turbo|CVT|bruit|vibration|huile|refroidissement|batterie|charge|autonomie|Honda Sensing|ADAS|camera|radar",
       "critique", 0.7,
       "Turbo/HV/CVT et Honda Sensing. e:Ny1 : batterie, charge, logiciel.",
       "Vice caché 1641; conformité L.217-4.",
       "Rappels Honda; TSB i-MMD",
-      "moteur|turbo|CVT|ADAS|batterie"),
+      "moteur|turbo|CVT|ADAS|batterie"],
 
-    D("Nissan", "Qashqai|X-Trail|Juke|Ariya|Leaf|Navara", "2017-2027", "1.3 TCe / CVT / e-POWER / électrique", "140ch-306ch",
+    ["Nissan", "Qashqai|X-Trail|Juke|Ariya|Leaf|Navara", "2017-2027", "1.3 TCe / CVT / e-POWER / électrique", "140ch-306ch",
       "CVT|a-coups|glissement|surchauffe|e-POWER|batterie|charge|autonomie|ProPILOT|ADAS|camera|radar|software|12V",
       "critique", 0.75,
       "CVT/X-Tronic, e-POWER, Ariya/Leaf : batterie, charge, ADAS ProPILOT, logiciel.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Nissan CVT/ADAS; NHTSA",
-      "CVT|boite|batterie|ADAS|logiciel"),
+      "CVT|boite|batterie|ADAS|logiciel"],
 
-    D("Mazda", "2|3|CX-3|CX-30|CX-5|CX-60|MX-30", "2017-2027", "Skyactiv-G / Skyactiv-X / MX-30", "110ch-327ch",
+    ["Mazda", "2|3|CX-3|CX-30|CX-5|CX-60|MX-30", "2017-2027", "Skyactiv-G / Skyactiv-X / MX-30", "110ch-327ch",
       "compression|huile|bruit|boite auto|mild hybrid|48V|batterie MX-30|charge|autonomie|ADAS|i-Activsense",
       "moyen", 0.6,
       "Skyactiv-X compression, mild hybrid 48V, MX-30 électrique/range extender, ADAS.",
       "Vice caché 1641; conformité L.217-4.",
       "TSB Mazda; forums",
-      "moteur|48V|batterie|ADAS"),
+      "moteur|48V|batterie|ADAS"],
 
-    D("Subaru", "XV|Forester|Outback|Impreza|WRX", "2017-2027", "Boxer / Lineartronic CVT", "115ch-275ch",
+    ["Subaru", "XV|Forester|Outback|Impreza|WRX", "2017-2027", "Boxer / Lineartronic CVT", "115ch-275ch",
       "CVT|bruit|vibration|huile|refroidissement|EyeSight|ADAS|camera|radar|logiciel",
       "moyen", 0.6,
       "CVT Lineartronic et EyeSight : capteurs, logiciel, entretien.",
       "Vice caché 1641; conformité L.217-4.",
       "Rappels Subaru EyeSight; NHTSA",
-      "CVT|ADAS|huile|logiciel"),
+      "CVT|ADAS|huile|logiciel"],
 
-    D("Suzuki", "Swift|Ignis|Vitara|S-Cross|Jimny|ACROSS", "2017-2027", "Boosterjet / Mild Hybrid / AllGrip", "90ch-136ch",
+    ["Suzuki", "Swift|Ignis|Vitara|S-Cross|Jimny|ACROSS", "2017-2027", "Boosterjet / Mild Hybrid / AllGrip", "90ch-136ch",
       "turbo|48V|batterie 12V|CVT|AllGrip|ADAS|camera|radar|software|conso",
       "moyen", 0.55,
       "Micro-hybridation 48V, CVT, ADAS Suzuki Safety Support.",
       "Vice caché 1641; conformité L.217-4.",
       "TSB Suzuki; forums",
-      "48V|turbo|CVT|ADAS"),
+      "48V|turbo|CVT|ADAS"],
 
-    D("Mitsubishi", "Space Star|ASX|Eclipse Cross|Outlander|Outlander PHEV", "2017-2027", "CVT / PHEV 4WD", "105ch-224ch",
+    ["Mitsubishi", "Space Star|ASX|Eclipse Cross|Outlander|Outlander PHEV", "2017-2027", "CVT / PHEV 4WD", "105ch-224ch",
       "CVT|bruit|surchauffe|PHEV|batterie|charge|autonomie|ADAS|camera|radar|software",
       "critique", 0.7,
       "Outlander PHEV : batterie, charge, gestion 4WD, CVT, ADAS.",
       "Vice caché 1641; conformité L.217-4.",
       "Rappels Mitsubishi PHEV; NHTSA",
-      "CVT|PHEV|batterie|ADAS"),
+      "CVT|PHEV|batterie|ADAS"],
 
-    D("Hyundai", "i10|i20|i30|Bayon|Tucson|Santa Fe|Kona|IONIQ 5|IONIQ 6", "2017-2027", "Smartstream / Theta / Gamma / E-GMP", "80ch-325ch",
+    ["Hyundai", "i10|i20|i30|Bayon|Tucson|Santa Fe|Kona|IONIQ 5|IONIQ 6", "2017-2027", "Smartstream / Theta / Gamma / E-GMP", "80ch-325ch",
       "consommation huile|turbo|DCT|a-coups|batterie|charge|autonomie|BMS|Bluelink|ADAS|camera|radar|software|12V",
       "critique", 0.75,
       "Moteurs turbo, boîtes DCT, plateformes E-GMP : batterie, charge rapide, ADAS, logiciel.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Hyundai/Kia; NHTSA; KBA",
-      "moteur|boite|batterie|ADAS|logiciel"),
+      "moteur|boite|batterie|ADAS|logiciel"],
 
-    D("Kia", "Picanto|Ceed|Stonic|Sportage|Sorento|Niro|EV6|EV9", "2017-2027", "Smartstream / DCT / E-GMP", "84ch-585ch",
+    ["Kia", "Picanto|Ceed|Stonic|Sportage|Sorento|Niro|EV6|EV9", "2017-2027", "Smartstream / DCT / E-GMP", "84ch-585ch",
       "DCT|a-coups|embrayage|batterie|charge|autonomie|BMS|ADAS|camera|radar|software|12V|V2L",
       "critique", 0.75,
       "DCT, EV6/EV9 : batterie, charge, V2L, ADAS, logiciel.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Kia EV; NHTSA",
-      "boite|batterie|charge|ADAS|logiciel"),
+      "boite|batterie|charge|ADAS|logiciel"],
 
-    D("Genesis", "G70|G80|G90|GV60|GV70|GV80", "2017-2027", "Turbo / DCT / E-GMP", "220ch-455ch",
+    ["Genesis", "G70|G80|G90|GV60|GV70|GV80", "2017-2027", "Turbo / DCT / E-GMP", "220ch-455ch",
       "DCT|a-coups|batterie|charge|autonomie|BMS|ADAS|camera|radar|software|12V",
       "critique", 0.72,
       "Plateformes Hyundai/Kia premium : DCT, E-GMP, ADAS, logiciel.",
       "Vice caché 1641; conformité L.217-4.",
       "Rappels Genesis; NHTSA",
-      "boite|batterie|ADAS|logiciel"),
+      "boite|batterie|ADAS|logiciel"],
 
-    D("MG", "MG3|MG ZS|MG ZS EV|MG4|MG5|Marvel R|Cyster", "2019-2027", "Électrique / PHEV / essence", "116ch-435ch",
+    ["MG", "MG3|MG ZS|MG ZS EV|MG4|MG5|Marvel R|Cyster", "2019-2027", "Électrique / PHEV / essence", "116ch-435ch",
       "batterie|charge AC|charge DC|autonomie|BMS|software|ADAS|port de charge|12V|camera|radar|thermal derating",
       "critique", 0.9,
       "Plateformes SAIC/MG : batterie, charge, logiciel, ADAS, autonomie réelle, température.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels MG; DGCCRF; SafetyGate",
-      "batterie|charge|ADAS|logiciel|autonomie"),
+      "batterie|charge|ADAS|logiciel|autonomie"],
 
-    D("BYD", "Atto 3|Dolphin|Seal|Han|Tang", "2022-2027", "Blade Battery électrique / PHEV", "177ch-530ch",
+    ["BYD", "Atto 3|Dolphin|Seal|Han|Tang", "2022-2027", "Blade Battery électrique / PHEV", "177ch-530ch",
       "batterie Blade|charge|autonomie|BMS|DiLink|software|ADAS|camera|radar|12V|thermal|port de charge",
       "critique", 0.9,
       "BYD : batterie Blade, charge, logiciel DiLink, ADAS, gestion thermique.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels BYD; DGCCRF; NHTSA si import",
-      "batterie|charge|ADAS|logiciel"),
+      "batterie|charge|ADAS|logiciel"],
 
-    D("Leapmotor", "T03|C10|B10", "2023-2027", "Électrique", "95ch-218ch",
+    ["Leapmotor", "T03|C10|B10", "2023-2027", "Électrique", "95ch-218ch",
       "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|connectivite",
       "critique", 0.88,
       "Nouvelles plateformes chinoises EV : batterie, charge, logiciel, ADAS.",
       "Conformité L.217-4; sécurité L.423-1.",
       "Rappels Leapmotor; DGCCRF",
-      "batterie|charge|ADAS|logiciel"),
+      "batterie|charge|ADAS|logiciel"],
 
-    D("XPeng", "G6|P7|G9", "2020-2027", "Électrique", "200ch-500ch+",
+    ["XPeng", "G6|P7|G9", "2020-2027", "Électrique", "200ch-500ch+",
       "batterie|charge|autonomie|BMS|software|ADAS|camera|lidar|radar|12V|connectivite|thermal",
       "critique", 0.9,
       "EV chinois premium : batterie, charge, ADAS avancés, lidar, logiciel.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels XPeng; SafetyGate",
-      "batterie|charge|ADAS|logiciel|autonomie"),
+      "batterie|charge|ADAS|logiciel|autonomie"],
 
-    D("NIO", "ET5|ES6|ET7|EL6", "2020-2027", "Électrique / battery swap", "400ch-600ch+",
+    ["NIO", "ET5|ES6|ET7|EL6", "2020-2027", "Électrique / battery swap", "400ch-600ch+",
       "batterie|swap|charge|autonomie|BMS|software|ADAS|camera|lidar|radar|12V|connectivite|thermal",
       "critique", 0.9,
       "Battery swap, charge, ADAS, lidar, logiciel.",
       "Conformité L.217-4; sécurité L.423-1.",
       "Rappels NIO; SafetyGate",
-      "batterie|charge|ADAS|logiciel|autonomie"),
+      "batterie|charge|ADAS|logiciel|autonomie"],
 
-    D("Chery", "Omoda 5|Jaecoo 7|Tiggo", "2023-2027", "1.6 TGDI / DCT / PHEV", "147ch-300ch+",
+    ["Chery", "Omoda 5|Jaecoo 7|Tiggo", "2023-2027", "1.6 TGDI / DCT / PHEV", "147ch-300ch+",
       "turbo|DCT|a-coups|embrayage|batterie|charge|autonomie|ADAS|camera|radar|software|conso",
       "critique", 0.75,
       "Nouvelles marques chinoises : turbo, DCT, PHEV, ADAS, logiciel.",
       "Vice caché 1641; conformité L.217-4.",
       "Rappels Chery/Omoda; DGCCRF",
-      "moteur|boite|DCT|ADAS|batterie"),
+      "moteur|boite|DCT|ADAS|batterie"],
 
-    D("Geely", "Coolray|Emgrand|Smart #1|Smart #3|Lotus Eletre", "2022-2027", "Électrique / hybride", "200ch-600ch+",
+    ["Geely", "Coolray|Emgrand|Smart #1|Smart #3|Lotus Eletre", "2022-2027", "Électrique / hybride", "200ch-600ch+",
       "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|connectivite",
       "critique", 0.88,
       "Plateformes SEA/Geely : batterie, charge, logiciel, ADAS.",
       "Conformité L.217-4; sécurité L.423-1.",
       "Rappels Geely/Smart; SafetyGate",
-      "batterie|charge|ADAS|logiciel"),
+      "batterie|charge|ADAS|logiciel"],
 
-    D("Smart", "#1|#3|#5", "2022-2027", "Électrique SEA", "200ch-428ch",
+    ["Smart", "#1|#3|#5", "2022-2027", "Électrique SEA", "200ch-428ch",
       "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|connectivite",
       "critique", 0.88,
       "Smart électrique basé plateforme Geely SEA.",
       "Conformité L.217-4; sécurité L.423-1.",
       "Rappels Smart; DGCCRF",
-      "batterie|charge|ADAS|logiciel"),
+      "batterie|charge|ADAS|logiciel"],
 
-    D("Maxus", "eDeliver|W90|T60|Euniq", "2019-2027", "Électrique / hybride / utilitaire", "130ch-400ch",
+    ["Maxus", "eDeliver|W90|T60|Euniq", "2019-2027", "Électrique / hybride / utilitaire", "130ch-400ch",
       "batterie|charge|autonomie|BMS|software|ADAS|12V|fuite|refroidissement|utilitaire",
       "critique", 0.85,
       "Utilitaires et SUV chinois électrifiés : batterie, charge, logiciel, refroidissement.",
       "Conformité L.217-4; sécurité L.423-1.",
       "Rappels Maxus/LDV",
-      "batterie|charge|utilitaire|ADAS"),
+      "batterie|charge|utilitaire|ADAS"],
 
-    D("GWM", "Tank|Ora|GWM Poer", "2021-2027", "Électrique / hybride / utilitaire", "150ch-400ch",
+    ["GWM", "Tank|Ora|GWM Poer", "2021-2027", "Électrique / hybride / utilitaire", "150ch-400ch",
       "batterie|charge|autonomie|BMS|software|ADAS|12V|fuite|refroidissement",
       "critique", 0.85,
       "Marques chinoises GWM/Ora : batterie, charge, logiciel, ADAS.",
       "Conformité L.217-4; sécurité L.423-1.",
       "Rappels GWM/Ora",
-      "batterie|charge|ADAS|logiciel"),
+      "batterie|charge|ADAS|logiciel"],
 
-    D("Chevrolet", "Bolt EV|Bolt EUV|Lyriq|Equinox EV", "2017-2027", "Électrique Ultium / Bolt", "204ch-1000ch",
+    ["Chevrolet", "Bolt EV|Bolt EUV|Lyriq|Equinox EV", "2017-2027", "Électrique Ultium / Bolt", "204ch-1000ch",
       "incendie|batterie|thermal runaway|charge|recall|BMS|software|ADAS|Super Cruise|autonomie|12V",
       "critique", 1.0,
       "Bolt : rappel mondial incendie batterie. Ultium/Super Cruise : logiciel, charge, ADAS.",
       "Sécurité L.423-1; produits défectueux 1245; pénal si accident; conformité L.217-4.",
       "NHTSA Bolt recall; GM recalls; DGCCRF",
-      "incendie|batterie|charge|ADAS|logiciel"),
+      "incendie|batterie|charge|ADAS|logiciel"],
 
-    D("GMC", "Hummer EV|Lyriq-based", "2022-2027", "Électrique Ultium", "400ch-1000ch",
+    ["GMC", "Hummer EV|Lyriq-based", "2022-2027", "Électrique Ultium", "400ch-1000ch",
       "batterie|charge|autonomie|BMS|software|ADAS|Super Cruise|thermal|12V",
       "critique", 0.92,
       "Plateforme Ultium GM : batterie, charge, logiciel, ADAS.",
       "Sécurité L.423-1; produits défectueux 1245.",
       "NHTSA GMC; GM recalls",
-      "batterie|charge|ADAS|logiciel"),
+      "batterie|charge|ADAS|logiciel"],
 
-    D("Cadillac", "Lyriq|Celestiq", "2022-2027", "Électrique Ultium", "300ch-600ch+",
+    ["Cadillac", "Lyriq|Celestiq", "2022-2027", "Électrique Ultium", "300ch-600ch+",
       "batterie|charge|autonomie|BMS|software|ADAS|Super Cruise|thermal|12V",
       "critique", 0.92,
       "Plateforme Ultium GM premium : batterie, charge, logiciel, ADAS.",
       "Sécurité L.423-1; produits défectueux 1245.",
       "NHTSA Cadillac; GM recalls",
-      "batterie|charge|ADAS|logiciel"),
+      "batterie|charge|ADAS|logiciel"],
 
-    D("Ram", "1500|2500|3500", "2017-2027", "Diesel / Hurricane / électrique", "250ch-700ch",
+    ["Ram", "1500|2500|3500", "2017-2027", "Diesel / Hurricane / électrique", "250ch-700ch",
       "turbo|boite|8-speed|PHEV|batterie|charge|autonomie|software|ADAS|fuel pump|fuite carburant",
       "critique", 0.75,
       "Gros moteurs, boîtes auto, PHEV, pompes à carburant, ADAS.",
       "Vice caché 1641; sécurité L.423-1; conformité L.217-4.",
       "NHTSA Ram; recalls",
-      "moteur|boite|PHEV|carburant|ADAS"),
+      "moteur|boite|PHEV|carburant|ADAS"],
 
-    D("Chrysler", "Pacifica|Pacifica Hybrid", "2017-2027", "V6 / PHEV", "287ch-360ch",
+    ["Chrysler", "Pacifica|Pacifica Hybrid", "2017-2027", "V6 / PHEV", "287ch-360ch",
       "PHEV|batterie|charge|autonomie|software|ADAS|boite|fuel pump",
       "critique", 0.72,
       "Pacifica Hybrid : batterie, charge, logiciel, boîte.",
       "Vice caché 1641; conformité L.217-4.",
       "NHTSA Chrysler; recalls",
-      "PHEV|batterie|boite|ADAS")
+      "PHEV|batterie|boite|ADAS"]
   ];
 
-  var SEED_DEFECTS = SPECIFIC_DEFECTS.concat(GENERATED_DEFECTS);
+  var SPECIFIC_DEFECTS = SPECIFIC_RAW.map(function (a) {
+    return D(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11]);
+  });
 
   function normalizeDefect(d) {
     var out = {
@@ -1607,6 +2133,8 @@
       rec: d.rec || d.recall || d.recallRef || "",
       tg: d.tg || d.tags || ""
     };
+
+    out.et = d.et || d.engineType || d.type || inferEngineType(out.e, out.tg, out.s, out.n);
 
     if (d.source) out.source = d.source;
     if (d.sourceUrl) out.sourceUrl = d.sourceUrl;
@@ -1633,6 +2161,10 @@
     });
     return Array.from(map.values());
   }
+
+  var SEED_DEFECTS = SPECIFIC_DEFECTS.concat(GENERATED_DEFECTS)
+    .map(normalizeDefect)
+    .filter(isValidDefect);
 
   function allDefects() {
     return SEED_DEFECTS.concat(techUpdates || [], autoDb || []);
@@ -1835,20 +2367,16 @@
     return out;
   }
 
-  function fetchJsonUrl(url) {
-    return fetch(url, { cache: "no-store", method: "GET" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-      });
-  }
-
-  function fetchTextUrl(url) {
-    return fetch(url, { cache: "no-store", method: "GET" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.text();
-      });
+  function finishAutoSync(incoming, manual, mode) {
+    autoDb = mergeDefects(autoDb, incoming);
+    save(KEYS.AUTO_DB, autoDb);
+    autoLastSync = Date.now();
+    save(KEYS.AUTO_LAST_SYNC, autoLastSync);
+    invalidateEngineCatalog();
+    updateAdminStats();
+    updateDataStatus("Auto-diagnostic synchronisé (" + mode + ")");
+    if (manual) toast("Auto-diagnostic synchronisé : " + incoming.length + " entrées traitées.", "success");
+    notify("Auto-diagnostic synchronisé", incoming.length + " entrées traitées (" + mode + ").");
   }
 
   function syncAutoDiagnostic(manual) {
@@ -1887,7 +2415,7 @@
 
       if (incoming.length) {
         finishAutoSync(incoming, manual, "JSON direct");
-        return true;
+        return fetchEngineCatalogs(false).then(function () { return true; });
       }
 
       var textTasks = [];
@@ -1897,9 +2425,16 @@
           .then(function (text) {
             var candidates = extractJsonCandidates(text);
             var recs = [];
+            var erecs = [];
             candidates.forEach(function (c) {
               recs = recs.concat(collectRecordsFromJson(c, resolveUrl(baseUrl, pageUrl), 0));
+              erecs = erecs.concat(collectEngineRecordsFromJson(c, resolveUrl(baseUrl, pageUrl), 0));
             });
+            if (erecs.length) {
+              engineExtra = mergeEngineRecords(engineExtra, erecs);
+              save(KEYS.ENGINE_EXTRA, engineExtra);
+              invalidateEngineCatalog();
+            }
             return recs;
           })
           .catch(function () { return []; })
@@ -1912,9 +2447,16 @@
             .then(function (text) {
               var candidates = extractJsonCandidates(text);
               var recs = [];
+              var erecs = [];
               candidates.forEach(function (c) {
                 recs = recs.concat(collectRecordsFromJson(c, url, 0));
+                erecs = erecs.concat(collectEngineRecordsFromJson(c, url, 0));
               });
+              if (erecs.length) {
+                engineExtra = mergeEngineRecords(engineExtra, erecs);
+                save(KEYS.ENGINE_EXTRA, engineExtra);
+                invalidateEngineCatalog();
+              }
               return recs;
             })
             .catch(function () { return []; })
@@ -1929,7 +2471,7 @@
 
         if (fallbackIncoming.length) {
           finishAutoSync(fallbackIncoming, manual, "extraction HTML/JS");
-          return true;
+          return fetchEngineCatalogs(false).then(function () { return true; });
         }
 
         save(KEYS.AUTO_LAST_SYNC, Date.now());
@@ -1937,7 +2479,7 @@
         updateAdminStats();
         updateDataStatus("Auto-diagnostic : aucune donnée JSON exploitable trouvée");
         if (manual) toast("Aucune donnée auto-diagnostic exploitable trouvée. Utilisez import JSON ou exposez data/base.json.", "warning");
-        return false;
+        return fetchEngineCatalogs(manual).then(function () { return false; });
       });
     }).catch(function (err) {
       console.warn("[AR-EXPERT] Sync auto-diagnostic impossible:", err);
@@ -1945,17 +2487,6 @@
       if (manual) toast("Synchronisation auto-diagnostic impossible.", "warning");
       return false;
     });
-  }
-
-  function finishAutoSync(incoming, manual, mode) {
-    autoDb = mergeDefects(autoDb, incoming);
-    save(KEYS.AUTO_DB, autoDb);
-    autoLastSync = Date.now();
-    save(KEYS.AUTO_LAST_SYNC, autoLastSync);
-    updateAdminStats();
-    updateDataStatus("Auto-diagnostic synchronisé (" + mode + ")");
-    if (manual) toast("Auto-diagnostic synchronisé : " + incoming.length + " entrées traitées.", "success");
-    notify("Auto-diagnostic synchronisé", incoming.length + " entrées traitées (" + mode + ").");
   }
 
   function renderAutoConfig() {
@@ -1991,7 +2522,7 @@
 
   function checkAutoUpdate(manual) {
     try {
-      var last = load(KEYS.LAST_UPDATE, 0);
+      var last = loadWithMigration(KEYS.LAST_UPDATE, OLD_KEYS.LAST_UPDATE, 0);
       var interval = CONFIG.updateIntervalDays * 24 * 60 * 60 * 1000;
       var due = (Date.now() - last) >= interval;
 
@@ -2029,6 +2560,7 @@
         techUpdates = mergeDefects(techUpdates, incoming);
         save(KEYS.TECH_UPDATES, techUpdates);
         save(KEYS.LAST_UPDATE, Date.now());
+        invalidateEngineCatalog();
         updateAdminStats();
         updateDataStatus("Base mise à jour automatiquement");
 
@@ -2082,6 +2614,7 @@
     var tags = norm(defect.tg || "");
     var symptoms = norm(defect.s || "");
     var sev = defect.sev || "moyen";
+    var type = norm(defect.et || "");
 
     if (sev === "critique") {
       laws.push("Vice caché art. 1641 C.civ.");
@@ -2090,6 +2623,21 @@
     } else {
       laws.push("Vice caché art. 1641 C.civ. à confirmer par expertise.");
       laws.push("Usure normale à écarter selon kilométrage, entretien et usage.");
+    }
+
+    if (type.indexOf("diesel") >= 0 || tags.indexOf("diesel") >= 0 || tags.indexOf("egr") >= 0 || tags.indexOf("fap") >= 0 || tags.indexOf("adblue") >= 0) {
+      laws.push("Conformité antipollution L.217-4 C.consom.; tromperie L.213-1 si dispositif illicite ou dissimulation.");
+      laws.push("Sécurité / environnement L.423-1 C.consom. en cas de risque collectif.");
+    }
+
+    if (isElectricLike(type) || tags.indexOf("batterie") >= 0 || tags.indexOf("charge") >= 0 || tags.indexOf("electricite") >= 0) {
+      laws.push("Sécurité batterie / BMS / charge L.423-1 C.consom.");
+      laws.push("Produits défectueux art. 1245 C.civ.");
+      laws.push("Conformité du bien numérique/logiciel L.217-4 C.consom.");
+    }
+
+    if (type.indexOf("essence") >= 0 || tags.indexOf("turbo") >= 0 || tags.indexOf("huile") >= 0 || tags.indexOf("distribution") >= 0) {
+      laws.push("Vice caché moteur art. 1641 C.civ.; usure à écarter par expertise.");
     }
 
     if (tags.indexOf("eau") >= 0 || tags.indexOf("electricite") >= 0 || symptoms.indexOf("court circuit") >= 0) {
@@ -2107,19 +2655,17 @@
       laws.push("Responsabilité du constructeur/art. 1245 C.civ.");
     }
 
-    if (tags.indexOf("batterie") >= 0 || symptoms.indexOf("thermal runaway") >= 0) {
-      laws.push("Risque incendie batterie : sécurité L.423-1, produits défectueux 1245 C.civ.");
-    }
-
     return laws.filter(function (v, i, a) { return a.indexOf(v) === i; }).join(" | ");
   }
 
-  function matchDefects(marque, modele, annee, kilometrage, texte) {
+  function matchDefects(marque, modele, annee, kilometrage, texte, engine, engineType) {
     var bq = norm(marque);
     var mq = norm(modele);
     var yr = parseYear(annee);
     var km = parseKm(kilometrage);
     var txt = norm(texte);
+    var eng = norm(engine || "");
+    var typ = norm(engineType || "");
     var results = [];
 
     allDefects().forEach(function (d) {
@@ -2156,6 +2702,26 @@
 
       score += tagBoost(txt, d.tg);
 
+      var det = norm(d.et || "");
+      if (eng) {
+        var de = norm(d.e || "");
+        if (de.indexOf(eng) >= 0 || eng.indexOf(de) >= 0) score += 3;
+      }
+
+      if (typ && det === typ) score += 2;
+
+      if (typ && isElectricLike(typ) && containsAny(d.tg + " " + d.s, ["batterie", "charge", "autonomie", "electricite", "hybride", "48v"])) {
+        score += 1.5;
+      }
+
+      if (typ === "diesel" && containsAny(d.tg + " " + d.s, ["diesel", "egr", "fap", "adblue", "nox", "pollution"])) {
+        score += 1.5;
+      }
+
+      if (typ === "essence" && containsAny(d.tg + " " + d.s, ["essence", "turbo", "huile", "distribution", "courroie", "chaine"])) {
+        score += 1;
+      }
+
       if (score >= 1) {
         var confidence = "Haute";
         var wearAlert = "Kilométrage compatible avec un vice caché ou un défaut de série.";
@@ -2191,6 +2757,7 @@
           wearFactor: d.wf,
           tags: d.tg,
           dtc: d.dtc || "",
+          engineType: d.et || "",
           source: d.source || "base locale",
           sourceUrl: d.sourceUrl || ""
         });
@@ -2200,9 +2767,9 @@
     return results.sort(function (a, b) { return b.score - a.score; }).slice(0, 15);
   }
 
-  function researchLinks(brand, model, engine, symptoms) {
-    var baseQuery = (brand + " " + model + " " + (engine || "") + " " + (symptoms || []).slice(0, 3).join(" ")).trim();
-    var q1 = encodeURIComponent(baseQuery + " défaut panne rappel incendie DTC");
+  function researchLinks(brand, model, engine, symptoms, engineType) {
+    var baseQuery = (brand + " " + model + " " + (engine || "") + " " + (engineType || "") + " " + (symptoms || []).slice(0, 3).join(" ")).trim();
+    var q1 = encodeURIComponent(baseQuery + " défaut panne rappel incendie DTC motorisation");
     var q2 = encodeURIComponent(brand + " " + model);
 
     return [
@@ -2212,7 +2779,7 @@
       { label: "NHTSA Recalls (USA)", url: "https://www.nhtsa.gov/recalls?search=" + q2 },
       { label: "SafetyGate / défauts constructeurs", url: "https://www.google.com/search?q=" + encodeURIComponent(baseQuery + " safetygate TSB rappel défaut") },
       { label: "Rappels allemands KBA", url: "https://www.google.com/search?q=" + encodeURIComponent(brand + " " + model + " KBA Rückruf") },
-      { label: "Vérification VIN constructeur", url: "https://www.google.com/search?q=" + encodeURIComponent(brand + " " + model + " VIN recall campaign") }
+      { label: "Vérification VIN constructeur", url: "https://www.google.com/search?q=" + encodeURIComponent(brand + " " + model + " VIN recall campaign motorisation") }
     ];
   }
 
@@ -2225,17 +2792,72 @@
     return '<span class="termes-juridiques">(' + args.join(", ") + ")</span>";
   }
 
+  function engineAngle(flags) {
+    var h = "";
+
+    if (flags.engine) {
+      h += '<div class="rappel-info"><h4>🧰 Motorisation retenue pour l’analyse</h4>';
+      h += "<p><strong>Motorisation déclarée :</strong> " + esc(flags.engine) + "</p>";
+      h += "<p><strong>Type :</strong> " + esc(flags.engineType || "non précisé") + " " + addTerm("motorisation", "énergie", "powertrain", "type de motorisation") + "</p>";
+      h += "<p>La motorisation est prise en compte comme critère technique et juridique : elle oriente le diagnostic, la présomption d’antériorité, la gravité, les rappels applicables et les fondements de responsabilité.</p>";
+      h += "</div>";
+    }
+
+    if (flags.diesel) {
+      h += '<div class="rappel-info"><h4>🛢️ Angle diesel / dépollution</h4>';
+      h += "<p>La motorisation diesel active les axes EGR, FAP/DPF, AdBlue, NOx, injecteurs, turbo, régénération, logiciel moteur et conformité antipollution.</p>";
+      h += "<p><strong>Point juriste :</strong> un défaut antipollution, une cristallisation AdBlue, un voyant pollution permanent ou une perte de puissance peut fonder une non-conformité L.217-4 C.consom. et, si dissimulation, tromperie L.213-1 C.consom.</p>";
+      h += "<p><strong>Point ingénieur :</strong> distinguer l’usure d’entretien d’un défaut de conception, de logiciel ou de montage.</p>";
+      h += "</div>";
+    }
+
+    if (flags.electricLike) {
+      h += '<div class="rappel-info"><h4>⚡ Angle motorisation électrifiée / hybride / électrique</h4>';
+      h += "<p>La motorisation électrifiée active les axes batterie, BMS, cellules, autonomie, charge AC/DC, DC-DC, batterie 12V, logiciel, isolation HV, gestion thermique et sécurité incendie.</p>";
+      h += "<p><strong>Point sécurité :</strong> odeur, fumée, échauffement, gonflement, erreur d’isolement ou perte de puissance brutale imposent immobilisation et expertise spécialisée.</p>";
+      h += "<p><strong>Point juriste :</strong> autonomie réelle non conforme, défaut de charge, bug logiciel ou risque batterie peuvent engager L.217-4 C.consom., L.423-1 C.consom. et art. 1245 C.civ.</p>";
+      h += "</div>";
+    }
+
+    if (flags.petrol) {
+      h += '<div class="rappel-info"><h4>⛽ Angle essence / turbo downsizing</h4>';
+      h += "<p>La motorisation essence active les axes turbo, consommation huile, chaîne/courroie de distribution, PCV, carbonisation, pré-allumage, perte de puissance et surchauffe.</p>";
+      h += "<p><strong>Point ingénieur :</strong> certains désordres sont indépendants du kilométrage quand ils relèvent de la conception, du montage ou du logiciel.</p>";
+      h += "</div>";
+    }
+
+    if (flags.mild48) {
+      h += '<div class="rappel-info"><h4>🔋 Angle hybride léger 48V</h4>';
+      h += "<p>La micro-hybridation 48V introduit batterie secondaire, convertisseur, logiciel, démarrage/arrêt, alternodémarreur et risques de voyants multiples.</p>";
+      h += "<p>Ces éléments peuvent être non conformes ou dangereux même si le moteur thermique principal semble fonctionnel.</p>";
+      h += "</div>";
+    }
+
+    return h;
+  }
+
   function runAnalysis(text, context, objective, sellerType) {
     var all = (text + " " + context).toLowerCase();
+    var allNorm = norm(all);
+
+    var engineTypeNorm = norm(vehicleData.engineType || "");
 
     var flags = {
-      professional: sellerType === "professional" || ["professionnel", "garage", "concession", "revendeur", "automobile", "commercial"].some(function (w) { return all.indexOf(w) >= 0; }),
-      privateSeller: sellerType === "private" || ["particulier", "entre particuliers", "leboncoin", "lavitrine"].some(function (w) { return all.indexOf(w) >= 0; }),
-      defect: ["défaut", "panne", "problème", "dysfonctionnement", "casse", "fuite", "bruit", "vibration", "perte puissance", "à-coup", "claquement", "voyant", "mode dégradé", "surchauffe", "infiltration", "court circuit", "moisiure", "odeur", "fumée", "calage", "patinage", "blocage"].some(function (w) { return all.indexOf(w) >= 0; }),
-      waterLeak: ["eau", "humidité", "infiltration", "baie", "pare brise", "pare-brise", "moisiure", "court circuit", "traces d’eau", "flaque", "égouttement"].some(function (w) { return all.indexOf(w) >= 0; }),
-      safety: ["sécurité", "frein", "airbag", "direction", "incendie", "danger", "vie", "intégrité physique", "mise en danger", "ADAS", "autopilot"].some(function (w) { return all.indexOf(w) >= 0; }),
-      ev: ["batterie", "charge", "autonomie", "electrique", "électrique", "hybride", "BMS", "DC", "AC", "recharge"].some(function (w) { return all.indexOf(w) >= 0; }),
-      dtc: /\bp[0-9a-z]{3,5}\b/i.test(all) || all.indexOf("dtc") >= 0 || all.indexOf("code défaut") >= 0,
+      engine: vehicleData.engine || "",
+      engineType: vehicleData.engineType || "",
+      professional: sellerType === "professional" || containsAny(all, ["professionnel", "garage", "concession", "revendeur", "automobile", "commercial"]),
+      privateSeller: sellerType === "private" || containsAny(all, ["particulier", "entre particuliers", "leboncoin", "lavitrine"]),
+      defect: containsAny(all, ["défaut", "panne", "problème", "dysfonctionnement", "casse", "fuite", "bruit", "vibration", "perte puissance", "à-coup", "claquement", "voyant", "mode dégradé", "surchauffe", "infiltration", "court circuit", "moisiure", "odeur", "fumée", "calage", "patinage", "blocage"]),
+      waterLeak: containsAny(all, ["eau", "humidité", "infiltration", "baie", "pare brise", "pare-brise", "moisiure", "court circuit", "traces d’eau", "flaque", "égouttement"]),
+      safety: containsAny(all, ["sécurité", "frein", "airbag", "direction", "incendie", "danger", "vie", "intégrité physique", "mise en danger", "ADAS", "autopilot"]),
+      ev: isElectricLike(engineTypeNorm) || containsAny(all, ["batterie", "charge", "autonomie", "electrique", "électrique", "hybride", "BMS", "DC", "AC", "recharge"]),
+      diesel: engineTypeNorm.indexOf("diesel") >= 0 || containsAny(allNorm, ["diesel", "egr", "fap", "adblue", "nox", "gasoil"]),
+      petrol: engineTypeNorm.indexOf("essence") >= 0 || containsAny(allNorm, ["essence", "turbo", "puretech", "tce", "tsi", "ecoboost"]),
+      hybrid: engineTypeNorm.indexOf("hybride") >= 0,
+      phev: engineTypeNorm.indexOf("rechargeable") >= 0,
+      mild48: engineTypeNorm.indexOf("48v") >= 0,
+      electricLike: isElectricLike(engineTypeNorm),
+      dtc: /\bp[0-9a-z]{3,5}\b/i.test(all) || allNorm.indexOf("dtc") >= 0 || allNorm.indexOf("code défaut") >= 0,
       invoice: all.indexOf("facture") >= 0,
       repair: all.indexOf("réparation") >= 0 || all.indexOf("ordre de réparation") >= 0 || all.indexOf("devis") >= 0,
       controlTech: all.indexOf("contrôle technique") >= 0 || all.indexOf(" ct ") >= 0,
@@ -2244,7 +2866,15 @@
       veryHighKm: parseKm(vehicleData.kilometrage) > 180000
     };
 
-    var matches = matchDefects(vehicleData.marque, vehicleData.modele, vehicleData.annee, vehicleData.kilometrage, text);
+    var matches = matchDefects(
+      vehicleData.marque,
+      vehicleData.modele,
+      vehicleData.annee,
+      vehicleData.kilometrage,
+      text,
+      vehicleData.engine,
+      vehicleData.engineType
+    );
 
     analysisData = {
       date: new Date().toLocaleString("fr-FR"),
@@ -2256,14 +2886,14 @@
 
     var S = [];
     S.push(["I. ÉLÉMENTS FACTUELS ET IDENTIFICATION DU VÉHICULE", secFacts(text, context)]);
-    S.push(["II. DIAGNOSTIC TECHNIQUE — DÉFAUTS CONNUS, VÉTUSTÉ, USURE, SÉCURITÉ", secDiag(matches, flags, vehicleData)]);
+    S.push(["II. DIAGNOSTIC TECHNIQUE — MOTORISATION, DÉFAUTS CONNUS, VÉTUSTÉ, USURE, SÉCURITÉ", secDiag(matches, flags, vehicleData)]);
     S.push(["II-B. APPUI TECHNIQUE AUTO-DIAGNOSTIC IMPORTÉ", secAutoAppui(matches, flags)]);
     S.push(["III. QUALIFICATION JURIDIQUE PROVISOIRE", secQualif(flags, matches)]);
     S.push(["IV. RISQUES ET RESPONSABILITÉS SELON LA QUALITÉ DU VENDEUR", secRisques(flags, matches)]);
     S.push(["V. TROIS CRITÈRES CUMULATIFS : ANTÉRIORITÉ, CARACTÈRE CACHÉ, GRAVITÉ", secCriteres(flags, matches, vehicleData)]);
     S.push(["VI. RÉGIMES DE GARANTIE ET FONDEMENTS JURIDIQUES CROISÉS", secGaranties(flags, matches)]);
     S.push(["VII. DOSSIER PROBATOIRE ET DOCUMENTS À CONSOLIDER", secDocs(flags, matches)]);
-    S.push(["VIII. JURISPRUDENCE, TEXTES ET SOURCES DE RÉFÉRENCE", secJuri(matches)]);
+    S.push(["VIII. JURISPRUDENCE, TEXTES ET SOURCES DE RÉFÉRENCE", secJuri(matches, flags)]);
     S.push(["IX. ÉVALUATION DU PRÉJUDICE", secPrejudice(flags, matches)]);
     S.push(["X. STRATÉGIE CONTENTIEUSE RECOMMANDÉE", secStrategie(flags, matches, objective)]);
     S.push(["XI. RECHERCHE APPROFONDIE ET VÉRIFICATIONS EXTERNES", secVerif(matches, flags)]);
@@ -2281,7 +2911,7 @@
       html += "<h3>" + pair[0] + "</h3>" + pair[1];
     });
 
-    html += '<div class="verification-needed"><strong>Rappel méthodologique :</strong> ce rapport effectue d’abord un croisement local technique/juridique/auto-diagnostic avant toute rédaction assistée par IA. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>';
+    html += '<div class="verification-needed"><strong>Rappel méthodologique :</strong> ce rapport effectue d’abord un croisement local technique/juridique/motorisation/auto-diagnostic avant toute rédaction assistée par IA. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>';
 
     var result = q("#analysisResult");
     if (result) result.innerHTML = html;
@@ -2300,6 +2930,8 @@
     h += "<li><strong>Marque :</strong> " + esc(vehicleData.marque || "non précisée") + "</li>";
     h += "<li><strong>Modèle :</strong> " + esc(vehicleData.modele || "non précisé") + "</li>";
     h += "<li><strong>Année :</strong> " + esc(vehicleData.annee || "non précisée") + " " + addTerm("millésime", "date de première mise en circulation") + "</li>";
+    h += "<li><strong>Motorisation :</strong> " + esc(vehicleData.engine || "non précisée") + " " + addTerm("motorisation", "powertrain") + "</li>";
+    h += "<li><strong>Type de motorisation :</strong> " + esc(vehicleData.engineType || "non précisé") + " " + addTerm("énergie", "essence", "diesel", "hybride", "électrique", "48V") + "</li>";
     h += "<li><strong>Kilométrage :</strong> " + esc(vehicleData.kilometrage || "non précisé") + " km " + addTerm("kilométrage", "usure normale", "vétusté") + "</li>";
     h += "<li><strong>VIN :</strong> " + esc(vehicleData.vin || "non communiqué") + " " + addTerm("VIN", "numéro de série", "traçabilité") + "</li>";
     h += "</ul>";
@@ -2320,17 +2952,19 @@
     var yr = parseYear(vData.annee);
     var age = new Date().getFullYear() - (yr || new Date().getFullYear());
 
+    var h = engineAngle(flags);
+
     if (!matches.length) {
-      var h0 = "<p><strong>Objet :</strong> recherche de défauts conceptuels connus " + addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série") + ".</p>";
-      h0 += '<div class="verification-needed">';
-      h0 += "<p>Aucune correspondance exacte trouvée dans la base locale / auto-diagnostic pour Marque/Modèle/Année/Symptômes.</p>";
-      h0 += "<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>";
-      h0 += "<p>Une expertise individuelle est nécessaire " + addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine") + ".</p>";
-      h0 += "</div>";
-      return h0;
+      h += "<p><strong>Objet :</strong> recherche de défauts conceptuels connus " + addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série") + ".</p>";
+      h += '<div class="verification-needed">';
+      h += "<p>Aucune correspondance exacte trouvée dans la base locale / auto-diagnostic pour Marque/Modèle/Année/Motorisation/Symptômes.</p>";
+      h += "<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>";
+      h += "<p>Une expertise individuelle est nécessaire " + addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine") + ".</p>";
+      h += "</div>";
+      return h;
     }
 
-    var h = "<p><strong>Objet :</strong> croisement technique local avec défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA, auto-diagnostic et bases de sécurité " + addTerm("vice caché notoire", "défaut de série", "défaut de conception") + ".</p>";
+    h += "<p><strong>Objet :</strong> croisement technique local avec motorisation, défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA, auto-diagnostic et bases de sécurité " + addTerm("vice caché notoire", "défaut de série", "défaut de conception") + ".</p>";
 
     matches.forEach(function (m, i) {
       var cls = m.severite === "critique" ? "rappel-critical" : "rappel-info";
@@ -2340,6 +2974,7 @@
       h += "<h4>" + (i + 1) + ". " + esc(m.moteur) + " — " + esc(m.puissance) + " — " + esc(m.periode) + "</h4>";
       h += "<p><strong>Constructeur :</strong> " + esc(m.constructeur) + "</p>";
       h += "<p><strong>Modèles concernés :</strong> " + esc(m.modeles.join(", ")) + "</p>";
+      h += "<p><strong>Type motorisation :</strong> " + esc(m.engineType || "non précisé") + "</p>";
       h += "<p><strong>Symptômes détectés :</strong> " + esc(m.symptomes.join(", ")) + "</p>";
       if (m.dtc) h += "<p><strong>Codes DTC associés :</strong> " + esc(m.dtc) + "</p>";
       h += "<p><strong>Tags système :</strong> " + esc(m.tags || "non précisé") + "</p>";
@@ -2376,14 +3011,6 @@
       h += "</div>";
     }
 
-    if (flags.ev) {
-      h += '<div class="rappel-info"><h4>🔋 Angle électrique / batterie / charge</h4>';
-      h += "<p>Le dossier évoque batterie, charge, autonomie ou système électrique/hybride.</p>";
-      h += "<p><strong>Vérifications :</strong> état de santé batterie (SOH), équilibrage cellules, BMS, charge AC/DC, température, logiciel, batterie 12V, DC-DC, isolation HV.</p>";
-      h += "<p><strong>Sécurité :</strong> en cas d’odeur, fumée, échauffement, gonflement batterie ou erreur isolement, immobiliser le véhicule et éloigner les personnes.</p>";
-      h += "</div>";
-    }
-
     if (flags.dtc) {
       h += '<div class="rappel-info"><h4>🧾 Angle codes défaut / DTC</h4>';
       h += "<p>Des codes défaut ou mentions DTC semblent présents dans le dossier.</p>";
@@ -2408,7 +3035,7 @@
       return m.source === "auto-diagnostic";
     });
 
-    var h = "<p><strong>Objet :</strong> appui technique issu de la base auto-diagnostic, corrélé au contexte du litige " + addTerm("appui technique", "corrélation auto-diagnostic", "fiche expert", "DTC") + ".</p>";
+    var h = "<p><strong>Objet :</strong> appui technique issu de la base auto-diagnostic, corrélé au contexte du litige et à la motorisation " + addTerm("appui technique", "corrélation auto-diagnostic", "fiche expert", "DTC", "motorisation") + ".</p>";
 
     if (!autoDb.length) {
       h += '<div class="verification-needed">';
@@ -2426,7 +3053,7 @@
 
     if (!autoMatches.length) {
       h += '<div class="certainty-medium">';
-      h += "<p>Aucune fiche auto-diagnostic ne correspond directement au véhicule / symptômes déclarés.</p>";
+      h += "<p>Aucune fiche auto-diagnostic ne correspond directement au véhicule / motorisation / symptômes déclarés.</p>";
       h += "<p>Cela n’exclut pas un défaut individuel. Une lecture OBD / DTC et une expertise restent nécessaires.</p>";
       h += "</div>";
       return h;
@@ -2438,6 +3065,7 @@
 
     autoMatches.slice(0, 10).forEach(function (m, i) {
       h += "<li><strong>" + (i + 1) + ". " + esc(m.constructeur) + " " + esc(m.modeles.join(", ")) + " — " + esc(m.moteur) + "</strong>";
+      if (m.engineType) h += " — type : " + esc(m.engineType);
       if (m.dtc) h += " — DTC : " + esc(m.dtc);
       h += "<br/><strong>Symptômes :</strong> " + esc(m.symptomes.join(", "));
       h += "<br/><strong>Description :</strong> " + esc(m.description);
@@ -2479,6 +3107,14 @@
       h += "<p>La probabilité d’un " + addTerm("défaut de conception", "vice caché notoire") + " renforce la non-conformité initiale du bien.</p>";
     }
 
+    if (flags.diesel) {
+      h += "<p>La motorisation diesel rend particulièrement pertinents les textes sur la conformité antipollution, la tromperie en cas de dispositif illicite ou de dissimulation, et la sécurité des produits " + addTerm("conformité antipollution", "defeat device", "L.213-1 C.consom.") + ".</p>";
+    }
+
+    if (flags.electricLike) {
+      h += "<p>La motorisation électrifiée rend particulièrement pertinents les axes batterie, autonomie, charge, logiciel, sécurité incendie et conformité du bien comportant des éléments numériques " + addTerm("bien non conforme", "sécurité batterie", "logiciel", "L.217-4 C.consom.") + ".</p>";
+    }
+
     return h;
   }
 
@@ -2509,6 +3145,22 @@
     h += "<li>" + addTerm("clause vendu en l’état") + " inopposable en cas de mauvaise foi.</li>";
     h += "</ul>";
 
+    if (flags.diesel) {
+      h += "<h4>C. Risque diesel / antipollution</h4><ul>";
+      h += "<li>Non-conformité aux normes de dépollution " + addTerm("conformité environnementale") + ".</li>";
+      h += "<li>Tromperie si dispositif illicite ou information dissimulée " + addTerm("defeat device", "L.213-1 C.consom.") + ".</li>";
+      h += "<li>Rappel / campagne technique " + addTerm("DGCCRF", "KBA", "NHTSA") + ".</li>";
+      h += "</ul>";
+    }
+
+    if (flags.electricLike) {
+      h += "<h4>D. Risque électrifié / batterie / logiciel</h4><ul>";
+      h += "<li>Risque thermique, incendie, isolation HV " + addTerm("sécurité L.423-1 C.consom.") + ".</li>";
+      h += "<li>Autonomie non conforme, charge défaillante, bug logiciel " + addTerm("L.217-4 C.consom.") + ".</li>";
+      h += "<li>Responsabilité constructeur produits défectueux " + addTerm("1245 C.civ.") + ".</li>";
+      h += "</ul>";
+    }
+
     return h;
   }
 
@@ -2516,7 +3168,7 @@
     var km = parseKm(vData.kilometrage);
     var best = matches[0];
 
-    var h = "<p><strong>Objet :</strong> critères cumulatifs adaptés à l’usure et à la vétusté " + addTerm("critères cumulatifs", "usure normale", "vétusté") + ".</p>";
+    var h = "<p><strong>Objet :</strong> critères cumulatifs adaptés à l’usure, à la vétusté et à la motorisation " + addTerm("critères cumulatifs", "usure normale", "vétusté", "motorisation") + ".</p>";
 
     h += "<h4>A. Antériorité " + addTerm("antériorité") + "</h4>";
     if (best && best.confiance === "Haute") {
@@ -2527,6 +3179,14 @@
       h += '<p class="certainty-low">Antériorité difficile à établir sans expertise : km très élevé, usure normale plausible.</p>';
     } else {
       h += '<p class="verification-needed">Antériorité à prouver par expertise contradictoire.</p>';
+    }
+
+    if (flags.electricLike) {
+      h += '<p class="certainty-high">Pour une motorisation électrifiée, les défauts BMS, logiciel, charge, batterie 12V, DC-DC ou autonomie sont souvent antérieurs et peu dépendants du kilométrage thermique.</p>';
+    }
+
+    if (flags.diesel) {
+      h += '<p class="certainty-medium">Pour une motorisation diesel, distinguer l’encrassement d’usage (trajets courts, entretien) d’un défaut de conception, de logiciel ou de dépollution.</p>';
     }
 
     h += "<h4>B. Caractère caché " + addTerm("caractère caché") + "</h4>";
@@ -2579,6 +3239,22 @@
       h += "</ul>";
     }
 
+    if (flags.diesel) {
+      h += "<h4>Motorisation diesel</h4><ul>";
+      h += "<li>" + addTerm("conformité antipollution", "L.217-4 C.consom.") + "</li>";
+      h += "<li>" + addTerm("tromperie / defeat device", "L.213-1 C.consom.") + " si logiciel ou dispositif illicite</li>";
+      h += "<li>" + addTerm("rappel / campagne technique", "DGCCRF", "KBA") + "</li>";
+      h += "</ul>";
+    }
+
+    if (flags.electricLike) {
+      h += "<h4>Motorisation électrifiée</h4><ul>";
+      h += "<li>" + addTerm("sécurité batterie / charge", "L.423-1 C.consom.") + "</li>";
+      h += "<li>" + addTerm("conformité logiciel / autonomie", "L.217-4 C.consom.") + "</li>";
+      h += "<li>" + addTerm("produits défectueux", "1245 C.civ.") + "</li>";
+      h += "</ul>";
+    }
+
     return h;
   }
 
@@ -2586,13 +3262,14 @@
     var h = "<p><strong>Objet :</strong> preuve documentaire " + addTerm("preuve documentaire", "dossier probatoire") + ".</p><ul>";
     h += "<li>Facture : " + (flags.invoice ? "présente" : "à récupérer") + "</li>";
     h += "<li>Certificat de cession : à conserver</li>";
-    h += "<li>Carte grise : vérifier cohérence kilométrage</li>";
+    h += "<li>Carte grise : vérifier cohérence kilométrage et motorisation</li>";
     h += "<li>Contrôle technique : " + (flags.controlTech ? "présent" : "à récupérer") + "</li>";
     h += "<li>Historique entretien / carnet / factures garage</li>";
     h += "<li>Preuve des rappels effectués via VIN</li>";
     h += "<li>Devis réparation (minimum 2)</li>";
     h += "<li>Lecture OBD / codes défaut DTC</li>";
     h += "<li>Rapport auto-diagnostic / fiches expert corrélées</li>";
+    h += "<li>Document motorisation : énergie, puissance, code moteur, boîte, logiciel</li>";
     h += "<li>Photos : moisiure, eau, corrosion, voyants, niveaux, batterie, charge</li>";
     if (matches.length) {
       h += "<li>Vérification VIN sur sites constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate, auto-diagnostic</li>";
@@ -2602,7 +3279,7 @@
     return h;
   }
 
-  function secJuri(matches) {
+  function secJuri(matches, flags) {
     var h = "<p><strong>Objet :</strong> textes et jurisprudence " + addTerm("jurisprudence", "doctrine") + ".</p>";
     h += "<h4>Textes</h4><ul>";
     h += "<li>1641 à 1649 C.civ. — vices cachés</li>";
@@ -2624,8 +3301,25 @@
     h += "<li>Cass. civ. 1ère, 27 févr. 2019 — clause vendu en l’état et mauvaise foi</li>";
     h += "<li>CJUE, 5 avril 2023, C-277/22 — defeat device et conformité</li>";
     h += "<li>TGI Paris, 15 janv. 2020 — Renault 1.5 dCi bielles</li>";
-    h += "<li>NHTSA / KBA / DGCCRF / auto-diagnostic — rappels sécurité, batteries, ADAS, incendies, DTC</li>";
+    h += "<li>NHTSA / KBA / DGCCRF / auto-diagnostic — rappels sécurité, batteries, ADAS, incendies, DTC, motorisation</li>";
     h += "</ul>";
+
+    if (flags.diesel) {
+      h += "<h4>Références diesel</h4><ul>";
+      h += "<li>Conformité antipollution L.217-4 C.consom.</li>";
+      h += "<li>Tromperie L.213-1 C.consom. si dispositif illicite ou dissimulation</li>";
+      h += "<li>Rappels diesel DGCCRF / KBA / SafetyGate</li>";
+      h += "</ul>";
+    }
+
+    if (flags.electricLike) {
+      h += "<h4>Références électrifiées</h4><ul>";
+      h += "<li>Sécurité batterie / charge L.423-1 C.consom.</li>";
+      h += "<li>Produits défectueux 1245 C.civ.</li>";
+      h += "<li>Conformité logiciel / autonomie L.217-4 C.consom.</li>";
+      h += "<li>Rappels EV/hybride NHTSA / DGCCRF / KBA</li>";
+      h += "</ul>";
+    }
 
     if (matches.length) {
       h += "<h4>Références spécifiques aux défauts détectés</h4><ul>";
@@ -2659,6 +3353,10 @@
       h += '<div class="rappel-critical"><strong>Angle sapeur-pompier / sécurité :</strong> la peur de conduire un véhicule dangereux peut justifier un préjudice moral même sans accident ' + addTerm("préjudice d’anxiété") + ".</div>";
     }
 
+    if (flags.electricLike) {
+      h += '<div class="rappel-info"><strong>Angle électrifié :</strong> perte d’autonomie réelle, impossibilité de recharge, immobilisation ou risque batterie peut aggraver le préjudice d’usage ' + addTerm("préjudice d’agrément", "trouble de jouissance") + ".</div>";
+    }
+
     return h;
   }
 
@@ -2670,7 +3368,7 @@
     h += "<li>Devis réparation</li>";
     h += "<li>Lecture OBD / DTC</li>";
     h += "<li>Export / impression des fiches auto-diagnostic corrélées</li>";
-    h += "<li>Vérification VIN / rappels</li>";
+    h += "<li>Vérification VIN / rappels / motorisation</li>";
     h += "<li>Photos et constats</li>";
     h += "</ol>";
 
@@ -2679,7 +3377,7 @@
     if (matches.length) {
       h += "<li>Invoquer le défaut de série documenté " + addTerm("défaut de série", "présomption de connaissance") + "</li>";
     }
-    h += "<li>Joindre annexes auto-diagnostic / DTC / devis / photos</li>";
+    h += "<li>Joindre annexes auto-diagnostic / DTC / motorisation / devis / photos</li>";
     h += "<li>Délai 15 jours</li>";
     h += "</ol>";
 
@@ -2710,7 +3408,7 @@
 
     h += "<ul>";
     h += "<li>Vérifier VIN sur site constructeur</li>";
-    h += "<li>Consulter auto-diagnostic et ses fiches / DTC</li>";
+    h += "<li>Consulter auto-diagnostic et ses fiches / DTC / motorisations</li>";
     h += "<li>Consulter rappel.conso.gouv.fr</li>";
     h += "<li>Consulter NHTSA si véhicule importé / groupe international</li>";
     h += "<li>Consulter KBA pour rappels allemands</li>";
@@ -2722,16 +3420,20 @@
     if (flags.waterLeak) {
       h += "<li>Inspecter baie de pare-brise, cavillon, évacuations, boîtier fusibles, connecteurs</li>";
     }
-    if (flags.ev) {
+    if (flags.electricLike) {
       h += "<li>Contrôler SOH batterie, BMS, charge AC/DC, température, isolation HV, batterie 12V</li>";
+    }
+    if (flags.diesel) {
+      h += "<li>Contrôler EGR, FAP/DPF, AdBlue, NOx, régénération, logiciel moteur</li>";
     }
     h += "</ul>";
 
     var links = researchLinks(
       vehicleData.marque,
       vehicleData.modele,
-      matches[0] ? matches[0].moteur : "",
-      matches[0] ? matches[0].symptomes : []
+      matches[0] ? matches[0].moteur : vehicleData.engine,
+      matches[0] ? matches[0].symptomes : [],
+      vehicleData.engineType
     );
 
     h += "<h4>Pistes de recherche externe à ouvrir manuellement</h4><ul>";
@@ -2758,6 +3460,12 @@
       h += "<li>Plainte pénale si danger dissimulé</li>";
       h += "<li>Action collective si défaut massif</li>";
     }
+    if (flags.diesel) {
+      h += "<li>Action antipollution / tromperie si dispositif illicite ou dissimulation</li>";
+    }
+    if (flags.electricLike) {
+      h += "<li>Action sécurité batterie / charge / logiciel / autonomie</li>";
+    }
     h += "<li>Expertise judiciaire</li>";
     h += "</ul>";
     return h;
@@ -2772,15 +3480,19 @@
 
     h += "<p>";
     if (high && critical && auto) {
-      h += "Le croisement local technique/juridique/auto-diagnostic oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave. L’appui auto-diagnostic renforce la démonstration du caractère documenté et non isolé du désordre.";
+      h += "Le croisement local technique/juridique/motorisation/auto-diagnostic oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave. L’appui auto-diagnostic renforce la démonstration du caractère documenté et non isolé du désordre.";
     } else if (high && critical) {
       h += "Le croisement local technique/juridique oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave.";
     } else if (matches.length) {
-      h += "Un défaut connu est probable, mais le kilométrage ou la nature du symptôme impose une expertise pour écarter l’usure normale.";
+      h += "Un défaut connu est probable, mais le kilométrage, la motorisation ou la nature du symptôme impose une expertise pour écarter l’usure normale.";
     } else {
       h += "Aucun défaut de série identifié localement. Le problème peut être individuel : diagnostic et expertise nécessaires.";
     }
     h += "</p>";
+
+    if (flags.engineType) {
+      h += "<p><strong>Motorisation :</strong> le type " + esc(flags.engineType) + " est intégré comme critère d’analyse technique et juridique.</p>";
+    }
 
     h += "<p><strong>Recommandation opérationnelle :</strong> ne pas effectuer de réparation destructrice avant constat/expertise. Conserver le véhicule en l’état si possible, photographier, obtenir devis, exporter les fiches auto-diagnostic corrélées, puis mise en demeure LRAR.</p>";
 
@@ -2814,19 +3526,29 @@
       if (d.b && d.b !== "Toutes marques") brands[d.b] = true;
     });
 
+    var cat = engineCatalog();
+    var engineCount = 0;
+    Object.keys(cat).forEach(function (b) {
+      Object.keys(cat[b]).forEach(function (m) {
+        engineCount += cat[b][m].length;
+      });
+    });
+
     var statEntries = q("#statEntries");
     var statBrands = q("#statBrands");
+    var statEngines = q("#statEngines");
     var statAutoEntries = q("#statAutoEntries");
     var statAutoSync = q("#statAutoSync");
     var statSync = q("#statSync");
 
     if (statEntries) statEntries.textContent = allDefects().length;
     if (statBrands) statBrands.textContent = Object.keys(brands).length;
+    if (statEngines) statEngines.textContent = engineCount;
     if (statAutoEntries) statAutoEntries.textContent = autoDb.length;
 
     if (statAutoSync) statAutoSync.textContent = autoLastSync ? new Date(autoLastSync).toLocaleString("fr-FR") : "Jamais";
 
-    var last = load(KEYS.LAST_UPDATE, 0);
+    var last = loadWithMigration(KEYS.LAST_UPDATE, OLD_KEYS.LAST_UPDATE, 0);
     if (statSync) statSync.textContent = last ? new Date(last).toLocaleString("fr-FR") : "Jamais";
   }
 
@@ -2980,6 +3702,7 @@
       '<h1>Rapport d’analyse expert auto</h1>' +
       '<p><strong>Date :</strong> ' + esc(analysisData.date || "") + '</p>' +
       '<p><strong>Véhicule :</strong> ' + esc(vehicleData.marque || "") + ' ' + esc(vehicleData.modele || "") + ' ' + esc(vehicleData.annee || "") + '</p>' +
+      '<p><strong>Motorisation :</strong> ' + esc(vehicleData.engine || "") + ' — ' + esc(vehicleData.engineType || "") + '</p>' +
       '<p><strong>Kilométrage :</strong> ' + esc(vehicleData.kilometrage || "") + ' km</p>' +
       body +
       '</body>' +
@@ -3031,6 +3754,9 @@
       y += 6;
 
       doc.text("Véhicule : " + (vehicleData.marque || "") + " " + (vehicleData.modele || "") + " " + (vehicleData.annee || ""), 20, y);
+      y += 6;
+
+      doc.text("Motorisation : " + (vehicleData.engine || "") + " — " + (vehicleData.engineType || ""), 20, y);
       y += 6;
 
       doc.text("Kilométrage : " + (vehicleData.kilometrage || "") + " km", 20, y);
@@ -3191,7 +3917,7 @@
   });
 
   on("#useSavedPwdBtn", "click", function () {
-    var saved = load(KEYS.ADMIN_PWD_HASH, null);
+    var saved = loadWithMigration(KEYS.ADMIN_PWD_HASH, OLD_KEYS.ADMIN_PWD_HASH, null);
     if (!saved) {
       authMessage("Aucun mot de passe enregistré.", "warning");
       return;
@@ -3366,6 +4092,14 @@
     clearCacheAndReload();
   });
 
+  on("#vehicleBrand", "input", scheduleEngineRefresh);
+  on("#vehicleBrand", "change", scheduleEngineRefresh);
+  on("#vehicleModel", "input", scheduleEngineRefresh);
+  on("#vehicleModel", "change", scheduleEngineRefresh);
+  on("#vehicleYear", "input", scheduleEngineRefresh);
+  on("#vehicleYear", "change", scheduleEngineRefresh);
+  on("#vehicleEngine", "change", refreshEngineOptions);
+
   on("#pdfUpload", "change", function (e) {
     var file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -3426,11 +4160,14 @@
       return;
     }
 
+    refreshEngineOptions();
+
     var textEl = q("#textInput");
     var contextEl = q("#contextInfo");
     var objectiveEl = q("#objectiveInfo");
     var goalEl = q("#goalSelect");
     var sellerEl = q("#sellerType");
+    var engineEl = q("#vehicleEngine");
 
     var text = textEl ? textEl.value.trim() : "";
     if (!text) text = extractedText.trim();
@@ -3439,10 +4176,14 @@
     var objective = (objectiveEl && objectiveEl.value.trim()) || (goalEl ? goalEl.value : "") || "";
     var sellerType = sellerEl ? sellerEl.value : "unknown";
 
+    var engineOption = engineEl && engineOptionMap[engineEl.value] ? engineOptionMap[engineEl.value] : null;
+
     vehicleData = {
       marque: (q("#vehicleBrand") || {}).value || "",
       modele: (q("#vehicleModel") || {}).value || "",
       annee: (q("#vehicleYear") || {}).value || "",
+      engine: engineOption ? engineOption.engine : "",
+      engineType: engineOption ? engineOption.type : "",
       kilometrage: (q("#vehicleKilometrage") || {}).value || "",
       vin: (q("#vehicleVin") || {}).value || ""
     };
@@ -3457,7 +4198,7 @@
     var btn = q("#analyzeBtn");
     if (btn) {
       btn.disabled = true;
-      btn.innerHTML = '<span class="spinner"></span> Analyse experte + auto-diagnostic en cours...';
+      btn.innerHTML = '<span class="spinner"></span> Analyse experte + motorisation + auto-diagnostic en cours...';
     }
 
     setTimeout(function () {
@@ -3471,7 +4212,7 @@
       } finally {
         if (btn) {
           btn.disabled = false;
-          btn.innerHTML = "🔍 Lancer l’analyse croisée technique + juridique + auto-diagnostic";
+          btn.innerHTML = "🔍 Lancer l’analyse croisée technique + juridique + motorisation + auto-diagnostic";
         }
       }
     }, 700);
@@ -3696,7 +4437,13 @@
 
   on("#syncAutoBtn", "click", function () {
     saveAutoConfigFromUi();
-    syncAutoDiagnostic(true);
+    syncAutoDiagnostic(true).then(function () {
+      return fetchEngineCatalogs(true);
+    });
+  });
+
+  on("#loadEngineCatalogBtn", "click", function () {
+    fetchEngineCatalogs(true);
   });
 
   on("#forceUpdateBtn", "click", function () {
@@ -3710,13 +4457,14 @@
       requests: getRequests(),
       defects: techUpdates,
       autoDefects: autoDb,
+      engineExtra: engineExtra,
       autoConfig: autoConfig
     };
 
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "aide-redactionnelle-expert-data-v14.json";
+    a.download = "aide-redactionnelle-expert-data-v15.json";
     a.click();
     toast("Données exportées.", "success");
   });
@@ -3742,6 +4490,11 @@
             save(KEYS.AUTO_CFG, autoConfig);
           }
 
+          if (data.engineExtra) {
+            engineExtra = mergeEngineRecords(engineExtra, data.engineExtra);
+            save(KEYS.ENGINE_EXTRA, engineExtra);
+          }
+
           var incoming = [];
           if (Array.isArray(data)) incoming = data;
           else if (data.defects) incoming = data.defects;
@@ -3763,6 +4516,20 @@
             }
           }
 
+          var engineIncoming = [];
+          if (data.motorisations) engineIncoming = data.motorisations;
+          else if (data.engines) engineIncoming = data.engines;
+          else if (data.engineCatalog) engineIncoming = data.engineCatalog;
+
+          if (Array.isArray(engineIncoming)) {
+            var erecs = collectEngineRecordsFromJson(engineIncoming, "import-manuel", 0);
+            if (erecs.length) {
+              engineExtra = mergeEngineRecords(engineExtra, erecs);
+              save(KEYS.ENGINE_EXTRA, engineExtra);
+            }
+          }
+
+          invalidateEngineCatalog();
           renderAdmin();
           updateAdminStats();
           toast("Données importées.", "success");
@@ -3860,7 +4627,7 @@
   setInterval(enforceTierAccess, 15000);
 
   window.addEventListener("storage", function (e) {
-    if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS) {
+    if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS || e.key === OLD_KEYS.USERS || e.key === OLD_KEYS.REQUESTS) {
       updateNotificationBell();
 
       if (currentUser && currentUser.role === "admin") {
@@ -3904,7 +4671,7 @@
      ========================================================= */
   function init() {
     try {
-      techUpdates = (load(KEYS.TECH_UPDATES, []) || [])
+      techUpdates = (loadWithMigration(KEYS.TECH_UPDATES, OLD_KEYS.TECH_UPDATES, []) || [])
         .map(normalizeDefect)
         .filter(isValidDefect);
     } catch (e) {
@@ -3912,15 +4679,23 @@
     }
 
     try {
-      autoDb = (load(KEYS.AUTO_DB, []) || [])
+      autoDb = (loadWithMigration(KEYS.AUTO_DB, OLD_KEYS.AUTO_DB, []) || [])
         .map(normalizeDefect)
         .filter(isValidDefect);
     } catch (e) {
       autoDb = [];
     }
 
-    autoLastSync = load(KEYS.AUTO_LAST_SYNC, 0) || 0;
-    autoConfig = Object.assign({}, CONFIG.autoDiagnostic, load(KEYS.AUTO_CFG, {}) || {});
+    try {
+      engineExtra = (loadWithMigration(KEYS.ENGINE_EXTRA, OLD_KEYS.ENGINE_EXTRA, []) || [])
+        .map(function (e) { return normalizeEngineRecord(e, e.sourceUrl || ""); })
+        .filter(Boolean);
+    } catch (e) {
+      engineExtra = [];
+    }
+
+    autoLastSync = loadWithMigration(KEYS.AUTO_LAST_SYNC, OLD_KEYS.AUTO_LAST_SYNC, 0) || 0;
+    autoConfig = Object.assign({}, CONFIG.autoDiagnostic, loadWithMigration(KEYS.AUTO_CFG, OLD_KEYS.AUTO_CFG, {}) || {});
 
     updateAdminStats();
     updateDataStatus("Base locale ingénieur chargée");
@@ -3944,9 +4719,11 @@
       showLogin();
     }
 
-    syncAutoDiagnostic(false);
+    syncAutoDiagnostic(false).then(function () {
+      return fetchEngineCatalogs(false);
+    }).catch(function () {});
 
-    toast("Application prête. Base locale + auto-diagnostic chargés.", "success");
+    toast("Application prête. Base locale + motorisation + auto-diagnostic chargés.", "success");
   }
 
   function boot() {
