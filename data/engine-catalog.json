@@ -1,0 +1,52 @@
+{
+  "motorisations": [
+    {
+      "b": "Peugeot",
+      "m": "208|2008|308|3008|5008",
+      "y": "2019-2024",
+      "e": "1.2 PureTech EB2",
+      "p": "100ch|130ch",
+      "t": "Essence"
+    },
+    {
+      "b": "Peugeot",
+      "m": "208|2008|308|3008|5008",
+      "y": "2020-2024",
+      "e": "e-CMP électrique",
+      "p": "100kW|136ch",
+      "t": "Électrique"
+    },
+    {
+      "b": "Renault",
+      "m": "Clio V|Captur II|Megane IV",
+      "y": "2019-2024",
+      "e": "1.0 TCe / 1.3 TCe",
+      "p": "90ch|140ch|160ch",
+      "t": "Essence"
+    },
+    {
+      "b": "Renault",
+      "m": "Clio|Captur|Megane|Scenic",
+      "y": "2017-2023",
+      "e": "1.5 dCi K9K",
+      "p": "75ch|90ch|110ch",
+      "t": "Diesel"
+    },
+    {
+      "b": "Volkswagen",
+      "m": "ID.3|ID.4|ID.5",
+      "y": "2020-2027",
+      "e": "MEB électrique",
+      "p": "145ch|174ch|204ch|286ch",
+      "t": "Électrique"
+    },
+    {
+      "b": "Tesla",
+      "m": "Model 3|Model Y",
+      "y": "2019-2027",
+      "e": "Standard Range / Long Range / Performance",
+      "p": "283ch|351ch|534ch",
+      "t": "Électrique"
+    }
+  ]
+}
