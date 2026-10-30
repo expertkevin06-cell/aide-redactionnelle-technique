@@ -45,10 +45,6 @@ body {
   font-size: 0.82rem;
 }
 
-/* ========================= */
-/* LOGIN                     */
-/* ========================= */
-
 .login-screen {
   min-height: 100vh;
   display: flex;
@@ -62,7 +58,7 @@ body {
 
 .login-card {
   width: 100%;
-  max-width: 520px;
+  max-width: 540px;
   background: #fff;
   border-radius: 18px;
   box-shadow: 0 24px 60px rgba(0,0,0,0.22);
@@ -184,19 +180,31 @@ textarea {
   color: #4b5563;
 }
 
-/* Mot de passe admin sans points visibles */
-.hidden-password {
+.invisible-password {
   color: transparent !important;
+  -webkit-text-fill-color: transparent !important;
   caret-color: var(--primary) !important;
+  text-shadow: none !important;
   -webkit-text-security: none !important;
-  text-security: none !important;
   user-select: none;
   -webkit-user-select: none;
-  letter-spacing: 0;
 }
 
-.hidden-password::placeholder {
+.invisible-password::placeholder {
   color: #9ca3af;
+}
+
+.invisible-password::selection {
+  background: transparent;
+  color: transparent;
+}
+
+input.invisible-password:-webkit-autofill,
+input.invisible-password:-webkit-autofill:hover,
+input.invisible-password:-webkit-autofill:focus {
+  -webkit-text-fill-color: transparent !important;
+  caret-color: var(--primary) !important;
+  transition: background-color 5000s ease-in-out 0s;
 }
 
 .btn-primary,
@@ -262,9 +270,19 @@ textarea {
   color: #92400e;
 }
 
-/* ========================= */
-/* MAIN APP                  */
-/* ========================= */
+.login-foot {
+  margin-top: 14px;
+  text-align: center;
+}
+
+.link-btn {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.84rem;
+  cursor: pointer;
+  text-decoration: underline;
+}
 
 .container {
   max-width: 1160px;
@@ -333,6 +351,7 @@ header h1 {
 }
 
 .icon-btn {
+  position: relative;
   width: 38px;
   height: 38px;
   border: none;
@@ -354,6 +373,24 @@ header h1 {
 .icon-btn.dark {
   background: #f3f4f6;
   color: #374151;
+}
+
+.notif-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 18px;
+  height: 18px;
+  line-height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
 }
 
 main {
@@ -411,10 +448,6 @@ main {
   background: #fee2e2;
   color: #991b1b;
 }
-
-/* ========================= */
-/* ANALYSIS                  */
-/* ========================= */
 
 .analysis-section {
   border-top: 1px solid var(--border);
@@ -575,10 +608,6 @@ footer {
   border-top: 1px solid #e2e8f0;
 }
 
-/* ========================= */
-/* ADMIN MODAL               */
-/* ========================= */
-
 .modal {
   position: fixed;
   inset: 0;
@@ -734,9 +763,19 @@ footer {
   color: var(--dark);
 }
 
-/* ========================= */
-/* TOAST                     */
-/* ========================= */
+#notifState {
+  margin: 12px 0 14px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 0.88rem;
+  color: #475569;
+}
+
+#shareRequestBtn {
+  margin-top: 10px;
+}
 
 .toast {
   position: fixed;
