@@ -12,7 +12,9 @@
       "n": "Défaut d'étanchéité de la baie de pare-brise.",
       "law": "Vice caché 1641 C.civ.; sécurité L.423-1 C.consom.",
       "rec": "Rappel conso / DGCCRF / forums",
-      "tg": "eau|electricite|court-circuit|securite"
+      "tg": "eau|electricite|court-circuit|securite",
+      "dtc": "U1xxx|B1xxx",
+      "sourceUrl": "https://expertkevin06-cell.github.io/auto-diagnostic/"
     }
   ]
 }
