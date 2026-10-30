@@ -112,6 +112,15 @@
     return parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10) || 0;
   }
 
+  function checkYearRange(rangeStr, targetYear) {
+    if (!targetYear) return true;
+    var parts = String(rangeStr || "").split("-").map(function (s) { return parseInt(s.trim(), 10); });
+    if (parts.length === 2 && parts[0] && parts[1]) {
+      return targetYear >= parts[0] && targetYear <= parts[1];
+    }
+    return true;
+  }
+
   function stripTags(html) {
     var tmp = document.createElement("div");
     tmp.innerHTML = html;
@@ -225,6 +234,16 @@
     return "";
   }
 
+  function unique(values) {
+    var seen = {};
+    return values.filter(function (v) {
+      var k = norm(v);
+      if (!k || seen[k]) return false;
+      seen[k] = true;
+      return true;
+    });
+  }
+
   /* =========================================================
      CHARGEMENT DYNAMIQUE DES BIBLIOTHEQUES
      ========================================================= */
@@ -330,6 +349,19 @@
   };
 
   var KEYS = {
+    SESSION: "arex_session_v16",
+    USERS: "arex_users_v16",
+    REQUESTS: "arex_requests_v16",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v16",
+    TECH_UPDATES: "arex_tech_updates_v16",
+    LAST_UPDATE: "arex_last_update_v16",
+    AUTO_DB: "arex_auto_db_v16",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v16",
+    AUTO_CFG: "arex_auto_cfg_v16",
+    ENGINE_EXTRA: "arex_engine_extra_v16"
+  };
+
+  var OLD_KEYS = {
     SESSION: "arex_session_v15",
     USERS: "arex_users_v15",
     REQUESTS: "arex_requests_v15",
@@ -340,19 +372,6 @@
     AUTO_LAST_SYNC: "arex_auto_last_sync_v15",
     AUTO_CFG: "arex_auto_cfg_v15",
     ENGINE_EXTRA: "arex_engine_extra_v15"
-  };
-
-  var OLD_KEYS = {
-    SESSION: "arex_session_v14",
-    USERS: "arex_users_v14",
-    REQUESTS: "arex_requests_v14",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v14",
-    TECH_UPDATES: "arex_tech_updates_v14",
-    LAST_UPDATE: "arex_last_update_v14",
-    AUTO_DB: "arex_auto_db_v14",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v14",
-    AUTO_CFG: "arex_auto_cfg_v14",
-    ENGINE_EXTRA: "arex_engine_extra_v14"
   };
 
   var currentUser = null;
@@ -366,9 +385,9 @@
   var autoLastSync = 0;
   var autoConfig = Object.assign({}, CONFIG.autoDiagnostic);
   var engineExtra = [];
-  var engineCatalogCache = null;
   var engineOptionMap = {};
-  var engineRefreshTimer = null;
+  var modelOptionMap = {};
+  var vehicleRefreshTimer = null;
   var swRegistration = null;
   var adminPollTimer = null;
   var lastPendingSignature = "";
@@ -994,7 +1013,7 @@
     updateCounter();
     updateNotificationBell();
     updateNotificationState();
-    refreshEngineOptions();
+    refreshModelOptions();
 
     if (currentUser && currentUser.role === "admin") {
       startAdminPolling();
@@ -1056,15 +1075,23 @@
   }
 
   /* =========================================================
-     MOTORISATION : TYPES / CATALOGUE / FILTRE
+     CATALOGUE MARQUES / MODÈLES / MOTORSATIONS
      ========================================================= */
+  var BRAND_SEED = [
+    "Renault", "Dacia", "Peugeot", "Citroen", "DS", "Volkswagen", "Audi", "Skoda", "Seat", "Cupra",
+    "BMW", "Mini", "Mercedes-Benz", "Volvo", "Porsche", "Land Rover", "Range Rover", "Jaguar",
+    "Opel", "Fiat", "Alfa Romeo", "Ford", "Tesla", "Jeep", "Toyota", "Lexus", "Honda", "Nissan",
+    "Mazda", "Subaru", "Suzuki", "Mitsubishi", "Hyundai", "Kia", "Genesis", "MG", "BYD",
+    "Leapmotor", "XPeng", "NIO", "Aiways", "Ora", "Chery", "Omoda", "Jaecoo", "Geely", "Smart",
+    "Lotus", "Maxus", "GWM", "Chevrolet", "GMC", "Cadillac", "Ram", "Chrysler", "Dodge"
+  ];
+
   var ENGINE_TYPES_ORDER = [
     "Essence",
     "Diesel",
     "Hybride",
     "Hybride rechargeable",
     "Hybride léger 48V",
-    "Hybride / électrique",
     "Électrique",
     "GPL",
     "E85 / Bioéthanol",
@@ -1106,7 +1133,7 @@
     if (containsAny(t, [
       "diesel", "dci", "tdi", "hdi", "bluehdi", "bluemotion", "cdti",
       "ddis", "crdi", "k9k", "dv6", "om654", "b47", "ea288", "d-4d",
-      "gasoil", "gasoil"
+      "gasoil"
     ])) return "Diesel";
 
     if (containsAny(t, [
@@ -1123,7 +1150,7 @@
   }
 
   function isMotorisationType(type) {
-    return type && type !== "Non précisé / mixte";
+    return type && type !== "Non précisé / mixte" && type !== "Hybride / électrique";
   }
 
   function isElectricLike(type) {
@@ -1133,37 +1160,1071 @@
            t.indexOf("48v") >= 0;
   }
 
-  function isMotorisationEntry(d) {
-    var t = norm(d.e + " " + d.tg);
-
-    if (containsAny(t, [
-      "boite", "embrayage", "convertisseur", "mecatronique", "synchro",
-      "dsg", "edc", "pdk", "cvt", "dct", "eat8", "ddct", "powershift",
-      "transmission"
-    ])) {
-      if (!containsAny(t, ["essence", "diesel", "electrique", "hybride", "moteur"])) return false;
-    }
-
-    if (containsAny(t, [
-      "adas", "camera", "radar", "lidar", "frein", "abs", "esp", "direction",
-      "suspension", "pneu", "tpms", "clim", "ecran", "gps", "bluetooth",
-      "logiciel", "ota", "corrosion", "carrosserie", "infiltration", "eau",
-      "court circuit", "fuite", "refroidissement", "thermostat", "radiateur",
-      "pompe a eau", "ventilateur", "joint culasse", "capteur", "sonde"
-    ])) {
-      if (!containsAny(t, [
-        "essence", "diesel", "electrique", "hybride", "turbo", "courroie",
-        "chaine", "distribution", "injecteur", "pompe a huile", "bielle",
-        "coussinet"
-      ])) return false;
-    }
-
-    return true;
-  }
-
   function engineTypeRank(type) {
     var idx = ENGINE_TYPES_ORDER.indexOf(type);
     return idx >= 0 ? idx : 999;
+  }
+
+  var MODEL_CATALOG = [
+    { b: "Renault", m: "Clio V", y: "2019-2026", engines: [
+      { e: "1.0 TCe", p: "65ch|90ch", t: "Essence" },
+      { e: "1.3 TCe", p: "100ch|130ch|140ch", t: "Essence" },
+      { e: "1.5 dCi", p: "75ch|100ch|115ch", t: "Diesel" },
+      { e: "E-Tech Hybrid", p: "140ch|145ch", t: "Hybride" },
+      { e: "E-Tech Plug-in Hybrid", p: "160ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Renault", m: "Captur II", y: "2020-2026", engines: [
+      { e: "1.0 TCe", p: "90ch|100ch", t: "Essence" },
+      { e: "1.3 TCe", p: "130ch|155ch", t: "Essence" },
+      { e: "1.5 Blue dCi", p: "100ch", t: "Diesel" },
+      { e: "E-Tech Hybrid", p: "140ch|160ch", t: "Hybride" },
+      { e: "E-Tech Plug-in Hybrid", p: "165ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Renault", m: "Megane IV", y: "2016-2024", engines: [
+      { e: "1.3 TCe", p: "100ch|140ch|160ch", t: "Essence" },
+      { e: "1.5 dCi", p: "90ch|115ch", t: "Diesel" },
+      { e: "1.6 dCi", p: "130ch", t: "Diesel" },
+      { e: "E-Tech Hybrid", p: "160ch|205ch", t: "Hybride" }
+    ]},
+    { b: "Renault", m: "Scenic IV", y: "2016-2024", engines: [
+      { e: "1.3 TCe", p: "115ch|140ch|160ch", t: "Essence" },
+      { e: "1.5 dCi", p: "95ch|115ch", t: "Diesel" },
+      { e: "1.6 dCi", p: "130ch|160ch", t: "Diesel" },
+      { e: "E-Tech Hybrid", p: "160ch", t: "Hybride" }
+    ]},
+    { b: "Renault", m: "Austral", y: "2022-2026", engines: [
+      { e: "1.2 TCe 130", p: "130ch", t: "Essence" },
+      { e: "1.2 TCe 160", p: "160ch", t: "Essence" },
+      { e: "E-Tech Hybrid 160", p: "160ch", t: "Hybride" },
+      { e: "E-Tech Hybrid 200", p: "200ch", t: "Hybride" },
+      { e: "E-Tech Plug-in Hybrid 200", p: "200ch", t: "Hybride rechargeable" },
+      { e: "E-Tech Plug-in Hybrid 260", p: "260ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Renault", m: "Arkana", y: "2021-2026", engines: [
+      { e: "1.3 TCe", p: "140ch|160ch", t: "Essence" },
+      { e: "E-Tech Hybrid", p: "145ch|160ch", t: "Hybride" },
+      { e: "E-Tech Plug-in Hybrid", p: "200ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Renault", m: "Kangoo III", y: "2021-2026", engines: [
+      { e: "1.3 TCe", p: "100ch|130ch", t: "Essence" },
+      { e: "1.5 Blue dCi", p: "85ch|100ch|115ch", t: "Diesel" },
+      { e: "E-Tech Electric", p: "N/A", t: "Électrique" }
+    ]},
+    { b: "Renault", m: "Trafic III", y: "2014-2026", engines: [
+      { e: "2.0 dCi", p: "120ch|150ch|170ch", t: "Diesel" },
+      { e: "E-Tech Electric", p: "N/A", t: "Électrique" }
+    ]},
+    { b: "Renault", m: "Master III", y: "2010-2026", engines: [
+      { e: "2.3 dCi", p: "100ch|130ch|150ch|170ch", t: "Diesel" },
+      { e: "2.0 dCi", p: "136ch|160ch|180ch", t: "Diesel" },
+      { e: "E-Tech Electric", p: "N/A", t: "Électrique" }
+    ]},
+    { b: "Renault", m: "Zoe II", y: "2019-2024", engines: [
+      { e: "R135", p: "135ch", t: "Électrique" },
+      { e: "R110", p: "110ch", t: "Électrique" },
+      { e: "R80", p: "80ch", t: "Électrique" }
+    ]},
+    { b: "Renault", m: "Megane E-Tech", y: "2022-2026", engines: [
+      { e: "Evolution 60 kWh", p: "130ch|220ch", t: "Électrique" },
+      { e: "Techno 60 kWh", p: "130ch|220ch", t: "Électrique" },
+      { e: "Iconic 60 kWh", p: "220ch", t: "Électrique" }
+    ]},
+    { b: "Renault", m: "Scenic E-Tech", y: "2024-2026", engines: [
+      { e: "60 kWh", p: "170ch|210ch", t: "Électrique" },
+      { e: "87 kWh", p: "210ch", t: "Électrique" }
+    ]},
+
+    { b: "Dacia", m: "Sandero III", y: "2020-2026", engines: [
+      { e: "1.0 SCe", p: "65ch|75ch", t: "Essence" },
+      { e: "1.0 TCe", p: "90ch|100ch", t: "Essence" },
+      { e: "1.0 ECO-G 100", p: "100ch", t: "GPL" },
+      { e: "1.5 Blue dCi", p: "100ch", t: "Diesel" },
+      { e: "Hybrid 140", p: "140ch", t: "Hybride" }
+    ]},
+    { b: "Dacia", m: "Duster III", y: "2024-2026", engines: [
+      { e: "1.0 TCe", p: "100ch", t: "Essence" },
+      { e: "1.2 TCe", p: "130ch|140ch", t: "Essence" },
+      { e: "1.5 Blue dCi", p: "100ch|115ch", t: "Diesel" },
+      { e: "Hybrid 140", p: "140ch", t: "Hybride" },
+      { e: "Hybrid 155 4x4", p: "155ch", t: "Hybride" }
+    ]},
+    { b: "Dacia", m: "Logan MCV", y: "2020-2026", engines: [
+      { e: "1.0 SCe", p: "75ch", t: "Essence" },
+      { e: "1.0 TCe", p: "90ch", t: "Essence" },
+      { e: "1.0 ECO-G", p: "100ch", t: "GPL" },
+      { e: "1.5 Blue dCi", p: "95ch|115ch", t: "Diesel" }
+    ]},
+    { b: "Dacia", m: "Jogger", y: "2021-2026", engines: [
+      { e: "1.0 TCe", p: "100ch|110ch", t: "Essence" },
+      { e: "1.0 ECO-G", p: "100ch", t: "GPL" },
+      { e: "1.5 Blue dCi", p: "100ch", t: "Diesel" },
+      { e: "Hybrid 140", p: "140ch", t: "Hybride" }
+    ]},
+    { b: "Dacia", m: "Spring", y: "2021-2026", engines: [
+      { e: "45 ch", p: "45ch", t: "Électrique" },
+      { e: "65 ch", p: "65ch", t: "Électrique" }
+    ]},
+
+    { b: "Peugeot", m: "208 II", y: "2019-2026", engines: [
+      { e: "1.2 PureTech 75", p: "75ch", t: "Essence" },
+      { e: "1.2 PureTech 100", p: "100ch", t: "Essence" },
+      { e: "1.2 PureTech 130", p: "130ch", t: "Essence" },
+      { e: "1.5 BlueHDi 100", p: "100ch", t: "Diesel" },
+      { e: "e-208", p: "100kW|115kW|156ch", t: "Électrique" }
+    ]},
+    { b: "Peugeot", m: "2008 II", y: "2019-2026", engines: [
+      { e: "1.2 PureTech 100", p: "100ch", t: "Essence" },
+      { e: "1.2 PureTech 130", p: "130ch", t: "Essence" },
+      { e: "1.5 BlueHDi 100|130", p: "100ch|130ch", t: "Diesel" },
+      { e: "e-2008", p: "100kW|115kW|156ch", t: "Électrique" }
+    ]},
+    { b: "Peugeot", m: "308 III", y: "2021-2026", engines: [
+      { e: "1.2 PureTech 110", p: "110ch", t: "Essence" },
+      { e: "1.2 PureTech 130", p: "130ch", t: "Essence" },
+      { e: "1.5 BlueHDi 130", p: "130ch", t: "Diesel" },
+      { e: "Hybrid 180", p: "180ch", t: "Hybride rechargeable" },
+      { e: "Hybrid 225", p: "225ch", t: "Hybride rechargeable" },
+      { e: "e-308", p: "115kW|150kW", t: "Électrique" }
+    ]},
+    { b: "Peugeot", m: "3008 III", y: "2024-2026", engines: [
+      { e: "1.6 Hybrid 130", p: "130ch", t: "Hybride" },
+      { e: "1.6 Hybrid 180", p: "180ch", t: "Hybride" },
+      { e: "1.6 Hybrid 225", p: "225ch", t: "Hybride rechargeable" },
+      { e: "1.6 Hybrid 320 4x4", p: "320ch", t: "Hybride rechargeable" },
+      { e: "e-3008", p: "210ch", t: "Électrique" }
+    ]},
+    { b: "Peugeot", m: "5008 III", y: "2024-2026", engines: [
+      { e: "1.6 Hybrid 130", p: "130ch", t: "Hybride" },
+      { e: "1.6 Hybrid 180", p: "180ch", t: "Hybride" },
+      { e: "1.6 Hybrid 225", p: "225ch", t: "Hybride rechargeable" },
+      { e: "1.6 Hybrid 320 4x4", p: "320ch", t: "Hybride rechargeable" },
+      { e: "e-5008", p: "210ch", t: "Électrique" }
+    ]},
+    { b: "Peugeot", m: "Partner III", y: "2018-2026", engines: [
+      { e: "1.2 PureTech", p: "100ch|110ch|130ch", t: "Essence" },
+      { e: "1.5 BlueHDi", p: "100ch|130ch", t: "Diesel" },
+      { e: "e-Partner", p: "N/A", t: "Électrique" }
+    ]},
+    { b: "Peugeot", m: "Rifter", y: "2018-2026", engines: [
+      { e: "1.2 PureTech", p: "100ch|110ch|130ch", t: "Essence" },
+      { e: "1.5 BlueHDi", p: "100ch|130ch", t: "Diesel" },
+      { e: "e-Rifter", p: "N/A", t: "Électrique" }
+    ]},
+    { b: "Peugeot", m: "Boxer", y: "2014-2026", engines: [
+      { e: "2.2 BlueHDi", p: "120ch|140ch|165ch", t: "Diesel" },
+      { e: "3.0 BlueHDi", p: "160ch|180ch", t: "Diesel" },
+      { e: "e-Boxer", p: "N/A", t: "Électrique" }
+    ]},
+
+    { b: "Citroen", m: "C3 III", y: "2016-2026", engines: [
+      { e: "1.2 PureTech", p: "82ch|100ch|110ch|130ch", t: "Essence" },
+      { e: "1.5 BlueHDi", p: "100ch", t: "Diesel" },
+      { e: "ë-C3", p: "N/A", t: "Électrique" }
+    ]},
+    { b: "Citroen", m: "C3 Aircross", y: "2017-2026", engines: [
+      { e: "1.2 PureTech", p: "100ch|110ch|130ch", t: "Essence" },
+      { e: "1.5 BlueHDi", p: "100ch|130ch", t: "Diesel" }
+    ]},
+    { b: "Citroen", m: "C4", y: "2020-2026", engines: [
+      { e: "1.2 PureTech", p: "100ch|130ch", t: "Essence" },
+      { e: "1.5 BlueHDi", p: "130ch", t: "Diesel" },
+      { e: "ë-C4", p: "100kW|115kW|156ch", t: "Électrique" }
+    ]},
+    { b: "Citroen", m: "C4 Cactus", y: "2014-2024", engines: [
+      { e: "1.2 PureTech", p: "82ch|100ch|110ch|130ch", t: "Essence" },
+      { e: "1.6 BlueHDi", p: "100ch|120ch", t: "Diesel" }
+    ]},
+    { b: "Citroen", m: "C5 Aircross", y: "2018-2026", engines: [
+      { e: "1.2 PureTech", p: "130ch|180ch", t: "Essence" },
+      { e: "1.5 BlueHDi", p: "130ch", t: "Diesel" },
+      { e: "2.0 BlueHDi", p: "160ch|180ch", t: "Diesel" },
+      { e: "Hybrid 225", p: "225ch", t: "Hybride rechargeable" },
+      { e: "Hybrid4 300", p: "300ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Citroen", m: "Berlingo", y: "2018-2026", engines: [
+      { e: "1.2 PureTech", p: "100ch|110ch|130ch", t: "Essence" },
+      { e: "1.5 BlueHDi", p: "100ch|130ch", t: "Diesel" },
+      { e: "ë-Berlingo", p: "N/A", t: "Électrique" }
+    ]},
+    { b: "Citroen", m: "Jumper", y: "2014-2026", engines: [
+      { e: "2.2 BlueHDi", p: "120ch|140ch|165ch", t: "Diesel" },
+      { e: "3.0 BlueHDi", p: "160ch|180ch", t: "Diesel" },
+      { e: "ë-Jumper", p: "N/A", t: "Électrique" }
+    ]},
+
+    { b: "DS", m: "DS 3 Crossback", y: "2018-2026", engines: [
+      { e: "1.2 PureTech", p: "100ch|130ch|155ch", t: "Essence" },
+      { e: "1.5 BlueHDi", p: "130ch", t: "Diesel" },
+      { e: "E-Tense", p: "136ch", t: "Électrique" }
+    ]},
+    { b: "DS", m: "DS 4", y: "2021-2026", engines: [
+      { e: "1.2 PureTech", p: "130ch", t: "Essence" },
+      { e: "1.5 BlueHDi", p: "130ch", t: "Diesel" },
+      { e: "E-Tense 225", p: "225ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "DS", m: "DS 7 Crossback", y: "2018-2026", engines: [
+      { e: "1.6 PureTech", p: "180ch|225ch", t: "Essence" },
+      { e: "2.0 BlueHDi", p: "130ch|180ch", t: "Diesel" },
+      { e: "E-Tense 4x4 300", p: "300ch", t: "Hybride rechargeable" },
+      { e: "E-Tense 4x4 360", p: "360ch", t: "Hybride rechargeable" }
+    ]},
+
+    { b: "Volkswagen", m: "Polo VI", y: "2017-2026", engines: [
+      { e: "1.0 MPI", p: "65ch|75ch", t: "Essence" },
+      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
+      { e: "1.5 TSI", p: "150ch", t: "Essence" },
+      { e: "1.6 TDI", p: "80ch", t: "Diesel" },
+      { e: "2.0 TDI", p: "95ch|115ch|150ch", t: "Diesel" }
+    ]},
+    { b: "Volkswagen", m: "Golf VII", y: "2012-2020", engines: [
+      { e: "1.0 TSI", p: "85ch|110ch|125ch", t: "Essence" },
+      { e: "1.4 TSI", p: "125ch|150ch", t: "Essence" },
+      { e: "1.5 TSI", p: "130ch|150ch|180ch", t: "Essence" },
+      { e: "2.0 TSI", p: "230ch|310ch", t: "Essence" },
+      { e: "1.6 TDI", p: "90ch|110ch|115ch", t: "Diesel" },
+      { e: "2.0 TDI", p: "110ch|150ch|184ch", t: "Diesel" },
+      { e: "GTE", p: "204ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Volkswagen", m: "Golf VIII", y: "2020-2026", engines: [
+      { e: "1.0 eTSI", p: "110ch", t: "Hybride léger 48V" },
+      { e: "1.5 eTSI", p: "130ch|150ch", t: "Hybride léger 48V" },
+      { e: "2.0 TSI", p: "245ch|320ch", t: "Essence" },
+      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" },
+      { e: "eHybrid", p: "204ch|245ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Volkswagen", m: "T-Cross", y: "2019-2026", engines: [
+      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
+      { e: "1.5 TSI", p: "150ch", t: "Essence" },
+      { e: "1.6 TDI", p: "95ch", t: "Diesel" },
+      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" }
+    ]},
+    { b: "Volkswagen", m: "Taigo", y: "2021-2026", engines: [
+      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
+      { e: "1.5 TSI", p: "150ch", t: "Essence" }
+    ]},
+    { b: "Volkswagen", m: "T-Roc", y: "2017-2026", engines: [
+      { e: "1.0 TSI", p: "110ch|150ch", t: "Essence" },
+      { e: "1.5 TSI", p: "150ch", t: "Essence" },
+      { e: "2.0 TSI", p: "190ch|300ch", t: "Essence" },
+      { e: "2.0 TDI", p: "150ch|190ch", t: "Diesel" }
+    ]},
+    { b: "Volkswagen", m: "Tiguan II", y: "2016-2026", engines: [
+      { e: "1.5 TSI", p: "130ch|150ch", t: "Essence" },
+      { e: "2.0 TSI", p: "190ch|245ch|320ch", t: "Essence" },
+      { e: "2.0 TDI", p: "150ch|190ch|200ch", t: "Diesel" },
+      { e: "eHybrid", p: "245ch|300ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Volkswagen", m: "Touran", y: "2015-2026", engines: [
+      { e: "1.5 TSI", p: "130ch|150ch", t: "Essence" },
+      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" }
+    ]},
+    { b: "Volkswagen", m: "Caddy V", y: "2020-2026", engines: [
+      { e: "1.5 TSI", p: "114ch", t: "Essence" },
+      { e: "2.0 TDI", p: "102ch|122ch", t: "Diesel" },
+      { e: "e-Caddy", p: "N/A", t: "Électrique" }
+    ]},
+    { b: "Volkswagen", m: "ID.3", y: "2020-2026", engines: [
+      { e: "Pure Performance", p: "145ch|174ch|204ch", t: "Électrique" },
+      { e: "Pro", p: "204ch", t: "Électrique" },
+      { e: "Pro S", p: "204ch", t: "Électrique" },
+      { e: "GTX", p: "204ch", t: "Électrique" }
+    ]},
+    { b: "Volkswagen", m: "ID.4", y: "2021-2026", engines: [
+      { e: "Pure", p: "174ch", t: "Électrique" },
+      { e: "Pro", p: "204ch", t: "Électrique" },
+      { e: "Pro Performance", p: "204ch", t: "Électrique" },
+      { e: "GTX", p: "299ch", t: "Électrique" }
+    ]},
+    { b: "Volkswagen", m: "ID.5", y: "2022-2026", engines: [
+      { e: "Pro", p: "204ch", t: "Électrique" },
+      { e: "GTX", p: "299ch", t: "Électrique" }
+    ]},
+    { b: "Volkswagen", m: "ID.7", y: "2024-2026", engines: [
+      { e: "Pro", p: "286ch", t: "Électrique" },
+      { e: "GTX", p: "340ch", t: "Électrique" }
+    ]},
+
+    { b: "Audi", m: "A1", y: "2018-2026", engines: [
+      { e: "25 TFSI", p: "95ch", t: "Essence" },
+      { e: "30 TFSI", p: "110ch", t: "Essence" },
+      { e: "35 TFSI", p: "150ch", t: "Essence" },
+      { e: "30 TDI", p: "116ch", t: "Diesel" },
+      { e: "35 TDI", p: "150ch", t: "Diesel" }
+    ]},
+    { b: "Audi", m: "A3", y: "2020-2026", engines: [
+      { e: "30 TFSI", p: "110ch", t: "Essence" },
+      { e: "35 TFSI", p: "150ch", t: "Essence" },
+      { e: "40 TFSI", p: "204ch", t: "Essence" },
+      { e: "35 TDI", p: "150ch", t: "Diesel" },
+      { e: "40 TDI", p: "204ch", t: "Diesel" },
+      { e: "Sportback 45 TFSI e", p: "245ch|310ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Audi", m: "A4", y: "2015-2024", engines: [
+      { e: "35 TFSI", p: "150ch", t: "Essence" },
+      { e: "40 TFSI", p: "190ch|245ch", t: "Essence" },
+      { e: "35 TDI", p: "163ch", t: "Diesel" },
+      { e: "40 TDI", p: "190ch|204ch", t: "Diesel" },
+      { e: "50 TDI", p: "286ch", t: "Diesel" }
+    ]},
+    { b: "Audi", m: "Q2", y: "2016-2026", engines: [
+      { e: "30 TFSI", p: "110ch", t: "Essence" },
+      { e: "35 TFSI", p: "150ch", t: "Essence" },
+      { e: "40 TFSI", p: "190ch", t: "Essence" },
+      { e: "30 TDI", p: "116ch", t: "Diesel" },
+      { e: "35 TDI", p: "150ch", t: "Diesel" }
+    ]},
+    { b: "Audi", m: "Q3", y: "2018-2026", engines: [
+      { e: "30 TFSI", p: "110ch|150ch", t: "Essence" },
+      { e: "40 TFSI", p: "190ch|204ch", t: "Essence" },
+      { e: "35 TDI", p: "150ch", t: "Diesel" },
+      { e: "40 TDI", p: "190ch", t: "Diesel" },
+      { e: "45 TFSI e", p: "245ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Audi", m: "Q5", y: "2017-2026", engines: [
+      { e: "40 TFSI", p: "204ch|245ch", t: "Essence" },
+      { e: "45 TFSI", p: "265ch", t: "Essence" },
+      { e: "40 TDI", p: "204ch", t: "Diesel" },
+      { e: "50 TDI", p: "286ch", t: "Diesel" },
+      { e: "55 TFSI e", p: "367ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Audi", m: "Q4 e-tron", y: "2021-2026", engines: [
+      { e: "35 e-tron", p: "170ch", t: "Électrique" },
+      { e: "40 e-tron", p: "204ch", t: "Électrique" },
+      { e: "50 e-tron quattro", p: "299ch", t: "Électrique" }
+    ]},
+    { b: "Audi", m: "e-tron GT", y: "2021-2026", engines: [
+      { e: "e-tron GT quattro", p: "476ch|530ch", t: "Électrique" },
+      { e: "RS e-tron GT", p: "598ch|646ch", t: "Électrique" }
+    ]},
+
+    { b: "Skoda", m: "Fabia IV", y: "2021-2026", engines: [
+      { e: "1.0 MPI", p: "65ch|80ch", t: "Essence" },
+      { e: "1.0 TSI", p: "95ch|110ch", t: "Essence" },
+      { e: "1.5 TSI", p: "150ch", t: "Essence" }
+    ]},
+    { b: "Skoda", m: "Octavia IV", y: "2020-2026", engines: [
+      { e: "1.5 TSI", p: "110ch|150ch", t: "Essence" },
+      { e: "2.0 TSI", p: "190ch|265ch", t: "Essence" },
+      { e: "2.0 TDI", p: "115ch|150ch|200ch", t: "Diesel" },
+      { e: "iV", p: "204ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Skoda", m: "Superb III", y: "2015-2024", engines: [
+      { e: "1.5 TSI", p: "150ch", t: "Essence" },
+      { e: "2.0 TSI", p: "190ch|272ch|280ch", t: "Essence" },
+      { e: "2.0 TDI", p: "150ch|190ch|200ch", t: "Diesel" },
+      { e: "iV", p: "218ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Skoda", m: "Karoq", y: "2017-2026", engines: [
+      { e: "1.5 TSI", p: "150ch", t: "Essence" },
+      { e: "2.0 TSI", p: "190ch", t: "Essence" },
+      { e: "2.0 TDI", p: "150ch|190ch", t: "Diesel" }
+    ]},
+    { b: "Skoda", m: "Kodiaq", y: "2017-2026", engines: [
+      { e: "1.5 TSI", p: "150ch", t: "Essence" },
+      { e: "2.0 TSI", p: "190ch", t: "Essence" },
+      { e: "2.0 TDI", p: "150ch|200ch", t: "Diesel" },
+      { e: "iV", p: "245ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Skoda", m: "Enyaq", y: "2021-2026", engines: [
+      { e: "60", p: "180ch|204ch", t: "Électrique" },
+      { e: "80", p: "204ch", t: "Électrique" },
+      { e: "80x", p: "265ch", t: "Électrique" },
+      { e: "vRS", p: "340ch", t: "Électrique" }
+    ]},
+
+    { b: "Seat", m: "Ibiza IV", y: "2017-2026", engines: [
+      { e: "1.0 MPI", p: "75ch|80ch", t: "Essence" },
+      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
+      { e: "1.5 TSI", p: "150ch", t: "Essence" },
+      { e: "FR 2.0 TSI", p: "190ch", t: "Essence" }
+    ]},
+    { b: "Seat", m: "Leon IV", y: "2020-2026", engines: [
+      { e: "1.0 TSI", p: "110ch", t: "Essence" },
+      { e: "1.5 TSI", p: "130ch|150ch", t: "Essence" },
+      { e: "2.0 TSI", p: "190ch|310ch", t: "Essence" },
+      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" },
+      { e: "e-HYBRID", p: "204ch|245ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Seat", m: "Ateca", y: "2016-2026", engines: [
+      { e: "1.0 TSI", p: "110ch|150ch", t: "Essence" },
+      { e: "1.5 TSI", p: "150ch", t: "Essence" },
+      { e: "2.0 TSI", p: "190ch", t: "Essence" },
+      { e: "2.0 TDI", p: "150ch|190ch", t: "Diesel" }
+    ]},
+    { b: "Seat", m: "Arona", y: "2017-2026", engines: [
+      { e: "1.0 TSI", p: "95ch|110ch|115ch", t: "Essence" },
+      { e: "1.5 TSI", p: "150ch", t: "Essence" },
+      { e: "2.0 TDI", p: "115ch|150ch", t: "Diesel" }
+    ]},
+    { b: "Seat", m: "Born", y: "2021-2026", engines: [
+      { e: "Pure", p: "150ch|170ch", t: "Électrique" },
+      { e: "Elite", p: "204ch", t: "Électrique" },
+      { e: "vZ", p: "231ch", t: "Électrique" }
+    ]},
+    { b: "Seat", m: "Tavascan", y: "2024-2026", engines: [
+      { e: "Endurance", p: "210ch", t: "Électrique" },
+      { e: "vZ", p: "340ch", t: "Électrique" }
+    ]},
+
+    { b: "Cupra", m: "Leon", y: "2021-2026", engines: [
+      { e: "2.0 TSI", p: "310ch", t: "Essence" },
+      { e: "e-HYBRID", p: "340ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Cupra", m: "Ateca", y: "2018-2026", engines: [
+      { e: "2.0 TSI", p: "300ch", t: "Essence" }
+    ]},
+    { b: "Cupra", m: "Formentor", y: "2020-2026", engines: [
+      { e: "2.0 TSI", p: "310ch", t: "Essence" },
+      { e: "e-HYBRID", p: "245ch|340ch", t: "Hybride rechargeable" },
+      { e: "VZ", p: "333ch", t: "Électrique" }
+    ]},
+    { b: "Cupra", m: "Born", y: "2021-2026", engines: [
+      { e: "Pure", p: "150ch|170ch", t: "Électrique" },
+      { e: "Elite", p: "204ch", t: "Électrique" },
+      { e: "vZ", p: "231ch", t: "Électrique" }
+    ]},
+    { b: "Cupra", m: "Tavascan", y: "2024-2026", engines: [
+      { e: "Endurance", p: "210ch", t: "Électrique" },
+      { e: "VZ", p: "340ch", t: "Électrique" }
+    ]},
+
+    { b: "BMW", m: "Serie 1", y: "2019-2026", engines: [
+      { e: "116i", p: "109ch", t: "Essence" },
+      { e: "118i", p: "136ch|156ch", t: "Essence" },
+      { e: "120i", p: "170ch|218ch", t: "Essence" },
+      { e: "125i", p: "245ch", t: "Essence" },
+      { e: "116d", p: "116ch", t: "Diesel" },
+      { e: "118d", p: "150ch", t: "Diesel" },
+      { e: "120d", p: "163ch|190ch", t: "Diesel" }
+    ]},
+    { b: "BMW", m: "Serie 3", y: "2019-2026", engines: [
+      { e: "320i", p: "170ch|184ch", t: "Essence" },
+      { e: "330i", p: "245ch|258ch", t: "Essence" },
+      { e: "M340i", p: "374ch", t: "Essence" },
+      { e: "318d", p: "150ch", t: "Diesel" },
+      { e: "320d", p: "163ch|190ch", t: "Diesel" },
+      { e: "330d", p: "286ch|292ch", t: "Diesel" },
+      { e: "330e", p: "292ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "BMW", m: "X1", y: "2015-2026", engines: [
+      { e: "sDrive18i", p: "136ch|170ch", t: "Essence" },
+      { e: "sDrive20i", p: "178ch|204ch", t: "Essence" },
+      { e: "xDrive25i", p: "231ch|245ch", t: "Essence" },
+      { e: "sDrive16d", p: "116ch", t: "Diesel" },
+      { e: "sDrive18d", p: "150ch", t: "Diesel" },
+      { e: "sDrive20d", p: "190ch", t: "Diesel" },
+      { e: "xDrive25e", p: "245ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "BMW", m: "X3", y: "2018-2026", engines: [
+      { e: "xDrive20i", p: "184ch", t: "Essence" },
+      { e: "xDrive30i", p: "245ch|252ch", t: "Essence" },
+      { e: "M40i", p: "340ch|374ch", t: "Essence" },
+      { e: "xDrive20d", p: "190ch", t: "Diesel" },
+      { e: "xDrive30d", p: "286ch|292ch", t: "Diesel" },
+      { e: "xDrive30e", p: "292ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "BMW", m: "X5", y: "2019-2026", engines: [
+      { e: "xDrive40i", p: "340ch", t: "Essence" },
+      { e: "xDrive50i", p: "462ch", t: "Essence" },
+      { e: "xDrive30d", p: "286ch", t: "Diesel" },
+      { e: "xDrive40d", p: "340ch", t: "Diesel" },
+      { e: "xDrive45e", p: "394ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "BMW", m: "i4", y: "2021-2026", engines: [
+      { e: "eDrive35", p: "286ch", t: "Électrique" },
+      { e: "eDrive40", p: "340ch", t: "Électrique" },
+      { e: "M50", p: "544ch", t: "Électrique" }
+    ]},
+    { b: "BMW", m: "iX", y: "2021-2026", engines: [
+      { e: "xDrive40", p: "326ch", t: "Électrique" },
+      { e: "xDrive50", p: "523ch", t: "Électrique" },
+      { e: "M60", p: "619ch", t: "Électrique" }
+    ]},
+    { b: "BMW", m: "iX1", y: "2022-2026", engines: [
+      { e: "eDrive20", p: "184ch", t: "Électrique" },
+      { e: "eDrive30", p: "272ch", t: "Électrique" },
+      { e: "xDrive30", p: "313ch", t: "Électrique" }
+    ]},
+
+    { b: "Mini", m: "Cooper", y: "2021-2026", engines: [
+      { e: "Cooper", p: "136ch|156ch", t: "Essence" },
+      { e: "Cooper S", p: "178ch|204ch", t: "Essence" },
+      { e: "John Cooper Works", p: "231ch|300ch", t: "Essence" },
+      { e: "Cooper SE", p: "224ch", t: "Hybride rechargeable" },
+      { e: "Cooper E", p: "184ch|218ch", t: "Électrique" }
+    ]},
+    { b: "Mini", m: "Countryman", y: "2017-2026", engines: [
+      { e: "Cooper", p: "136ch|156ch", t: "Essence" },
+      { e: "Cooper S", p: "178ch|204ch", t: "Essence" },
+      { e: "One D", p: "116ch", t: "Diesel" },
+      { e: "Cooper SD", p: "190ch", t: "Diesel" },
+      { e: "Cooper SE ALL4", p: "224ch", t: "Hybride rechargeable" },
+      { e: "Countryman E", p: "313ch", t: "Électrique" }
+    ]},
+
+    { b: "Mercedes-Benz", m: "Classe A", y: "2018-2026", engines: [
+      { e: "A180", p: "120ch|136ch", t: "Essence" },
+      { e: "A200", p: "163ch|190ch", t: "Essence" },
+      { e: "A250", p: "224ch", t: "Essence" },
+      { e: "AMG A35", p: "306ch", t: "Essence" },
+      { e: "A180d", p: "116ch", t: "Diesel" },
+      { e: "A200d", p: "150ch", t: "Diesel" },
+      { e: "A250e", p: "218ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Mercedes-Benz", m: "Classe C", y: "2021-2026", engines: [
+      { e: "C180", p: "170ch", t: "Essence" },
+      { e: "C200", p: "204ch", t: "Essence" },
+      { e: "C300", p: "258ch", t: "Essence" },
+      { e: "C220d", p: "200ch", t: "Diesel" },
+      { e: "C300de", p: "313ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Mercedes-Benz", m: "GLA", y: "2020-2026", engines: [
+      { e: "GLA180", p: "120ch|136ch", t: "Essence" },
+      { e: "GLA200", p: "163ch|190ch", t: "Essence" },
+      { e: "GLA250", p: "224ch", t: "Essence" },
+      { e: "GLA200d", p: "150ch", t: "Diesel" },
+      { e: "GLA250e", p: "218ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Mercedes-Benz", m: "GLC", y: "2019-2026", engines: [
+      { e: "GLC200", p: "197ch", t: "Essence" },
+      { e: "GLC300", p: "258ch", t: "Essence" },
+      { e: "GLC220d", p: "197ch|200ch", t: "Diesel" },
+      { e: "GLC300d", p: "245ch|272ch", t: "Diesel" },
+      { e: "GLC300e", p: "313ch", t: "Hybride rechargeable" },
+      { e: "GLC400e", p: "381ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Mercedes-Benz", m: "EQA", y: "2021-2026", engines: [
+      { e: "EQA 250", p: "190ch", t: "Électrique" },
+      { e: "EQA 350 4MATIC", p: "292ch", t: "Électrique" }
+    ]},
+    { b: "Mercedes-Benz", m: "EQB", y: "2021-2026", engines: [
+      { e: "EQB 250", p: "190ch", t: "Électrique" },
+      { e: "EQB 350 4MATIC", p: "292ch", t: "Électrique" }
+    ]},
+    { b: "Mercedes-Benz", m: "EQE", y: "2022-2026", engines: [
+      { e: "EQE 350", p: "292ch", t: "Électrique" },
+      { e: "EQE 43 4MATIC", p: "476ch", t: "Électrique" },
+      { e: "EQE 53 4MATIC+", p: "626ch", t: "Électrique" }
+    ]},
+    { b: "Mercedes-Benz", m: "EQS", y: "2021-2026", engines: [
+      { e: "EQS 450+", p: "333ch", t: "Électrique" },
+      { e: "EQS 580 4MATIC", p: "544ch", t: "Électrique" },
+      { e: "AMG EQS 53", p: "658ch|761ch", t: "Électrique" }
+    ]},
+
+    { b: "Volvo", m: "XC40", y: "2018-2026", engines: [
+      { e: "B3", p: "163ch", t: "Hybride léger 48V" },
+      { e: "B4", p: "197ch", t: "Hybride léger 48V" },
+      { e: "T2", p: "130ch", t: "Essence" },
+      { e: "T3", p: "163ch", t: "Essence" },
+      { e: "T4", p: "197ch", t: "Essence" },
+      { e: "T5", p: "249ch", t: "Essence" },
+      { e: "Recharge T5", p: "262ch", t: "Hybride rechargeable" },
+      { e: "Recharge T8", p: "390ch|405ch", t: "Hybride rechargeable" },
+      { e: "Pure Electric", p: "231ch|408ch", t: "Électrique" }
+    ]},
+    { b: "Volvo", m: "XC60", y: "2018-2026", engines: [
+      { e: "B4", p: "197ch", t: "Hybride léger 48V" },
+      { e: "B5", p: "250ch", t: "Hybride léger 48V" },
+      { e: "T5", p: "250ch", t: "Essence" },
+      { e: "T6", p: "300ch", t: "Essence" },
+      { e: "Recharge T6", p: "340ch", t: "Hybride rechargeable" },
+      { e: "Recharge T8", p: "455ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Volvo", m: "EX30", y: "2024-2026", engines: [
+      { e: "Single Motor", p: "272ch", t: "Électrique" },
+      { e: "Twin Motor", p: "428ch", t: "Électrique" }
+    ]},
+
+    { b: "Porsche", m: "Macan", y: "2014-2026", engines: [
+      { e: "Macan", p: "252ch|265ch", t: "Essence" },
+      { e: "Macan S", p: "354ch|380ch", t: "Essence" },
+      { e: "Macan GTS", p: "440ch", t: "Essence" },
+      { e: "Macan Turbo", p: "400ch|440ch", t: "Essence" },
+      { e: "Macan Electric", p: "340ch|639ch", t: "Électrique" }
+    ]},
+    { b: "Porsche", m: "Cayenne", y: "2018-2026", engines: [
+      { e: "Cayenne", p: "340ch", t: "Essence" },
+      { e: "Cayenne S", p: "440ch|474ch", t: "Essence" },
+      { e: "Cayenne Turbo", p: "550ch|649ch", t: "Essence" },
+      { e: "Cayenne E-Hybrid", p: "462ch", t: "Hybride rechargeable" },
+      { e: "Cayenne Turbo E-Hybrid", p: "739ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Porsche", m: "Taycan", y: "2020-2026", engines: [
+      { e: "Taycan", p: "326ch|408ch", t: "Électrique" },
+      { e: "4S", p: "530ch|571ch", t: "Électrique" },
+      { e: "Turbo", p: "680ch|761ch", t: "Électrique" },
+      { e: "Turbo S", p: "761ch|800ch", t: "Électrique" }
+    ]},
+
+    { b: "Land Rover", m: "Defender", y: "2020-2026", engines: [
+      { e: "D200", p: "200ch", t: "Diesel" },
+      { e: "D240", p: "240ch", t: "Diesel" },
+      { e: "D300", p: "300ch", t: "Diesel" },
+      { e: "P300", p: "300ch", t: "Essence" },
+      { e: "P400", p: "400ch", t: "Essence" },
+      { e: "P525", p: "525ch", t: "Essence" },
+      { e: "PHEV P400e", p: "404ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Land Rover", m: "Range Rover", y: "2022-2026", engines: [
+      { e: "D250", p: "249ch", t: "Diesel" },
+      { e: "D300", p: "299ch", t: "Diesel" },
+      { e: "P360", p: "360ch", t: "Essence" },
+      { e: "P400", p: "400ch", t: "Essence" },
+      { e: "P510e", p: "510ch", t: "Hybride rechargeable" },
+      { e: "SV P615e", p: "615ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Land Rover", m: "Range Rover Evoque", y: "2019-2026", engines: [
+      { e: "D150", p: "150ch", t: "Diesel" },
+      { e: "D180", p: "180ch", t: "Diesel" },
+      { e: "P200", p: "200ch", t: "Essence" },
+      { e: "P250", p: "249ch", t: "Essence" },
+      { e: "P300e", p: "309ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Land Rover", m: "Discovery Sport", y: "2020-2026", engines: [
+      { e: "D165", p: "163ch", t: "Diesel" },
+      { e: "D180", p: "180ch", t: "Diesel" },
+      { e: "P200", p: "200ch", t: "Essence" },
+      { e: "P250", p: "249ch", t: "Essence" },
+      { e: "P300e", p: "309ch", t: "Hybride rechargeable" }
+    ]},
+
+    { b: "Jaguar", m: "I-Pace", y: "2018-2026", engines: [
+      { e: "S", p: "400ch", t: "Électrique" },
+      { e: "SE", p: "400ch", t: "Électrique" },
+      { e: "HSE", p: "400ch", t: "Électrique" }
+    ]},
+    { b: "Jaguar", m: "F-Pace", y: "2016-2026", engines: [
+      { e: "D165", p: "163ch", t: "Diesel" },
+      { e: "D200", p: "204ch", t: "Diesel" },
+      { e: "D250", p: "249ch", t: "Diesel" },
+      { e: "D300", p: "299ch", t: "Diesel" },
+      { e: "P250", p: "247ch", t: "Essence" },
+      { e: "P340", p: "340ch", t: "Essence" },
+      { e: "P400e", p: "404ch", t: "Hybride rechargeable" }
+    ]},
+
+    { b: "Opel", m: "Corsa F", y: "2019-2026", engines: [
+      { e: "1.2", p: "75ch|100ch|130ch", t: "Essence" },
+      { e: "1.2 Turbo", p: "100ch|130ch", t: "Essence" },
+      { e: "1.5 Diesel", p: "100ch|130ch", t: "Diesel" },
+      { e: "Corsa Electric", p: "136ch", t: "Électrique" }
+    ]},
+    { b: "Opel", m: "Astra", y: "2021-2026", engines: [
+      { e: "1.2 Turbo", p: "110ch|130ch", t: "Essence" },
+      { e: "1.2 Turbo Hybrid", p: "130ch", t: "Hybride léger 48V" },
+      { e: "1.5 Diesel", p: "130ch", t: "Diesel" },
+      { e: "Hybrid", p: "180ch", t: "Hybride rechargeable" },
+      { e: "Hybrid4", p: "225ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Opel", m: "Mokka", y: "2020-2026", engines: [
+      { e: "1.2 Turbo", p: "100ch|130ch|145ch", t: "Essence" },
+      { e: "1.5 Diesel", p: "110ch|130ch", t: "Diesel" },
+      { e: "Mokka Electric", p: "136ch", t: "Électrique" }
+    ]},
+    { b: "Opel", m: "Grandland", y: "2022-2026", engines: [
+      { e: "1.2 Turbo", p: "130ch", t: "Essence" },
+      { e: "1.6 Turbo", p: "180ch|225ch", t: "Essence" },
+      { e: "Hybrid4", p: "300ch", t: "Hybride rechargeable" },
+      { e: "Electric", p: "210ch", t: "Électrique" }
+    ]},
+
+    { b: "Fiat", m: "500", y: "2007-2026", engines: [
+      { e: "1.0 Hybrid", p: "70ch", t: "Hybride léger 48V" },
+      { e: "1.2", p: "69ch", t: "Essence" },
+      { e: "0.9 TwinAir", p: "85ch|105ch", t: "Essence" },
+      { e: "1.4", p: "95ch", t: "Essence" },
+      { e: "1.3 MultiJet", p: "95ch", t: "Diesel" }
+    ]},
+    { b: "Fiat", m: "500e", y: "2020-2026", engines: [
+      { e: "42 kWh", p: "87kW|118ch", t: "Électrique" },
+      { e: "24 kWh", p: "63kW|87ch", t: "Électrique" }
+    ]},
+    { b: "Fiat", m: "Panda", y: "2012-2026", engines: [
+      { e: "1.0 Hybrid", p: "70ch", t: "Hybride léger 48V" },
+      { e: "0.9 TwinAir", p: "85ch|105ch", t: "Essence" },
+      { e: "1.2", p: "69ch", t: "Essence" },
+      { e: "1.3 MultiJet", p: "95ch", t: "Diesel" }
+    ]},
+    { b: "Fiat", m: "Tipo", y: "2016-2026", engines: [
+      { e: "1.0 Hybrid", p: "100ch", t: "Hybride léger 48V" },
+      { e: "1.4", p: "95ch", t: "Essence" },
+      { e: "1.6 E-Torq", p: "110ch", t: "Essence" },
+      { e: "1.3 MultiJet", p: "95ch", t: "Diesel" },
+      { e: "1.6 MultiJet", p: "120ch|130ch", t: "Diesel" }
+    ]},
+    { b: "Fiat", m: "Tonale", y: "2022-2026", engines: [
+      { e: "1.5 Hybrid", p: "130ch", t: "Hybride léger 48V" },
+      { e: "1.3 Plug-in Hybrid", p: "190ch", t: "Hybride rechargeable" },
+      { e: "1.3 Plug-in Hybrid", p: "280ch", t: "Hybride rechargeable" }
+    ]},
+
+    { b: "Alfa Romeo", m: "Giulia", y: "2016-2026", engines: [
+      { e: "2.0 Turbo", p: "200ch|280ch", t: "Essence" },
+      { e: "2.2 Diesel", p: "160ch|210ch", t: "Diesel" },
+      { e: "Quadrifoglio", p: "510ch", t: "Essence" }
+    ]},
+    { b: "Alfa Romeo", m: "Stelvio", y: "2017-2026", engines: [
+      { e: "2.0 Turbo", p: "200ch|280ch", t: "Essence" },
+      { e: "2.2 Diesel", p: "160ch|210ch", t: "Diesel" },
+      { e: "Quadrifoglio", p: "510ch", t: "Essence" }
+    ]},
+    { b: "Alfa Romeo", m: "Tonale", y: "2022-2026", engines: [
+      { e: "1.5 Hybrid", p: "130ch", t: "Hybride léger 48V" },
+      { e: "1.3 Plug-in Hybrid", p: "190ch", t: "Hybride rechargeable" },
+      { e: "1.3 Plug-in Hybrid", p: "280ch", t: "Hybride rechargeable" }
+    ]},
+
+    { b: "Ford", m: "Fiesta", y: "2017-2023", engines: [
+      { e: "1.0 EcoBoost", p: "100ch|125ch|140ch|155ch", t: "Essence" },
+      { e: "1.1", p: "70ch|85ch|100ch", t: "Essence" },
+      { e: "1.5 EcoBoost ST", p: "200ch", t: "Essence" },
+      { e: "1.5 TDCi", p: "95ch|120ch", t: "Diesel" }
+    ]},
+    { b: "Ford", m: "Focus", y: "2018-2025", engines: [
+      { e: "1.0 EcoBoost", p: "100ch|125ch|155ch", t: "Essence" },
+      { e: "1.5 EcoBoost", p: "150ch|182ch", t: "Essence" },
+      { e: "2.3 EcoBoost ST", p: "280ch", t: "Essence" },
+      { e: "1.5 EcoBlue", p: "95ch|120ch", t: "Diesel" },
+      { e: "2.0 EcoBlue", p: "150ch|190ch", t: "Diesel" }
+    ]},
+    { b: "Ford", m: "Puma", y: "2019-2026", engines: [
+      { e: "1.0 EcoBoost Hybrid", p: "125ch|155ch", t: "Hybride léger 48V" },
+      { e: "1.0 EcoBoost", p: "100ch|125ch", t: "Essence" },
+      { e: "1.5 EcoBlue", p: "120ch", t: "Diesel" },
+      { e: "ST", p: "190ch", t: "Essence" }
+    ]},
+    { b: "Ford", m: "Kuga", y: "2020-2026", engines: [
+      { e: "1.5 EcoBoost", p: "120ch|150ch", t: "Essence" },
+      { e: "2.5 Plug-in Hybrid", p: "225ch", t: "Hybride rechargeable" },
+      { e: "2.5 Full Hybrid", p: "190ch", t: "Hybride" },
+      { e: "2.0 EcoBlue", p: "120ch|150ch|190ch", t: "Diesel" }
+    ]},
+    { b: "Ford", m: "Mustang Mach-E", y: "2021-2026", engines: [
+      { e: "Standard Range RWD", p: "269ch|294ch", t: "Électrique" },
+      { e: "Extended Range RWD", p: "294ch|351ch", t: "Électrique" },
+      { e: "GT", p: "487ch", t: "Électrique" }
+    ]},
+    { b: "Ford", m: "Transit", y: "2014-2026", engines: [
+      { e: "2.0 EcoBlue", p: "105ch|125ch|165ch|170ch", t: "Diesel" },
+      { e: "E-Transit", p: "N/A", t: "Électrique" }
+    ]},
+
+    { b: "Tesla", m: "Model 3", y: "2017-2026", engines: [
+      { e: "Standard Range Plus", p: "283ch", t: "Électrique" },
+      { e: "Long Range", p: "351ch|442ch", t: "Électrique" },
+      { e: "Performance", p: "513ch|534ch", t: "Électrique" }
+    ]},
+    { b: "Tesla", m: "Model Y", y: "2020-2026", engines: [
+      { e: "Standard Range", p: "299ch", t: "Électrique" },
+      { e: "Long Range", p: "442ch|534ch", t: "Électrique" },
+      { e: "Performance", p: "534ch|615ch", t: "Électrique" }
+    ]},
+    { b: "Tesla", m: "Model S", y: "2012-2026", engines: [
+      { e: "Long Range", p: "670ch", t: "Électrique" },
+      { e: "Plaid", p: "1020ch", t: "Électrique" }
+    ]},
+    { b: "Tesla", m: "Model X", y: "2015-2026", engines: [
+      { e: "Long Range", p: "670ch", t: "Électrique" },
+      { e: "Plaid", p: "1020ch", t: "Électrique" }
+    ]},
+
+    { b: "Jeep", m: "Renegade", y: "2014-2026", engines: [
+      { e: "1.0 T3", p: "120ch", t: "Essence" },
+      { e: "1.3 T4", p: "150ch", t: "Essence" },
+      { e: "1.6 E-Torque", p: "130ch", t: "Hybride léger 48V" },
+      { e: "1.6 Multijet", p: "120ch|130ch", t: "Diesel" },
+      { e: "4xe", p: "190ch|240ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Jeep", m: "Compass", y: "2017-2026", engines: [
+      { e: "1.3 T4", p: "150ch", t: "Essence" },
+      { e: "1.6 E-Torque", p: "130ch", t: "Hybride léger 48V" },
+      { e: "2.0 Multijet", p: "140ch|170ch", t: "Diesel" },
+      { e: "4xe", p: "240ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Jeep", m: "Grand Cherokee", y: "2021-2026", engines: [
+      { e: "3.6 V6", p: "286ch", t: "Essence" },
+      { e: "4xe", p: "380ch", t: "Hybride rechargeable" }
+    ]},
+
+    { b: "Toyota", m: "Yaris", y: "2020-2026", engines: [
+      { e: "1.5 Hybrid", p: "116ch", t: "Hybride" },
+      { e: "1.5 Hybrid", p: "130ch", t: "Hybride" },
+      { e: "1.0", p: "72ch", t: "Essence" },
+      { e: "GR Yaris", p: "261ch|280ch", t: "Essence" }
+    ]},
+    { b: "Toyota", m: "Corolla", y: "2019-2026", engines: [
+      { e: "1.8 Hybrid", p: "122ch|140ch", t: "Hybride" },
+      { e: "2.0 Hybrid", p: "184ch|196ch", t: "Hybride" },
+      { e: "1.2 Turbo", p: "116ch", t: "Essence" },
+      { e: "2.0 Plug-in Hybrid", p: "223ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Toyota", m: "RAV4", y: "2018-2026", engines: [
+      { e: "2.5 Hybrid", p: "218ch|222ch", t: "Hybride" },
+      { e: "2.5 Plug-in Hybrid", p: "306ch|320ch", t: "Hybride rechargeable" },
+      { e: "2.0", p: "171ch", t: "Essence" },
+      { e: "2.5 D-4D", p: "150ch|200ch", t: "Diesel" }
+    ]},
+    { b: "Toyota", m: "C-HR", y: "2018-2026", engines: [
+      { e: "1.8 Hybrid", p: "122ch|140ch", t: "Hybride" },
+      { e: "2.0 Hybrid", p: "184ch|197ch", t: "Hybride" },
+      { e: "1.2 Turbo", p: "116ch", t: "Essence" }
+    ]},
+    { b: "Toyota", m: "Prius", y: "2016-2026", engines: [
+      { e: "1.8 Hybrid", p: "122ch", t: "Hybride" },
+      { e: "2.0 Hybrid", p: "197ch", t: "Hybride" },
+      { e: "2.0 Plug-in Hybrid", p: "223ch", t: "Hybride rechargeable" }
+    ]},
+
+    { b: "Lexus", m: "UX", y: "2018-2026", engines: [
+      { e: "250h", p: "178ch", t: "Hybride" },
+      { e: "300h", p: "197ch", t: "Hybride" },
+      { e: "300e", p: "300ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Lexus", m: "NX", y: "2022-2026", engines: [
+      { e: "350h", p: "244ch", t: "Hybride" },
+      { e: "450h+", p: "309ch", t: "Hybride rechargeable" },
+      { e: "350", p: "279ch", t: "Essence" }
+    ]},
+    { b: "Lexus", m: "RX", y: "2023-2026", engines: [
+      { e: "350h", p: "246ch", t: "Hybride" },
+      { e: "500h", p: "371ch", t: "Hybride" },
+      { e: "450h+", p: "309ch", t: "Hybride rechargeable" }
+    ]},
+
+    { b: "Honda", m: "Jazz", y: "2020-2026", engines: [
+      { e: "e:HEV", p: "109ch", t: "Hybride" },
+      { e: "1.5 i-VTEC", p: "130ch", t: "Essence" }
+    ]},
+    { b: "Honda", m: "CR-V", y: "2018-2026", engines: [
+      { e: "2.0 e:HEV", p: "184ch", t: "Hybride" },
+      { e: "1.5 Turbo", p: "173ch|193ch", t: "Essence" },
+      { e: "1.6 i-DTEC", p: "120ch|160ch", t: "Diesel" },
+      { e: "2.0 i-DTEC", p: "184ch", t: "Diesel" }
+    ]},
+    { b: "Honda", m: "e:Ny1", y: "2023-2026", engines: [
+      { e: "e:Ny1", p: "204ch", t: "Électrique" }
+    ]},
+
+    { b: "Nissan", m: "Qashqai", y: "2021-2026", engines: [
+      { e: "1.3 DIG-T", p: "140ch|158ch|160ch", t: "Essence" },
+      { e: "1.3 DIG-T Mild Hybrid", p: "140ch|158ch", t: "Hybride léger 48V" },
+      { e: "e-POWER", p: "190ch", t: "Hybride" },
+      { e: "1.5 dCi", p: "100ch", t: "Diesel" },
+      { e: "1.7 dCi", p: "150ch", t: "Diesel" }
+    ]},
+    { b: "Nissan", m: "X-Trail", y: "2022-2026", engines: [
+      { e: "1.5 e-POWER", p: "163ch|204ch", t: "Hybride" },
+      { e: "1.5 dCi", p: "163ch", t: "Diesel" }
+    ]},
+    { b: "Nissan", m: "Ariya", y: "2022-2026", engines: [
+      { e: "Evolve", p: "214ch|306ch", t: "Électrique" },
+      { e: "e-4ORCE", p: "306ch|389ch", t: "Électrique" }
+    ]},
+    { b: "Nissan", m: "Leaf", y: "2017-2026", engines: [
+      { e: "40 kWh", p: "150ch", t: "Électrique" },
+      { e: "62 kWh e+", p: "217ch", t: "Électrique" }
+    ]},
+
+    { b: "Mazda", m: "3", y: "2019-2026", engines: [
+      { e: "1.5 Skyactiv-G", p: "100ch|120ch", t: "Essence" },
+      { e: "2.0 Skyactiv-G", p: "122ch|150ch|165ch", t: "Essence" },
+      { e: "2.0 Skyactiv-X", p: "180ch|190ch", t: "Essence" },
+      { e: "1.8 Skyactiv-D", p: "116ch", t: "Diesel" },
+      { e: "2.2 Skyactiv-D", p: "150ch|180ch", t: "Diesel" }
+    ]},
+    { b: "Mazda", m: "CX-5", y: "2017-2026", engines: [
+      { e: "2.0 Skyactiv-G", p: "160ch|165ch", t: "Essence" },
+      { e: "2.5 Skyactiv-G", p: "194ch", t: "Essence" },
+      { e: "2.2 Skyactiv-D", p: "150ch|184ch", t: "Diesel" }
+    ]},
+    { b: "Mazda", m: "MX-30", y: "2020-2026", engines: [
+      { e: "Electrique", p: "145ch", t: "Électrique" },
+      { e: "Range Extender", p: "145ch", t: "Électrique" },
+      { e: "e-Skyactiv", p: "125ch", t: "Électrique" }
+    ]},
+
+    { b: "Subaru", m: "XV", y: "2017-2026", engines: [
+      { e: "1.6 i", p: "114ch", t: "Essence" },
+      { e: "2.0 i", p: "150ch|156ch", t: "Essence" },
+      { e: "2.0 e-BOXER", p: "150ch", t: "Hybride léger 48V" }
+    ]},
+    { b: "Subaru", m: "Forester", y: "2018-2026", engines: [
+      { e: "2.0 i", p: "150ch", t: "Essence" },
+      { e: "2.0 e-BOXER", p: "150ch", t: "Hybride léger 48V" },
+      { e: "2.0D", p: "147ch|150ch", t: "Diesel" }
+    ]},
+
+    { b: "Suzuki", m: "Swift", y: "2017-2026", engines: [
+      { e: "1.2 Dualjet", p: "83ch|90ch", t: "Essence" },
+      { e: "1.0 Boosterjet", p: "111ch|112ch", t: "Essence" },
+      { e: "1.2 Dualjet Hybrid", p: "82ch|90ch", t: "Hybride léger 48V" },
+      { e: "1.4 Boosterjet Sport", p: "140ch", t: "Essence" }
+    ]},
+    { b: "Suzuki", m: "Vitara", y: "2015-2026", engines: [
+      { e: "1.4 Boosterjet", p: "125ch|150ch", t: "Essence" },
+      { e: "1.6 DDiS", p: "120ch", t: "Diesel" },
+      { e: "1.4 Boosterjet Hybrid", p: "129ch", t: "Hybride léger 48V" }
+    ]},
+    { b: "Suzuki", m: "S-Cross", y: "2022-2026", engines: [
+      { e: "1.4 Boosterjet Hybrid", p: "129ch", t: "Hybride léger 48V" },
+      { e: "1.5 DDiS", p: "105ch", t: "Diesel" }
+    ]},
+
+    { b: "Mitsubishi", m: "ASX", y: "2023-2026", engines: [
+      { e: "1.3 Turbo", p: "136ch|158ch", t: "Essence" },
+      { e: "PHEV", p: "N/A", t: "Hybride rechargeable" }
+    ]},
+    { b: "Mitsubishi", m: "Outlander", y: "2021-2026", engines: [
+      { e: "PHEV", p: "224ch", t: "Hybride rechargeable" },
+      { e: "2.0 MIVEC", p: "150ch|167ch", t: "Essence" },
+      { e: "2.2 DI-D", p: "150ch|180ch", t: "Diesel" }
+    ]},
+
+    { b: "Hyundai", m: "Tucson", y: "2021-2026", engines: [
+      { e: "1.6 TGDI", p: "150ch|177ch", t: "Essence" },
+      { e: "1.6 TGDI 48V", p: "150ch|177ch", t: "Hybride léger 48V" },
+      { e: "1.6 CRDi 48V", p: "115ch|136ch", t: "Diesel" },
+      { e: "1.6 Hybrid", p: "215ch|230ch", t: "Hybride" },
+      { e: "1.6 Plug-in Hybrid", p: "253ch|265ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Hyundai", m: "Kona", y: "2018-2026", engines: [
+      { e: "1.0 T-GDI", p: "120ch", t: "Essence" },
+      { e: "1.6 T-GDI", p: "198ch", t: "Essence" },
+      { e: "1.6 CRDi", p: "115ch|136ch", t: "Diesel" },
+      { e: "Electric", p: "136ch|204ch|218ch|325ch", t: "Électrique" },
+      { e: "Hybrid", p: "141ch", t: "Hybride" },
+      { e: "Plug-in Hybrid", p: "178ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Hyundai", m: "IONIQ 5", y: "2021-2026", engines: [
+      { e: "Light", p: "170ch", t: "Électrique" },
+      { e: "Exclusive", p: "170ch|218ch", t: "Électrique" },
+      { e: "Calligraphy", p: "218ch|325ch", t: "Électrique" },
+      { e: "N Line", p: "325ch", t: "Électrique" }
+    ]},
+    { b: "Hyundai", m: "IONIQ 6", y: "2022-2026", engines: [
+      { e: "E-Light", p: "151ch", t: "Électrique" },
+      { e: "E-Standard", p: "151ch|228ch", t: "Électrique" },
+      { e: "E-Unlimited", p: "228ch|325ch", t: "Électrique" }
+    ]},
+
+    { b: "Kia", m: "Ceed", y: "2018-2026", engines: [
+      { e: "1.0 T-GDI", p: "120ch|140ch", t: "Essence" },
+      { e: "1.4 T-GDI", p: "140ch", t: "Essence" },
+      { e: "1.5 T-GDI", p: "160ch", t: "Essence" },
+      { e: "1.6 CRDi", p: "115ch|136ch", t: "Diesel" },
+      { e: "1.6 GDi Hybrid", p: "141ch", t: "Hybride" },
+      { e: "1.6 T-GDI PHEV", p: "141ch|178ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Kia", m: "Sportage", y: "2022-2026", engines: [
+      { e: "1.6 T-GDI", p: "150ch|180ch", t: "Essence" },
+      { e: "1.6 CRDi", p: "115ch|136ch", t: "Diesel" },
+      { e: "1.6 Hybrid", p: "215ch|230ch", t: "Hybride" },
+      { e: "1.6 Plug-in Hybrid", p: "253ch|265ch", t: "Hybride rechargeable" }
+    ]},
+    { b: "Kia", m: "Niro", y: "2022-2026", engines: [
+      { e: "Hybrid", p: "141ch", t: "Hybride" },
+      { e: "Plug-in Hybrid", p: "183ch", t: "Hybride rechargeable" },
+      { e: "Electric", p: "150ch|204ch", t: "Électrique" }
+    ]},
+    { b: "Kia", m: "EV6", y: "2021-2026", engines: [
+      { e: "Light", p: "151ch", t: "Électrique" },
+      { e: "Standard", p: "151ch|228ch", t: "Électrique" },
+      { e: "Long Range", p: "228ch|325ch", t: "Électrique" },
+      { e: "GT", p: "430ch|585ch", t: "Électrique" }
+    ]},
+    { b: "Kia", m: "EV9", y: "2024-2026", engines: [
+      { e: "Long Range", p: "204ch|379ch", t: "Électrique" },
+      { e: "GT-Line", p: "379ch|455ch", t: "Électrique" }
+    ]},
+
+    { b: "MG", m: "MG4", y: "2022-2026", engines: [
+      { e: "Standard Range", p: "170ch", t: "Électrique" },
+      { e: "Long Range", p: "170ch|204ch", t: "Électrique" },
+      { e: "XPOWER", p: "435ch", t: "Électrique" }
+    ]},
+    { b: "MG", m: "MG ZS EV", y: "2019-2026", engines: [
+      { e: "44 kWh", p: "145ch", t: "Électrique" },
+      { e: "51 kWh", p: "177ch", t: "Électrique" }
+    ]},
+    { b: "MG", m: "MG5", y: "2021-2026", engines: [
+      { e: "180", p: "156ch", t: "Électrique" },
+      { e: "EV", p: "156ch", t: "Électrique" }
+    ]},
+    { b: "MG", m: "Marvel R", y: "2021-2026", engines: [
+      { e: "Standard Range", p: "154ch", t: "Électrique" },
+      { e: "Long Range", p: "154ch|270ch", t: "Électrique" },
+      { e: "Twin Motor", p: "270ch", t: "Électrique" }
+    ]},
+
+    { b: "BYD", m: "Atto 3", y: "2022-2026", engines: [
+      { e: "Comfort", p: "204ch", t: "Électrique" },
+      { e: "Design", p: "204ch", t: "Électrique" }
+    ]},
+    { b: "BYD", m: "Dolphin", y: "2023-2026", engines: [
+      { e: "Comfort", p: "95ch", t: "Électrique" },
+      { e: "Design", p: "204ch", t: "Électrique" }
+    ]},
+    { b: "BYD", m: "Seal", y: "2023-2026", engines: [
+      { e: "Comfort", p: "204ch", t: "Électrique" },
+      { e: "Design", p: "313ch", t: "Électrique" },
+      { e: "AWD Performance", p: "530ch", t: "Électrique" }
+    ]},
+
+    { b: "Chevrolet", m: "Bolt EV", y: "2017-2026", engines: [
+      { e: "Bolt EV", p: "204ch", t: "Électrique" }
+    ]},
+    { b: "Chevrolet", m: "Bolt EUV", y: "2021-2026", engines: [
+      { e: "Bolt EUV", p: "204ch", t: "Électrique" }
+    ]},
+    { b: "Chevrolet", m: "Equinox EV", y: "2024-2026", engines: [
+      { e: "Equinox EV", p: "213ch|290ch", t: "Électrique" }
+    ]},
+
+    { b: "Ram", m: "1500", y: "2019-2026", engines: [
+      { e: "3.6 V6", p: "305ch", t: "Essence" },
+      { e: "5.7 V8", p: "395ch", t: "Essence" },
+      { e: "Hurricane Inline-6", p: "420ch|540ch", t: "Essence" },
+      { e: "eTorque", p: "N/A", t: "Hybride léger 48V" }
+    ]},
+
+    { b: "Chrysler", m: "Pacifica", y: "2017-2026", engines: [
+      { e: "3.6 V6", p: "287ch", t: "Essence" },
+      { e: "Hybrid", p: "260ch", t: "Hybride rechargeable" }
+    ]}
+  ];
+
+  function getUniqueBrands() {
+    var brands = BRAND_SEED.slice();
+
+    MODEL_CATALOG.forEach(function (m) {
+      brands.push(m.b);
+    });
+
+    (engineExtra || []).forEach(function (e) {
+      if (e.b) brands.push(e.b);
+    });
+
+    return unique(brands).sort(function (a, b) {
+      return norm(a).localeCompare(norm(b));
+    });
+  }
+
+  function getUniqueModels() {
+    var models = [];
+    MODEL_CATALOG.forEach(function (m) {
+      models.push(m.b + " " + m.m);
+    });
+    return unique(models);
+  }
+
+  function getUniqueEngines() {
+    var count = 0;
+    MODEL_CATALOG.forEach(function (m) {
+      count += (m.engines || []).length;
+    });
+    count += (engineExtra || []).length;
+    return count;
   }
 
   function normalizeEngineRecord(r, sourceUrl) {
@@ -1245,334 +2306,324 @@
     return Array.from(map.values());
   }
 
-  function invalidateEngineCatalog() {
-    engineCatalogCache = null;
-    engineOptionMap = {};
-    refreshEngineOptions();
-  }
+  function addEngineOption(out, e, source) {
+    if (!e || !e.e) return;
+    var id = norm(e.b) + "|" + norm(e.m) + "|" + norm(e.e) + "|" + norm(e.p) + "|" + norm(e.t);
+    if (out.some(function (x) { return x.id === id; })) return;
 
-  function addEngineCatalogEntry(cat, brand, model, entry) {
-    var nb = norm(brand || "Toutes marques");
-    var nm = norm(model || "*");
-    if (!nb) nb = "toutes-marques";
-    if (!nm) nm = "*";
-
-    if (!cat[nb]) cat[nb] = {};
-    if (!cat[nb][nm]) cat[nb][nm] = [];
-
-    var id = nb + "|" + nm + "|" + norm(entry.engine) + "|" + norm(entry.power) + "|" + norm(entry.type);
-    var exists = cat[nb][nm].some(function (x) { return x.id === id; });
-    if (!exists) {
-      cat[nb][nm].push({
-        id: id,
-        brand: brand || "Toutes marques",
-        model: model || "*",
-        engine: entry.engine,
-        power: entry.power || "N/A",
-        years: entry.years || "2017-2027",
-        type: entry.type,
-        source: entry.source || "base locale",
-        sourceUrl: entry.sourceUrl || ""
-      });
-    }
-  }
-
-  function engineCatalog() {
-    if (engineCatalogCache) return engineCatalogCache;
-
-    var cat = {};
-
-    allDefects().forEach(function (d) {
-      var type = d.et || inferEngineType(d.e, d.tg, d.s, d.n);
-      if (!isMotorisationType(type)) return;
-      if (!isMotorisationEntry(d)) return;
-
-      var brands = d.b === "Toutes marques" ? ["Toutes marques"] : [d.b];
-      var models = d.m === "*" ? ["*"] : String(d.m || "").split("|");
-
-      brands.forEach(function (b) {
-        models.forEach(function (m) {
-          addEngineCatalogEntry(cat, b, m, {
-            engine: d.e,
-            power: d.p,
-            years: d.y,
-            type: type,
-            source: d.source || "base locale",
-            sourceUrl: d.sourceUrl || ""
-          });
-        });
-      });
+    out.push({
+      id: id,
+      brand: e.b,
+      model: e.m,
+      engine: e.e,
+      power: e.p || "N/A",
+      years: e.y || "2017-2027",
+      type: e.t,
+      source: source || "catalogue local",
+      sourceUrl: e.sourceUrl || ""
     });
-
-    (engineExtra || []).forEach(function (e) {
-      addEngineCatalogEntry(cat, e.b, e.m, {
-        engine: e.e,
-        power: e.p,
-        years: e.y,
-        type: e.t,
-        source: "catalogue motorisation",
-        sourceUrl: e.sourceUrl || ""
-      });
-    });
-
-    engineCatalogCache = cat;
-    return cat;
   }
 
-  function findClosestNormalizedKey(map, value) {
-    var n = norm(value);
-    if (!n) return null;
-    if (map[n]) return n;
-
-    var keys = Object.keys(map);
-    for (var i = 0; i < keys.length; i++) {
-      if (keys[i].indexOf(n) >= 0 || n.indexOf(keys[i]) >= 0) return keys[i];
-    }
-    return null;
-  }
-
-  function formatEngineLabel(o) {
-    var label = o.type + " — " + o.engine;
-    if (o.power && o.power !== "N/A") label += " (" + o.power + ")";
-    if (o.years) label += " • " + o.years;
-    if (o.model === "*") label += " • générique marque";
-    return label;
-  }
-
-  function getEngineOptions(brand, model, year) {
-    var cat = engineCatalog();
+  function getModelsForBrandYear(brand, year) {
     var nb = norm(brand);
-    var brandKey = nb ? findClosestNormalizedKey(cat, nb) : null;
-    if (!brandKey && cat["toutes-marques"]) brandKey = "toutes-marques";
-    if (!brandKey) brandKey = "toutes-marques";
+    var out = [];
 
-    var modelsMap = cat[brandKey] || {};
+    MODEL_CATALOG.forEach(function (entry) {
+      if (nb && !(norm(entry.b).indexOf(nb) >= 0 || nb.indexOf(norm(entry.b)) >= 0)) return;
+      if (!checkYearRange(entry.y, year)) return;
+      out.push(entry.m);
+    });
+
+    (engineExtra || []).forEach(function (entry) {
+      if (nb && !(norm(entry.b).indexOf(nb) >= 0 || nb.indexOf(norm(entry.b)) >= 0)) return;
+      if (!checkYearRange(entry.y, year)) return;
+      if (entry.m && entry.m !== "*") out.push(entry.m);
+    });
+
+    return unique(out).sort();
+  }
+
+  function getEnginesForModelYear(brand, model, year) {
+    var nb = norm(brand);
     var nm = norm(model);
-    var modelKeys = [];
+    var out = [];
 
-    if (nm) {
-      var exact = findClosestNormalizedKey(modelsMap, nm);
-      if (exact) modelKeys.push(exact);
+    MODEL_CATALOG.forEach(function (entry) {
+      if (nb && !(norm(entry.b).indexOf(nb) >= 0 || nb.indexOf(norm(entry.b)) >= 0)) return;
+      if (nm && entry.m && !(norm(entry.m).indexOf(nm) >= 0 || nm.indexOf(norm(entry.m)) >= 0)) return;
+      if (!checkYearRange(entry.y, year)) return;
 
-      Object.keys(modelsMap).forEach(function (k) {
-        if (k !== "*" && k.indexOf(nm) >= 0 && modelKeys.indexOf(k) < 0) {
-          modelKeys.push(k);
-        }
+      (entry.engines || []).forEach(function (eng) {
+        if (eng.y && !checkYearRange(eng.y, year)) return;
+        addEngineOption(out, {
+          b: entry.b,
+          m: entry.m,
+          y: eng.y || entry.y,
+          e: eng.e,
+          p: eng.p,
+          t: eng.t
+        }, "catalogue local");
+      });
+    });
+
+    (engineExtra || []).forEach(function (entry) {
+      if (nb && !(norm(entry.b).indexOf(nb) >= 0 || nb.indexOf(norm(entry.b)) >= 0)) return;
+      if (nm && entry.m && entry.m !== "*" && !(norm(entry.m).indexOf(nm) >= 0 || nm.indexOf(norm(entry.m)) >= 0)) return;
+      if (!checkYearRange(entry.y, year)) return;
+      addEngineOption(out, entry, "import / auto-diagnostic");
+    });
+
+    if (!out.length && brand && model && model !== "Autre / non listé") {
+      var generic = [
+        { t: "Essence", e: "Motorisation essence" },
+        { t: "Diesel", e: "Motorisation diesel" },
+        { t: "Hybride", e: "Motorisation hybride" },
+        { t: "Hybride rechargeable", e: "Motorisation hybride rechargeable" },
+        { t: "Hybride léger 48V", e: "Motorisation 48V" },
+        { t: "Électrique", e: "Motorisation électrique" }
+      ];
+
+      generic.forEach(function (g) {
+        addEngineOption(out, {
+          b: brand,
+          m: model,
+          y: year ? year + "-" + year : "2017-2027",
+          e: g.e,
+          p: "N/A",
+          t: g.t
+        }, "générique");
       });
     }
 
-    modelKeys.push("*");
-
-    var out = [];
-    modelKeys.forEach(function (mk) {
-      (modelsMap[mk] || []).forEach(function (e) {
-        if (year && !checkYearRange(e.years, year)) return;
-        out.push(e);
-      });
-    });
-
-    var seen = {};
-    var dedup = [];
-    out.forEach(function (e) {
-      if (!seen[e.id]) {
-        seen[e.id] = true;
-        dedup.push(e);
-      }
-    });
-
-    dedup.sort(function (a, b) {
+    out.sort(function (a, b) {
       var ra = engineTypeRank(a.type);
       var rb = engineTypeRank(b.type);
       if (ra !== rb) return ra - rb;
       return norm(a.engine).localeCompare(norm(b.engine));
     });
 
-    if (!dedup.length) {
-      var stdTypes = [
-        "Essence",
-        "Diesel",
-        "Hybride",
-        "Hybride rechargeable",
-        "Hybride léger 48V",
-        "Électrique",
-        "GPL",
-        "E85 / Bioéthanol"
-      ];
+    out.push({
+      id: "__other__",
+      brand: brand,
+      model: model,
+      engine: "Autre / non précisée",
+      power: "N/A",
+      years: year ? year + "-" + year : "2017-2027",
+      type: "Non précisé / mixte",
+      source: "manuel",
+      sourceUrl: ""
+    });
 
-      stdTypes.forEach(function (type) {
-        var id = "std|" + norm(type);
-        dedup.push({
-          id: id,
-          brand: brand || "Toutes marques",
-          model: model || "*",
-          engine: type,
-          power: "N/A",
-          years: year ? year + "-" + year : "2017-2027",
-          type: type,
-          source: "référentiel standard",
-          sourceUrl: ""
-        });
-      });
-    }
-
-    return dedup;
+    return out;
   }
 
-  function refreshEngineOptions() {
-    var select = q("#vehicleEngine");
+  function renderBrandSuggestions() {
+    var input = q("#vehicleBrand");
+    var box = q("#brandSuggestions");
+    if (!input || !box) return;
+
+    var val = input.value.trim();
+    var brands = getUniqueBrands();
+    var matches = val
+      ? brands.filter(function (b) { return norm(b).indexOf(norm(val)) >= 0; }).slice(0, 12)
+      : brands.slice(0, 12);
+
+    if (!matches.length || (matches.length === 1 && matches[0] === val)) {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+      return;
+    }
+
+    box.innerHTML = matches.map(function (b) {
+      return '<button type="button" class="suggest-item" data-brand="' + esc(b) + '">' + esc(b) + "</button>";
+    }).join("");
+
+    box.classList.remove("hidden");
+  }
+
+  function hideBrandSuggestions() {
+    var box = q("#brandSuggestions");
+    if (box) {
+      box.classList.add("hidden");
+      box.innerHTML = "";
+    }
+  }
+
+  function selectBrand(name) {
+    var input = q("#vehicleBrand");
+    if (input) input.value = name;
+    hideBrandSuggestions();
+    refreshModelOptions();
+  }
+
+  function populateSelect(select, options, placeholder, preserveValue) {
     if (!select) return;
 
-    var brandEl = q("#vehicleBrand");
-    var modelEl = q("#vehicleModel");
-    var yearEl = q("#vehicleYear");
+    var old = preserveValue != null ? preserveValue : select.value;
+    select.innerHTML = "";
 
-    var brand = brandEl ? brandEl.value.trim() : "";
-    var model = modelEl ? modelEl.value.trim() : "";
-    var year = yearEl ? parseYear(yearEl.value) : 0;
-
-    var oldValue = select.value;
-    var oldOption = engineOptionMap[oldValue] || null;
-
-    var options = getEngineOptions(brand, model, year);
-    engineOptionMap = {};
-
-    select.innerHTML = '<option value="">Automatique / non précisée</option>';
+    var ph = document.createElement("option");
+    ph.value = "";
+    ph.textContent = placeholder;
+    select.appendChild(ph);
 
     options.forEach(function (o) {
-      engineOptionMap[o.id] = o;
       var opt = document.createElement("option");
-      opt.value = o.id;
-      opt.textContent = formatEngineLabel(o);
+      opt.value = o.value;
+      opt.textContent = o.text;
       select.appendChild(opt);
     });
 
-    if (oldValue && engineOptionMap[oldValue]) {
-      select.value = oldValue;
-    } else if (oldOption) {
-      var match = options.find(function (o) {
-        return o.type === oldOption.type &&
-          norm(o.engine) === norm(oldOption.engine) &&
-          norm(o.power) === norm(oldOption.power);
-      });
-      select.value = match ? match.id : "";
+    if (old && options.some(function (o) { return o.value === old; })) {
+      select.value = old;
     } else {
       select.value = "";
     }
-
-    var help = q("#engineHelp");
-    if (help) {
-      if (!brand && !model) {
-        help.textContent = "Saisissez marque, modèle et année pour charger les motorisations compatibles.";
-      } else if (options.length && options[0].source === "référentiel standard") {
-        help.textContent = "Aucune motorisation spécifique trouvée dans la base locale / auto-diagnostic. Propositions standard affichées.";
-      } else {
-        help.textContent = options.length + " motorisation(s) proposée(s) selon marque, modèle et année.";
-      }
-    }
   }
 
-  function scheduleEngineRefresh() {
-    clearTimeout(engineRefreshTimer);
-    engineRefreshTimer = setTimeout(refreshEngineOptions, 250);
-  }
+  function refreshModelOptions() {
+    var brandEl = q("#vehicleBrand");
+    var modelEl = q("#vehicleModel");
+    var yearEl = q("#vehicleYear");
+    if (!brandEl || !modelEl || !yearEl) return;
 
-  function fetchJsonUrl(url) {
-    return fetch(url, { cache: "no-store", method: "GET" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.json();
-      });
-  }
+    var brand = brandEl.value.trim();
+    var year = parseYear(yearEl.value);
+    var models = getModelsForBrandYear(brand, year);
 
-  function fetchTextUrl(url) {
-    return fetch(url, { cache: "no-store", method: "GET" })
-      .then(function (res) {
-        if (!res.ok) throw new Error("HTTP " + res.status);
-        return res.text();
-      });
-  }
-
-  function fetchEngineCatalogs(manual) {
-    if (!window.fetch) {
-      if (manual) toast("Catalogue motorisation impossible : fetch non supporté.", "warning");
-      return Promise.resolve(false);
-    }
-
-    var urls = [CONFIG.engineCatalogUrl];
-
-    if (autoConfig.baseUrl) {
-      urls.push(resolveUrl(autoConfig.baseUrl, "data/engine-catalog.json"));
-      urls.push(resolveUrl(autoConfig.baseUrl, "data/motorisations.json"));
-    }
-
-    return Promise.all(urls.map(function (url) {
-      return fetchJsonUrl(url)
-        .then(function (json) {
-          return collectEngineRecordsFromJson(json, url, 0);
-        })
-        .catch(function () {
-          return [];
-        });
-    })).then(function (results) {
-      var incoming = [];
-      results.forEach(function (arr) {
-        incoming = incoming.concat(arr);
-      });
-
-      if (incoming.length) {
-        engineExtra = mergeEngineRecords(engineExtra, incoming);
-        save(KEYS.ENGINE_EXTRA, engineExtra);
-        invalidateEngineCatalog();
-        updateAdminStats();
-        if (manual) toast("Catalogue motorisation chargé : " + incoming.length + " entrées.", "success");
-        return true;
-      }
-
-      if (manual) toast("Aucun catalogue motorisation additionnel trouvé.", "info");
-      return false;
-    }).catch(function (err) {
-      console.warn("[AR-EXPERT] Catalogue motorisation impossible:", err);
-      if (manual) toast("Catalogue motorisation indisponible.", "warning");
-      return false;
+    var options = models.map(function (m) {
+      return { value: m, text: m };
     });
+
+    if (brand) {
+      options.push({ value: "__other__", text: "Autre / non listé" });
+    }
+
+    modelOptionMap = {};
+    options.forEach(function (o) { modelOptionMap[o.value] = o.text; });
+
+    populateSelect(modelEl, options, brand ? "Choisir un modèle" : "Choisir d’abord une marque", modelEl.value);
+    refreshEngineOptions();
+  }
+
+  function refreshEngineOptions() {
+    var brandEl = q("#vehicleBrand");
+    var modelEl = q("#vehicleModel");
+    var yearEl = q("#vehicleYear");
+    var engineEl = q("#vehicleEngine");
+    var help = q("#engineHelp");
+    if (!brandEl || !modelEl || !yearEl || !engineEl) return;
+
+    var brand = brandEl.value.trim();
+    var modelValue = modelEl.value;
+    var model = modelValue === "__other__" ? "" : modelValue;
+    var year = parseYear(yearEl.value);
+
+    if (!brand || !modelValue) {
+      engineOptionMap = {};
+      populateSelect(engineEl, [], !brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle", "");
+      if (help) help.textContent = "Les motorisations proposées dépendent du modèle et de l’année.";
+      updateSelectionSummary();
+      return;
+    }
+
+    var engines = getEnginesForModelYear(brand, model, year);
+    engineOptionMap = {};
+
+    var options = engines.map(function (e) {
+      engineOptionMap[e.id] = e;
+      var label = e.type + " — " + e.engine;
+      if (e.power && e.power !== "N/A") label += " (" + e.power + ")";
+      if (e.years) label += " • " + e.years;
+      return { value: e.id, text: label };
+    });
+
+    populateSelect(engineEl, options, "Choisir une motorisation", engineEl.value);
+
+    if (help) {
+      if (options.length <= 1) {
+        help.textContent = "Aucune motorisation spécifique trouvée. Sélection possible : Autre / non précisée.";
+      } else {
+        help.textContent = (options.length - 1) + " motorisation(s) proposée(s) pour ce modèle et cette année.";
+      }
+    }
+
+    updateSelectionSummary();
+  }
+
+  function updateSelectionSummary() {
+    var el = q("#selectionSummary");
+    if (!el) return;
+
+    var data = getSelectedVehicleData();
+    if (!data.marque && !data.modele && !data.annee && !data.engine) {
+      el.textContent = "Aucune sélection véhicule complète.";
+      return;
+    }
+
+    var parts = [];
+    if (data.marque) parts.push(data.marque);
+    if (data.modele) parts.push(data.modele);
+    if (data.annee) parts.push(data.annee);
+    if (data.engine) parts.push(data.engine + (data.engineType ? " (" + data.engineType + ")" : ""));
+
+    el.textContent = "Sélection retenue : " + parts.join(" • ");
+  }
+
+  function getSelectedVehicleData() {
+    var brandEl = q("#vehicleBrand");
+    var modelEl = q("#vehicleModel");
+    var yearEl = q("#vehicleYear");
+    var engineEl = q("#vehicleEngine");
+    var kmEl = q("#vehicleKilometrage");
+    var vinEl = q("#vehicleVin");
+
+    var brand = brandEl ? brandEl.value.trim() : "";
+    var modelValue = modelEl ? modelEl.value : "";
+    var model = modelValue === "__other__" ? "Modèle non listé" : (modelValue || "");
+    var year = yearEl ? yearEl.value.trim() : "";
+    var engineId = engineEl ? engineEl.value : "";
+    var engine = engineOptionMap[engineId] || null;
+
+    return {
+      marque: brand,
+      modele: model,
+      annee: year,
+      engine: engine && engine.id !== "__other__" ? engine.engine : "",
+      power: engine && engine.id !== "__other__" ? engine.power : "",
+      engineType: engine && engine.id !== "__other__" ? engine.type : "",
+      engineSource: engine ? engine.source : "",
+      engineSourceUrl: engine ? engine.sourceUrl : "",
+      kilometrage: kmEl ? kmEl.value.trim() : "",
+      vin: vinEl ? vinEl.value.trim() : ""
+    };
+  }
+
+  function scheduleVehicleRefresh() {
+    clearTimeout(vehicleRefreshTimer);
+    vehicleRefreshTimer = setTimeout(function () {
+      refreshModelOptions();
+    }, 180);
   }
 
   /* =========================================================
-     BASE TECHNIQUE LOCALE MASSIVE 2017-2027
+     BASE TECHNIQUE LOCALE
      ========================================================= */
   function D(b, m, y, e, p, s, sev, wf, n, law, rec, tg) {
     return { b: b, m: m, y: y, e: e, p: p, s: s, sev: sev, wf: wf, n: n, law: law, rec: rec, tg: tg };
   }
 
-  var BRAND_LIST = [
-    "Renault", "Dacia", "Peugeot", "Citroen", "DS", "Volkswagen", "Audi", "Skoda", "Seat", "Cupra",
-    "BMW", "Mini", "Mercedes-Benz", "Volvo", "Porsche", "Land Rover", "Range Rover", "Jaguar",
-    "Opel", "Fiat", "Alfa Romeo", "Ford", "Tesla", "Jeep", "Toyota", "Lexus", "Honda", "Nissan",
-    "Mazda", "Subaru", "Suzuki", "Mitsubishi", "Hyundai", "Kia", "Genesis", "MG", "BYD",
-    "Leapmotor", "XPeng", "NIO", "Aiways", "Ora", "Chery", "Omoda", "Jaecoo", "Geely", "Smart",
-    "Lotus", "Maxus", "GWM", "Chevrolet", "GMC", "Cadillac", "Ram", "Chrysler", "Dodge",
-    "Toutes marques"
-  ];
+  var BRAND_LIST = unique(BRAND_SEED.concat(MODEL_CATALOG.map(function (m) { return m.b; }))).concat(["Toutes marques"]);
 
   var CATEGORY_TEMPLATES = [
     ["Essence turbo downsizing", "consommation huile|turbo|chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe|huile|preignition|LSPI|carbonisation", "critique", 0.72, "Moteur essence turbo à cylindrée réduite : surveillance huile, turbo, distribution, encrassement, pré-allumage, perte de puissance.", "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.; tromperie L.213-1 si dissimulation.", "TSB constructeurs; forums; rappel.conso; NHTSA", "moteur|turbo|huile|distribution|puissance|combustion"],
     ["Diesel dépollution", "EGR|FAP|DPF|AdBlue|NOx|injecteur|turbo|regeneration|voyant antipollution|fumee noire|puissance reduite|cristallisation|conso gasoil", "moyen", 0.55, "Chaîne de dépollution diesel : EGR, FAP/DPF, AdBlue, NOx, injecteurs, turbo, régénération.", "Vice caché 1641 C.civ.; usure normale à écarter; tromperie L.213-1 si logiciel.", "Rappels diesel; CJUE; DGCCRF; KBA", "diesel|EGR|FAP|AdBlue|NOx|pollution|turbo"],
     ["Boîte automatique / robotisée", "a-coups|patinage|embrayage|mecatronique|convertisseur|voyant boite|mode degrade|surchauffe|odeur brulee|bruit boite|blocage vitesse", "critique", 0.7, "Boîte automatique ou robotisée : mécatronique, embrayage, convertisseur, logiciel, surchauffe urbaine.", "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.", "TSB boîtes; rappels constructeurs", "boite|embrayage|mecatronique|convertisseur|logiciel"],
-    ["Boîte manuelle / embrayage", "embrayage|boite|synchro|bruit|vibration|patinage|difficile passer vitesse|pedale embrayage", "moyen", 0.5, "Transmission manuelle : embrayage, synchroniseurs, bruit, vibration, difficulté de passage.", "Vice caché 1641 C.civ.; usure normale possible.", "Forums; TSB", "boite|embrayage|transmission"],
     ["Hybride / électrique batterie", "batterie|BMS|autonomie|charge|cellule|SOH|thermal|incendie|12V|DC-DC|software|recharge|deséquilibre", "critique", 0.92, "Batterie haute tension, BMS, cellules, autonomie, batterie 12V, DC-DC, logiciel, risque thermique.", "Sécurité L.423-1 C.consom.; produits défectueux 1245 C.civ.; conformité L.217-4.", "Rappels EV/hybride; NHTSA; DGCCRF; KBA", "batterie|charge|autonomie|electricite|securite|logiciel"],
-    ["Charge électrique", "charge AC|charge DC|port de charge|cable|verrou|recharge impossible|charge lente|thermal derating|ISO|isolation HV", "critique", 0.9, "Recharge AC/DC, port, câble, verrouillage, isolation haute tension, bridage thermique.", "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245.", "Rappels EV; constructeurs; NHTSA", "charge|batterie|electricite|securite"],
     ["ADAS / conduite assistée", "ADAS|camera|radar|lidar|phantom braking|lane keeping|emergency brake|calibration|autopilot|Travel Assist|Pilot Assist|ProPILOT|Toyota Safety Sense|BlueCruise", "critique", 0.95, "Capteurs ADAS, calibration, caméra, radar, lidar, freinage fantôme, assistance autoroute, logiciel.", "Sécurité L.423-1; produits défectueux 1245; conformité L.217-4; pénal si accident.", "NHTSA ADAS; Euro NCAP; DGCCRF; SafetyGate", "ADAS|logiciel|securite|capteurs|camera|radar"],
     ["Électricité / infiltration eau", "infiltration eau|court circuit|moisiure|corrosion|faisceau|boitier fusibles|calculateurs|voyants aleatoires|incendie electrique|odeur brulee", "critique", 0.93, "Infiltration d’eau, corrosion, courts-circuits, faisceaux, calculateurs, voyants aléatoires, risque incendie électrique.", "Sécurité L.423-1; vice caché 1641; produits défectueux 1245.", "Rappels électriques; forums; NHTSA; DGCCRF", "eau|electricite|court-circuit|incendie|securite"],
-    ["Fuite de fluides", "fuite carburant|fuite huile|fuite liquide refroidissement|fuite frein|incendie|odeur|niveau bas|voyant", "critique", 0.88, "Fuite de carburant, huile, liquide de refroidissement ou frein : risque incendie, surchauffe, perte de freinage.", "Sécurité L.423-1; vice caché 1641; pénal si accident.", "Rappels fluides; NHTSA; DGCCRF", "fuite|incendie|frein|refroidissement|securite"],
-    ["Refroidissement moteur", "surchauffe|thermostat|radiateur|pompe a eau|ventilateur|liquide refroidissement|joint culasse|fumee blanche", "critique", 0.8, "Circuit de refroidissement : pompe à eau, thermostat, radiateur, ventilateur, joint de culasse.", "Vice caché 1641; conformité L.217-4.", "TSB refroidissement; forums", "moteur|refroidissement|culasse|surchauffe"],
     ["Freinage / ABS / ESP", "frein|ABS|ESP|plaquettes|disques|etrier|pedale molle|vibration freinage|bruit frein|perte freinage", "critique", 0.85, "Freinage, ABS, ESP, plaquettes, disques, étriers, pédale, perte de freinage.", "Sécurité L.423-1; vice caché 1641; pénal si accident.", "Rappels freinage; NHTSA; DGCCRF", "frein|ABS|ESP|securite"],
-    ["Direction / assistance", "direction|cremaillere|assistance electrique|jeu|bruit|vibration|volant|perte direction", "critique", 0.85, "Direction mécanique ou électrique, crémaillère, assistance, jeu, bruit, perte de direction.", "Sécurité L.423-1; vice caché 1641.", "Rappels direction; NHTSA", "direction|securite|chassis"],
-    ["Suspension / train roulant", "suspension|amortisseur|silentbloc|bruit|claquement|usure|train roulage|roue", "moyen", 0.55, "Suspension, amortisseurs, silentblocs, bruit, claquaient, usure train roulant.", "Vice caché 1641; usure normale possible.", "Forums; TSB", "suspension|chassis|usure"],
-    ["Pneumatiques / TPMS", "TPMS|pneu|pression pneu|capteur|runflat|usure pneu|voyant pression", "moyen", 0.5, "Capteurs TPMS, pression pneus, runflat, usure pneumatiques.", "Conformité L.217-4; vice caché 1641 si capteur défaillant.", "Rappels TPMS; NHTSA", "pneu|TPMS|securite"],
-    ["Climatisation / chauffage", "climatisation|chauffage|blower|compresseur|gaz|odeur|humidite|vitrage|air conditionne", "moyen", 0.5, "Climatisation, chauffage, blower, compresseur, gaz, odeur, humidité, désembuage.", "Conformité L.217-4; vice caché 1641.", "TSB HVAC; forums", "confort|climatisation|chauffage"],
-    ["Infodivertissement / caméra", "ecran|GPS|Bluetooth|CarPlay|Android Auto|son|camera recul|logiciel|freeze|redemarrage|tactile", "moyen", 0.6, "Écran, GPS, Bluetooth, CarPlay/Android Auto, caméra de recul, logiciel, freeze.", "Conformité L.217-4; vice caché 1641 si sécurité caméra.", "Rappels multimédia; TSB", "logiciel|camera|confort|ADAS"],
-    ["Logiciel / OTA / calculateurs", "logiciel|OTA|mise a jour|calculateur|module|brick|erreur software|reinitialisation|voyant multiple", "critique", 0.88, "Mise à jour OTA, calculateurs, modules, briquage, erreurs logicielles, voyants multiples.", "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.", "Rappels logiciels; NHTSA; DGCCRF", "logiciel|OTA|electricite|securite"],
-    ["Corrosion / carrosserie / étanchéité", "corrosion|rouille|carrosserie|peinture|joint|etancheite|porte|coffre|capot|infiltration", "moyen", 0.7, "Corrosion, carrosserie, peinture, joints, étanchéité, portes, coffre, capot.", "Vice caché 1641; conformité L.217-4.", "Rappels carrosserie; forums", "carrosserie|corrosion|eau|securite"]
+    ["Logiciel / OTA / calculateurs", "logiciel|OTA|mise a jour|calculateur|module|brick|erreur software|reinitialisation|voyant multiple", "critique", 0.88, "Mise à jour OTA, calculateurs, modules, briquage, erreurs logicielles, voyants multiples.", "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.", "Rappels logiciels; NHTSA; DGCCRF", "logiciel|OTA|electricite|securite"]
   ];
 
   function buildGeneratedDefects() {
@@ -1600,523 +2651,79 @@
 
   var GENERATED_DEFECTS = buildGeneratedDefects();
 
-  var SPECIFIC_RAW = [
-    ["Renault", "Clio V|Captur II|Megane IV|Austral|Scenic", "2017-2027", "1.0 TCe / 1.3 TCe", "90ch-160ch",
-      "consommation huile|turbo|chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe|huile",
-      "critique", 0.75,
-      "Downsizing turbo : surconsommation huile, turbo, chaîne, PCV, perte de puissance.",
-      "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.; tromperie L.213-1.",
-      "TSB Renault; forums; rappel.conso",
-      "moteur|turbo|huile|distribution|puissance"],
-
-    ["Renault", "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", "2017-2022", "K9K / 1.5 dCi", "75ch-110ch",
+  var SPECIFIC_DEFECTS = [
+    D("Renault", "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", "2017-2022", "K9K / 1.5 dCi", "75ch-110ch",
       "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
       "critique", 0.9,
       "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
       "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
       "Programme technique Renault K9K; TSB; jurisprudences",
-      "moteur|huile|bielle|pompe|bruit|critique"],
+      "moteur|huile|bielle|pompe|bruit|critique"),
 
-    ["Renault", "Clio IV|Captur|Megane III|Kadjar|Austral", "2017-2024", "EDC6 / double embrayage", "N/A boite",
-      "a-coups boite|blocage rapport|patinage|voyant boite|odeur brulee|vibrations|mode degrade|perte traction",
-      "critique", 0.7,
-      "Boîte EDC : module mécatronique fragile, surchauffe embrayage en ville.",
-      "Vice caché 1641 C.civ.; conformité L.217-4 C.consom.",
-      "Programme qualité EDC Renault; forums",
-      "boite|embrayage|mecatronique|a-coups"],
-
-    ["Renault", "Trafic II|Master III|Espace V|Talisman", "2017-2027", "Baie de pare-brise / étanchéité", "N/A",
+    D("Renault", "Trafic II|Master III|Espace V|Talisman", "2017-2027", "Baie de pare-brise / étanchéité", "N/A",
       "infiltration eau|court circuit|moisiure|panne electronique|voyants aleatoires|erreur ABS|erreur ESP|corrosion|odeur humidite",
       "critique", 0.95,
       "Défaut d’étanchéité de la baie de pare-brise. Eau vers calculateurs et faisceaux. Indépendant du km.",
       "Vice caché 1641 C.civ.; sécurité L.423-1 C.consom.; produits défectueux 1245 C.civ.",
       "Campagnes Renault; forums; DGCCRF",
-      "eau|electricite|court-circuit|securite|carrosserie"],
+      "eau|electricite|court-circuit|securite|carrosserie"),
 
-    ["Renault", "Megane E-Tech|Scenic E-Tech|Austral E-Tech|Captur E-Tech", "2022-2027", "E-Tech hybride / électrique", "145ch-220ch",
-      "autonomie reduite|voyant batterie|charge lente|charge DC|DC-DC|batterie 12V|BMS|software|ADAS|camera|radar|mode degrade",
-      "critique", 0.9,
-      "Plateformes électrifiées récentes : BMS, batterie 12V, charge, logiciel, capteurs ADAS, autonomie réelle.",
-      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245 C.civ.",
-      "Rappels Renault EV/hybride; DGCCRF; NHTSA si import",
-      "batterie|charge|autonomie|adas|logiciel|electricite"],
-
-    ["Dacia", "Sandero|Duster|Logan|Lodgy|Jogger|Spring", "2017-2027", "K9K 1.5 dCi / EDC / Spring électrique", "75ch-110ch",
-      "casse bielle|pompe huile|bruit moteur|a-coups|patinage|voyant boite|autonomie|charge|batterie 12V",
-      "critique", 0.85,
-      "Base Renault K9K/EDC pour thermique; Spring : batterie, charge, autonomie, logiciel.",
-      "Vice caché 1641 C.civ.; conformité L.217-4 si pro.",
-      "TSB Dacia/Renault; forums",
-      "moteur|boite|batterie|charge"],
-
-    ["Peugeot", "208|2008|308|3008|5008|Partner|Rifter|Boxer", "2017-2024", "EB2 / 1.2 PureTech", "100ch-155ch",
+    D("Peugeot", "208|2008|308|3008|5008|Partner|Rifter|Boxer", "2017-2024", "EB2 / 1.2 PureTech", "100ch-155ch",
       "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
       "critique", 0.85,
       "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
       "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
       "Extension garantie Stellantis PureTech; TSB; DGCCRF",
-      "moteur|distribution|courroie|huile|pompe|critique"],
+      "moteur|distribution|courroie|huile|pompe|critique"),
 
-    ["Peugeot", "308|3008|508|Expert|Boxer", "2017-2024", "DV6 / 1.6 BlueHDi", "92ch-130ch",
-      "EGR encrasse|FAP colmate|turbo HS|AdBlue|cristallisation|voyant antipollution|puissance reduite|mode degrade|fumee noire|conso gasoil",
-      "moyen", 0.5,
-      "Systèmes de dépollution sensibles aux trajets courts, à-froids, qualité carburant et entretien.",
-      "Vice caché 1641 C.civ.; usure normale à écarter par expertise.",
-      "TSB PSA/Stellantis; forums",
-      "diesel|EGR|FAP|AdBlue|turbo|pollution"],
-
-    ["Peugeot", "308|3008|5008|e-208|e-2008", "2017-2027", "EAT8 / e-CMP électrique", "N/A",
-      "a-coups|convertisseur|vibrations|patinage|voyant boite|autonomie|charge|BMS|batterie 12V|software|ADAS",
-      "critique", 0.65,
-      "Boîte EAT8 et plateformes électriques e-CMP : convertisseur, logiciel, batterie, charge, ADAS.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "Programme qualité Stellantis; rappels EV",
-      "boite|batterie|charge|adas|logiciel"],
-
-    ["Citroen", "C3|C3 Aircross|C4|C4 Cactus|C5 Aircross|Berlingo|Jumper", "2017-2024", "EB2 1.2 PureTech / BlueHDi", "100ch-130ch",
-      "courroie distribution|casse moteur|bruit metallique|EGR|FAP|turbo|consommation huile|voyant moteur|surchauffe",
-      "critique", 0.85,
-      "Mêmes architectures PSA/Stellantis : wet belt, dépollution, turbo, huile.",
-      "Vice caché 1641 C.civ.; tromperie L.213-1.",
-      "TSB Stellantis; forums",
-      "moteur|distribution|diesel|turbo|huile"],
-
-    ["Citroen", "e-C3|e-C4|C5 Aircross Hybrid", "2020-2027", "Électrique / hybride rechargeable", "N/A",
-      "autonomie|charge AC|charge DC|batterie|BMS|12V|software|ADAS|camera|radar|chauffage|climatisation",
-      "critique", 0.9,
-      "Batterie, charge, logiciel, autonomie réelle, capteurs ADAS, confort thermique.",
-      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
-      "Rappels Stellantis EV; DGCCRF",
-      "batterie|charge|autonomie|adas|logiciel"],
-
-    ["DS", "DS 3 Crossback E-Tense|DS 4|DS 7 Crossback E-Tense", "2019-2027", "PureTech / BlueHDi / E-Tense 4x4", "130ch-360ch",
-      "courroie|EGR|FAP|AdBlue|hybride|batterie|charge|software|ADAS|voyant moteur|perte puissance",
-      "critique", 0.8,
-      "Combine défauts PSA thermiques et plateformes hybrides rechargeables complexes.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "TSB Stellantis; forums DS",
-      "moteur|hybride|batterie|adas|logiciel"],
-
-    ["Volkswagen", "Golf 8|Polo|T-Cross|Taigo|Tiguan|Touran|Caddy", "2017-2027", "EA211 1.0 TSI / 1.5 TSI", "95ch-150ch",
-      "consommation huile|turbo|chaine|voyant moteur|perte puissance|mode degrade|fumee|surchauffe|carbonisation",
-      "moyen", 0.6,
-      "Moteurs downsizing turbo : surveillance huile, turbo, chaîne, encrassement, logiciel moteur.",
-      "Vice caché 1641; conformité L.217-4 si pro.",
-      "TSB VAG; forums Golf 8",
-      "moteur|turbo|huile|distribution"],
-
-    ["Volkswagen", "Golf|Passat|Tiguan|Touran|Sharan|Caddy", "2017-2024", "EA288 Evo 2.0 TDI", "115ch-200ch",
-      "AdBlue|cristallisation|pompe AdBlue|NOx|EGR|FAP|capteur NOx|voyant antipollution|mode degrade|impossibilite redemarrer",
-      "moyen", 0.45,
-      "Chaîne de dépollution diesel : AdBlue, NOx, EGR, FAP, logiciel moteur.",
-      "Vice caché 1641; tromperie L.213-1 si dissimulation; conformité L.217-4.",
-      "Rappels VAG diesel; CJUE; DGCCRF",
-      "diesel|AdBlue|NOx|EGR|FAP|pollution"],
-
-    ["Volkswagen", "Golf|Polo|T-Cross|Taigo|Tiguan|Touran", "2017-2024", "DSG DQ200 / DQ381", "N/A boite",
+    D("Volkswagen", "Golf|Polo|T-Cross|Taigo|Tiguan|Touran", "2017-2024", "DSG DQ200 / DQ381", "N/A boite",
       "a-coups|mecatronique|patinage|bruit claquement|voyant boite|mode degrade|blocage vitesse|odeur brulee",
       "critique", 0.7,
       "Boîtes DSG : mécatronique, embrayage, convertisseur, logiciel boîte.",
       "Vice caché 1641; conformité L.217-4; tromperie L.213-1.",
       "Rappels/TSB VAG DSG; class actions",
-      "boite|DSG|mecatronique|embrayage"],
+      "boite|DSG|mecatronique|embrayage"),
 
-    ["Volkswagen", "ID.3|ID.4|ID.5|ID.7", "2020-2027", "MEB électrique", "145ch-286ch",
+    D("Volkswagen", "ID.3|ID.4|ID.5|ID.7", "2020-2027", "MEB électrique", "145ch-286ch",
       "autonomie|charge AC|charge DC|BMS|cellules|logiciel|software|ADAS|Travel Assist|camera|radar|12V|DC-DC|thermal derating",
       "critique", 0.92,
       "Plateforme MEB : logiciel, charge, batterie, autonomie, ADAS, batterie 12V, DC-DC.",
       "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
       "Rappels VW ID; KBA Allemagne; NHTSA; DGCCRF",
-      "batterie|charge|autonomie|adas|logiciel|electricite"],
+      "batterie|charge|autonomie|adas|logiciel|electricite"),
 
-    ["Audi", "A1|A3|A4|A5|Q2|Q3|Q5", "2017-2027", "EA211 / EA888 / DSG", "110ch-265ch",
-      "consommation huile|turbo|chaine|DSG|mecatronique|a-coups|voyant moteur|mode degrade|AdBlue|FAP",
-      "critique", 0.7,
-      "Groupe VAG : moteurs turbo, DSG, dépollution diesel, logiciel.",
-      "Vice caché 1641; conformité L.217-4; tromperie L.213-1.",
-      "TSB Audi/VAG; rappels",
-      "moteur|boite|DSG|diesel|turbo"],
-
-    ["Audi", "Q4 e-tron|e-tron GT|A6 e-tron|Q6 e-tron", "2021-2027", "Électrique PPE/MEB", "204ch-544ch",
-      "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|DC-DC|thermal|logiciel",
-      "critique", 0.92,
-      "Modèles électriques Audi : batterie, charge rapide, logiciel, ADAS, gestion thermique.",
-      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
-      "Rappels Audi e-tron; KBA; NHTSA",
-      "batterie|charge|ADAS|logiciel|electricite"],
-
-    ["Skoda", "Fabia|Octavia|Superb|Karoq|Kodiaq|Enyaq", "2017-2027", "TSI / TDI / DSG / MEB", "95ch-299ch",
-      "consommation huile|turbo|DSG|AdBlue|FAP|batterie|charge|autonomie|software|ADAS",
-      "critique", 0.7,
-      "Base VAG : TSI/TDI, DSG, Enyaq MEB, logiciel et ADAS.",
-      "Vice caché 1641; conformité L.217-4.",
-      "TSB Skoda/VAG; rappels Enyaq",
-      "moteur|boite|batterie|ADAS|logiciel"],
-
-    ["Seat", "Ibiza|Leon|Ateca|Arona|Toledo|Born|Tavascan", "2017-2027", "TSI / TDI / DSG / MEB", "95ch-326ch",
-      "DSG|mecatronique|a-coups|consommation huile|turbo|batterie|charge|autonomie|software|ADAS",
-      "critique", 0.7,
-      "Groupe VAG : DSG, moteurs turbo, Cupra Born/Tavascan sur base MEB.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "TSB Seat/Cupra; rappels VAG",
-      "boite|DSG|batterie|ADAS|logiciel"],
-
-    ["Cupra", "Leon|Ateca|Arona|Born|Tavascan|Formentor", "2018-2027", "TSI / DSG / MEB", "150ch-340ch",
-      "DSG|mecatronique|a-coups|turbo|batterie|charge|autonomie|software|ADAS",
-      "critique", 0.7,
-      "Marque sportive du groupe VAG : DSG, turbo, plateformes électriques MEB.",
-      "Vice caché 1641; conformité L.217-4.",
-      "TSB Cupra/VAG",
-      "boite|DSG|batterie|ADAS|logiciel"],
-
-    ["BMW", "Serie 1|Serie 2|Serie 3|Serie 4|X1|X2|X3|X4", "2017-2027", "B38 / B46 / B48 / B58", "136ch-387ch",
-      "consommation huile|turbo|vanne PCV|refroidissement|pompe a eau|voyant moteur|perte puissance|surchauffe|fuite liquide|fuite huile",
-      "critique", 0.75,
-      "Moteurs BMW turbo : PCV, refroidissement, pompes à eau, fuites huile/liquide, logiciel moteur.",
-      "Vice caché 1641; défaut de sécurité L.423-1 si fuite sur échappement; conformité L.217-4.",
-      "TSB BMW; rappels pompe à eau; forums",
-      "moteur|turbo|huile|liquide|refroidissement|fuite"],
-
-    ["BMW", "Serie 3|Serie 5|X3|X5|X7", "2017-2027", "B47 / 2.0d / 3.0d", "150ch-400ch",
-      "chaine distribution|tensionneur|bruit crecelle|claquement|voyant moteur|mode degrade|AdBlue|NOx|FAP",
-      "critique", 0.8,
-      "Chaînes de distribution diesel/essence, tensionneurs, dépollution AdBlue/NOx.",
-      "Vice caché 1641; tromperie L.213-1 si dissimulation.",
-      "Rappels BMW chaîne; TSB diesel",
-      "distribution|chaine|diesel|AdBlue|bruit"],
-
-    ["BMW", "iX1|iX3|i4|iX|i7", "2021-2027", "Électrique / PHEV", "204ch-650ch",
-      "batterie|charge AC|charge DC|autonomie|BMS|software|iDrive|ADAS|camera|radar|12V|DC-DC|thermal",
-      "critique", 0.9,
-      "Plateformes électrifiées BMW : batterie, charge, logiciel, ADAS, gestion thermique.",
-      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
-      "Rappels BMW i; KBA; NHTSA",
-      "batterie|charge|ADAS|logiciel|electricite"],
-
-    ["Mini", "Cooper|Cooper S|Countryman|Clubman|Aceman", "2017-2027", "B38 / B48 / Getrag / Aisin / Électrique", "136ch-306ch",
-      "chaine distribution|consommation huile|turbo|water pump|boite|a-coups|patinage|batterie|charge|software|ADAS",
-      "critique", 0.8,
-      "Moteurs BMW/PSA Prince puis BMW : chaîne, huile, turbo, boîtes, électrification.",
-      "Vice caché 1641; conformité L.217-4.",
-      "Rappels MINI/BMW; TSB",
-      "distribution|huile|turbo|boite|batterie"],
-
-    ["Mercedes-Benz", "Classe A|Classe B|CLA|GLA|Classe C|Classe E|GLC|GLE", "2017-2027", "M254 / OM654 / 48V", "120ch-435ch",
-      "turbo|AdBlue|NOx|capteur|voyant moteur|mode degrade|consommation huile|fuite|48V|batterie secondaire|EQ Boost",
-      "critique", 0.7,
-      "Motorisations récentes : turbo, AdBlue, NOx, micro-hybridation 48V, fuites, logiciel.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "TSB Mercedes; rappels diesel/48V",
-      "moteur|turbo|AdBlue|48V|fuite|logiciel"],
-
-    ["Mercedes-Benz", "Classe C|Classe E|GLC|GLE|EQE|EQS|EQB|EQA", "2017-2027", "9G-Tronic / EQ électrique", "N/A",
-      "a-coups|convertisseur|calculateur boite|voyant boite|batterie|charge|autonomie|MBUX|software|ADAS|Distance Pilot|Active Brake",
-      "critique", 0.65,
-      "Boîtes 9G et plateformes EQ : logiciel, ADAS, batterie, charge, autonomie.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "Rappels Mercedes EQ/ADAS; KBA",
-      "boite|batterie|ADAS|logiciel|charge"],
-
-    ["Volvo", "XC40|XC60|XC90|V60|V90|S60|S90|C40|EX30|EX40|EC40", "2017-2027", "Drive-E / 48V / PHEV / Recharge", "150ch-455ch",
-      "consommation huile|turbo|compresseur|chaine|48V|batterie PHEV|charge|autonomie|Pilot Assist|camera|radar|software",
-      "critique", 0.8,
-      "Drive-E essence : huile/turbo/chaîne. Électrification : 48V, PHEV, batterie, ADAS Pilot Assist.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "Rappels Volvo; TSB Drive-E; DGCCRF",
-      "moteur|huile|turbo|batterie|ADAS|logiciel"],
-
-    ["Porsche", "Macan|Cayenne|Panamera|Taycan|911", "2017-2027", "PDK / Turbo / Taycan électrique", "245ch-761ch",
-      "PDK|a-coups|embrayage|volant moteur|batterie|charge|autonomie|software|ADAS|thermal|12V",
-      "critique", 0.7,
-      "PDK, hybrides, Taycan : batterie, charge, logiciel, gestion thermique, ADAS.",
-      "Vice caché 1641; conformité L.217-4; produits défectueux 1245.",
-      "Rappels Porsche; TSB Taycan",
-      "boite|PDK|batterie|charge|ADAS"],
-
-    ["Land Rover", "Defender|Discovery|Range Rover|Evoque|Velar", "2017-2027", "Ingenium / PHEV / électrique", "163ch-550ch",
-      "consommation huile|turbo|refroidissement|fuite liquide|incendie|PHEV|batterie|charge|software|Pivi|ADAS|camera|radar",
-      "critique", 0.8,
-      "Ingenium : huile/refroidissement/fuites. PHEV/électrique : batterie, charge, logiciel, ADAS.",
-      "Vice caché 1641; sécurité L.423-1; produits défectueux 1245.",
-      "Rappels JLR; incendie Ingenium; forums",
-      "moteur|fuite|incendie|batterie|ADAS|logiciel"],
-
-    ["Jaguar", "F-Pace|E-Pace|I-Pace|XF|XE", "2017-2027", "Ingenium / I-Pace électrique", "163ch-400ch",
-      "consommation huile|refroidissement|fuite liquide|incendie|batterie|charge|software|Pivi Pro|ADAS",
-      "critique", 0.8,
-      "Moteurs Ingenium et plateforme I-Pace : fuites, incendie, batterie, logiciel, ADAS.",
-      "Vice caché 1641; sécurité L.423-1.",
-      "Rappels JLR; forums",
-      "moteur|fuite|incendie|batterie|ADAS"],
-
-    ["Opel", "Corsa|Astra|Mokka|Grandland|Zafira|Combo", "2017-2027", "PureTech / BlueHDi / e-Corsa", "75ch-130ch",
-      "courroie distribution|EGR|FAP|AdBlue|batterie|charge|autonomie|software|ADAS",
-      "critique", 0.8,
-      "Base PSA/Stellantis : wet belt, dépollution, e-Corsa batterie/charge.",
-      "Vice caché 1641; conformité L.217-4.",
-      "TSB Opel/Stellantis",
-      "moteur|distribution|diesel|batterie"],
-
-    ["Fiat", "500|500e|Panda|Tipo|Tonale|Doblo", "2017-2027", "FireFly / Hybrid / 500e électrique", "70ch-150ch",
-      "hybridation 48V|batterie 12V|charge|autonomie|software|Dualogic|a-coups|embrayage|robot",
-      "critique", 0.75,
-      "Micro-hybridation 48V, 500e électrique, boîtes robotisées Dualogic/EDC selon modèles.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "Rappels Fiat 500e/Hybrid; TSB Stellantis",
-      "48V|batterie|charge|boite|logiciel"],
-
-    ["Alfa Romeo", "Giulia|Stelvio|Tonale", "2017-2027", "2.0 Turbo / PHEV Tonale", "160ch-280ch",
-      "turbo|consommation huile|refroidissement|PHEV|batterie|charge|software|ADAS|boite ZF",
-      "critique", 0.75,
-      "2.0 turbo, plateforme Giorgio, Tonale PHEV : batterie, charge, logiciel, ADAS.",
-      "Vice caché 1641; conformité L.217-4.",
-      "TSB Alfa/Stellantis; forums",
-      "moteur|turbo|PHEV|batterie|ADAS"],
-
-    ["Ford", "Fiesta|Focus|Puma|Kuga|Explorer|Transit", "2017-2027", "EcoBoost 1.0 / 1.5 / 2.3 / PowerShift", "95ch-280ch",
-      "joint culasse|surchauffe|refroidissement|pompe a eau|eau dans huile|fumee blanche|PowerShift|a-coups|embrayage|vibrations|odeur brulee",
-      "critique", 0.85,
-      "EcoBoost 1.0 : refroidissement/joint culasse. PowerShift : embrayage sec fragile.",
-      "Vice caché 1641; tromperie L.213-1; conformité L.217-4.",
-      "Class actions PowerShift; TSB Ford EcoBoost",
-      "moteur|refroidissement|culasse|boite|embrayage"],
-
-    ["Ford", "Mustang Mach-E", "2021-2027", "Électrique", "269ch-487ch",
-      "batterie|charge|autonomie|BMS|software|BlueCruise|ADAS|camera|radar|12V|porte de charge|thermal",
-      "critique", 0.9,
-      "Plateforme électrique Ford : batterie, charge, logiciel, BlueCruise, ADAS.",
-      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
-      "Rappels Ford Mach-E; NHTSA",
-      "batterie|charge|ADAS|logiciel"],
-
-    ["Tesla", "Model 3|Model Y|Model S|Model X", "2017-2027", "Électrique", "283ch-1020ch",
+    D("Tesla", "Model 3|Model Y|Model S|Model X", "2017-2027", "Électrique", "283ch-1020ch",
       "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
       "critique", 0.92,
       "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
       "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
       "NHTSA Tesla recalls; DGCCRF; SafetyGate",
-      "ADAS|batterie|charge|logiciel|securite"],
+      "ADAS|batterie|charge|logiciel|securite"),
 
-    ["Jeep", "Renegade|Compass|Wrangler|Grand Cherokee|Grand Cherokee 4xe", "2017-2027", "DDCT / Hurricane / 4xe PHEV", "120ch-490ch",
-      "DDCT|surchauffe embrayage|a-coups|bruit boite|mode limp|PHEV|batterie|charge|autonomie|software|ADAS",
-      "critique", 0.75,
-      "Boîte DDCT en ville, 4xe : batterie, charge, logiciel, ADAS.",
-      "Vice caché 1641; conformité L.217-4.",
-      "TSB FCA/Stellantis; rappels 4xe",
-      "boite|embrayage|PHEV|batterie|ADAS"],
-
-    ["Toyota", "Yaris|Corolla|Camry|RAV4|C-HR|Prius|Hilux|Land Cruiser", "2017-2027", "Hybride THS / Dynamic Force / D-4D", "100ch-309ch",
+    D("Toyota", "Yaris|Corolla|Camry|RAV4|C-HR|Prius|Hilux|Land Cruiser", "2017-2027", "Hybride THS / Dynamic Force / D-4D", "100ch-309ch",
       "batterie hybride|refroidissement batterie|CVT|bruit|vibration|12V|Toyota Safety Sense|camera|radar|ADAS|consommation|mode degrade",
       "critique", 0.65,
       "Hybrides Toyota : batterie, ventilation, CVT, 12V, ADAS Toyota Safety Sense.",
       "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
       "Rappels Toyota hybride/ADAS; NHTSA",
-      "hybride|batterie|CVT|ADAS|12V"],
+      "hybride|batterie|CVT|ADAS|12V"),
 
-    ["Lexus", "UX|NX|RX|ES|IS|LBX", "2017-2027", "Hybride / Multi-stage Hybrid", "180ch-414ch",
-      "batterie hybride|CVT|refroidissement|ADAS|camera|radar|software|12V|autonomie hybride",
-      "moyen", 0.6,
-      "Architecture hybride Lexus : batterie, CVT, ADAS, logiciel.",
-      "Vice caché 1641; conformité L.217-4.",
-      "TSB Lexus/Toyota",
-      "hybride|batterie|ADAS|CVT"],
-
-    ["Honda", "Jazz|Civic|HR-V|CR-V|Accord|e:Ny1", "2017-2027", "1.0 / 1.5 Turbo / i-MMD / électrique", "130ch-212ch",
-      "turbo|CVT|bruit|vibration|huile|refroidissement|batterie|charge|autonomie|Honda Sensing|ADAS|camera|radar",
-      "critique", 0.7,
-      "Turbo/HV/CVT et Honda Sensing. e:Ny1 : batterie, charge, logiciel.",
-      "Vice caché 1641; conformité L.217-4.",
-      "Rappels Honda; TSB i-MMD",
-      "moteur|turbo|CVT|ADAS|batterie"],
-
-    ["Nissan", "Qashqai|X-Trail|Juke|Ariya|Leaf|Navara", "2017-2027", "1.3 TCe / CVT / e-POWER / électrique", "140ch-306ch",
-      "CVT|a-coups|glissement|surchauffe|e-POWER|batterie|charge|autonomie|ProPILOT|ADAS|camera|radar|software|12V",
-      "critique", 0.75,
-      "CVT/X-Tronic, e-POWER, Ariya/Leaf : batterie, charge, ADAS ProPILOT, logiciel.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "Rappels Nissan CVT/ADAS; NHTSA",
-      "CVT|boite|batterie|ADAS|logiciel"],
-
-    ["Mazda", "2|3|CX-3|CX-30|CX-5|CX-60|MX-30", "2017-2027", "Skyactiv-G / Skyactiv-X / MX-30", "110ch-327ch",
-      "compression|huile|bruit|boite auto|mild hybrid|48V|batterie MX-30|charge|autonomie|ADAS|i-Activsense",
-      "moyen", 0.6,
-      "Skyactiv-X compression, mild hybrid 48V, MX-30 électrique/range extender, ADAS.",
-      "Vice caché 1641; conformité L.217-4.",
-      "TSB Mazda; forums",
-      "moteur|48V|batterie|ADAS"],
-
-    ["Subaru", "XV|Forester|Outback|Impreza|WRX", "2017-2027", "Boxer / Lineartronic CVT", "115ch-275ch",
-      "CVT|bruit|vibration|huile|refroidissement|EyeSight|ADAS|camera|radar|logiciel",
-      "moyen", 0.6,
-      "CVT Lineartronic et EyeSight : capteurs, logiciel, entretien.",
-      "Vice caché 1641; conformité L.217-4.",
-      "Rappels Subaru EyeSight; NHTSA",
-      "CVT|ADAS|huile|logiciel"],
-
-    ["Suzuki", "Swift|Ignis|Vitara|S-Cross|Jimny|ACROSS", "2017-2027", "Boosterjet / Mild Hybrid / AllGrip", "90ch-136ch",
-      "turbo|48V|batterie 12V|CVT|AllGrip|ADAS|camera|radar|software|conso",
-      "moyen", 0.55,
-      "Micro-hybridation 48V, CVT, ADAS Suzuki Safety Support.",
-      "Vice caché 1641; conformité L.217-4.",
-      "TSB Suzuki; forums",
-      "48V|turbo|CVT|ADAS"],
-
-    ["Mitsubishi", "Space Star|ASX|Eclipse Cross|Outlander|Outlander PHEV", "2017-2027", "CVT / PHEV 4WD", "105ch-224ch",
-      "CVT|bruit|surchauffe|PHEV|batterie|charge|autonomie|ADAS|camera|radar|software",
-      "critique", 0.7,
-      "Outlander PHEV : batterie, charge, gestion 4WD, CVT, ADAS.",
-      "Vice caché 1641; conformité L.217-4.",
-      "Rappels Mitsubishi PHEV; NHTSA",
-      "CVT|PHEV|batterie|ADAS"],
-
-    ["Hyundai", "i10|i20|i30|Bayon|Tucson|Santa Fe|Kona|IONIQ 5|IONIQ 6", "2017-2027", "Smartstream / Theta / Gamma / E-GMP", "80ch-325ch",
-      "consommation huile|turbo|DCT|a-coups|batterie|charge|autonomie|BMS|Bluelink|ADAS|camera|radar|software|12V",
-      "critique", 0.75,
-      "Moteurs turbo, boîtes DCT, plateformes E-GMP : batterie, charge rapide, ADAS, logiciel.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "Rappels Hyundai/Kia; NHTSA; KBA",
-      "moteur|boite|batterie|ADAS|logiciel"],
-
-    ["Kia", "Picanto|Ceed|Stonic|Sportage|Sorento|Niro|EV6|EV9", "2017-2027", "Smartstream / DCT / E-GMP", "84ch-585ch",
-      "DCT|a-coups|embrayage|batterie|charge|autonomie|BMS|ADAS|camera|radar|software|12V|V2L",
-      "critique", 0.75,
-      "DCT, EV6/EV9 : batterie, charge, V2L, ADAS, logiciel.",
-      "Vice caché 1641; conformité L.217-4; sécurité L.423-1.",
-      "Rappels Kia EV; NHTSA",
-      "boite|batterie|charge|ADAS|logiciel"],
-
-    ["Genesis", "G70|G80|G90|GV60|GV70|GV80", "2017-2027", "Turbo / DCT / E-GMP", "220ch-455ch",
-      "DCT|a-coups|batterie|charge|autonomie|BMS|ADAS|camera|radar|software|12V",
-      "critique", 0.72,
-      "Plateformes Hyundai/Kia premium : DCT, E-GMP, ADAS, logiciel.",
-      "Vice caché 1641; conformité L.217-4.",
-      "Rappels Genesis; NHTSA",
-      "boite|batterie|ADAS|logiciel"],
-
-    ["MG", "MG3|MG ZS|MG ZS EV|MG4|MG5|Marvel R|Cyster", "2019-2027", "Électrique / PHEV / essence", "116ch-435ch",
-      "batterie|charge AC|charge DC|autonomie|BMS|software|ADAS|port de charge|12V|camera|radar|thermal derating",
-      "critique", 0.9,
-      "Plateformes SAIC/MG : batterie, charge, logiciel, ADAS, autonomie réelle, température.",
-      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
-      "Rappels MG; DGCCRF; SafetyGate",
-      "batterie|charge|ADAS|logiciel|autonomie"],
-
-    ["BYD", "Atto 3|Dolphin|Seal|Han|Tang", "2022-2027", "Blade Battery électrique / PHEV", "177ch-530ch",
-      "batterie Blade|charge|autonomie|BMS|DiLink|software|ADAS|camera|radar|12V|thermal|port de charge",
-      "critique", 0.9,
-      "BYD : batterie Blade, charge, logiciel DiLink, ADAS, gestion thermique.",
-      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
-      "Rappels BYD; DGCCRF; NHTSA si import",
-      "batterie|charge|ADAS|logiciel"],
-
-    ["Leapmotor", "T03|C10|B10", "2023-2027", "Électrique", "95ch-218ch",
-      "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|connectivite",
-      "critique", 0.88,
-      "Nouvelles plateformes chinoises EV : batterie, charge, logiciel, ADAS.",
-      "Conformité L.217-4; sécurité L.423-1.",
-      "Rappels Leapmotor; DGCCRF",
-      "batterie|charge|ADAS|logiciel"],
-
-    ["XPeng", "G6|P7|G9", "2020-2027", "Électrique", "200ch-500ch+",
-      "batterie|charge|autonomie|BMS|software|ADAS|camera|lidar|radar|12V|connectivite|thermal",
-      "critique", 0.9,
-      "EV chinois premium : batterie, charge, ADAS avancés, lidar, logiciel.",
-      "Conformité L.217-4; sécurité L.423-1; produits défectueux 1245.",
-      "Rappels XPeng; SafetyGate",
-      "batterie|charge|ADAS|logiciel|autonomie"],
-
-    ["NIO", "ET5|ES6|ET7|EL6", "2020-2027", "Électrique / battery swap", "400ch-600ch+",
-      "batterie|swap|charge|autonomie|BMS|software|ADAS|camera|lidar|radar|12V|connectivite|thermal",
-      "critique", 0.9,
-      "Battery swap, charge, ADAS, lidar, logiciel.",
-      "Conformité L.217-4; sécurité L.423-1.",
-      "Rappels NIO; SafetyGate",
-      "batterie|charge|ADAS|logiciel|autonomie"],
-
-    ["Chery", "Omoda 5|Jaecoo 7|Tiggo", "2023-2027", "1.6 TGDI / DCT / PHEV", "147ch-300ch+",
-      "turbo|DCT|a-coups|embrayage|batterie|charge|autonomie|ADAS|camera|radar|software|conso",
-      "critique", 0.75,
-      "Nouvelles marques chinoises : turbo, DCT, PHEV, ADAS, logiciel.",
-      "Vice caché 1641; conformité L.217-4.",
-      "Rappels Chery/Omoda; DGCCRF",
-      "moteur|boite|DCT|ADAS|batterie"],
-
-    ["Geely", "Coolray|Emgrand|Smart #1|Smart #3|Lotus Eletre", "2022-2027", "Électrique / hybride", "200ch-600ch+",
-      "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|connectivite",
-      "critique", 0.88,
-      "Plateformes SEA/Geely : batterie, charge, logiciel, ADAS.",
-      "Conformité L.217-4; sécurité L.423-1.",
-      "Rappels Geely/Smart; SafetyGate",
-      "batterie|charge|ADAS|logiciel"],
-
-    ["Smart", "#1|#3|#5", "2022-2027", "Électrique SEA", "200ch-428ch",
-      "batterie|charge|autonomie|BMS|software|ADAS|camera|radar|12V|connectivite",
-      "critique", 0.88,
-      "Smart électrique basé plateforme Geely SEA.",
-      "Conformité L.217-4; sécurité L.423-1.",
-      "Rappels Smart; DGCCRF",
-      "batterie|charge|ADAS|logiciel"],
-
-    ["Maxus", "eDeliver|W90|T60|Euniq", "2019-2027", "Électrique / hybride / utilitaire", "130ch-400ch",
-      "batterie|charge|autonomie|BMS|software|ADAS|12V|fuite|refroidissement|utilitaire",
+    D("Ford", "Fiesta|Focus|Puma|Kuga|Explorer|Transit", "2017-2027", "EcoBoost 1.0 / 1.5 / 2.3 / PowerShift", "95ch-280ch",
+      "joint culasse|surchauffe|refroidissement|pompe a eau|eau dans huile|fumee blanche|PowerShift|a-coups|embrayage|vibrations|odeur brulee",
       "critique", 0.85,
-      "Utilitaires et SUV chinois électrifiés : batterie, charge, logiciel, refroidissement.",
-      "Conformité L.217-4; sécurité L.423-1.",
-      "Rappels Maxus/LDV",
-      "batterie|charge|utilitaire|ADAS"],
+      "EcoBoost 1.0 : refroidissement/joint culasse. PowerShift : embrayage sec fragile.",
+      "Vice caché 1641; tromperie L.213-1; conformité L.217-4.",
+      "Class actions PowerShift; TSB Ford EcoBoost",
+      "moteur|refroidissement|culasse|boite|embrayage"),
 
-    ["GWM", "Tank|Ora|GWM Poer", "2021-2027", "Électrique / hybride / utilitaire", "150ch-400ch",
-      "batterie|charge|autonomie|BMS|software|ADAS|12V|fuite|refroidissement",
-      "critique", 0.85,
-      "Marques chinoises GWM/Ora : batterie, charge, logiciel, ADAS.",
-      "Conformité L.217-4; sécurité L.423-1.",
-      "Rappels GWM/Ora",
-      "batterie|charge|ADAS|logiciel"],
-
-    ["Chevrolet", "Bolt EV|Bolt EUV|Lyriq|Equinox EV", "2017-2027", "Électrique Ultium / Bolt", "204ch-1000ch",
+    D("Chevrolet", "Bolt EV|Bolt EUV|Lyriq|Equinox EV", "2017-2027", "Électrique Ultium / Bolt", "204ch-1000ch",
       "incendie|batterie|thermal runaway|charge|recall|BMS|software|ADAS|Super Cruise|autonomie|12V",
       "critique", 1.0,
       "Bolt : rappel mondial incendie batterie. Ultium/Super Cruise : logiciel, charge, ADAS.",
       "Sécurité L.423-1; produits défectueux 1245; pénal si accident; conformité L.217-4.",
       "NHTSA Bolt recall; GM recalls; DGCCRF",
-      "incendie|batterie|charge|ADAS|logiciel"],
-
-    ["GMC", "Hummer EV|Lyriq-based", "2022-2027", "Électrique Ultium", "400ch-1000ch",
-      "batterie|charge|autonomie|BMS|software|ADAS|Super Cruise|thermal|12V",
-      "critique", 0.92,
-      "Plateforme Ultium GM : batterie, charge, logiciel, ADAS.",
-      "Sécurité L.423-1; produits défectueux 1245.",
-      "NHTSA GMC; GM recalls",
-      "batterie|charge|ADAS|logiciel"],
-
-    ["Cadillac", "Lyriq|Celestiq", "2022-2027", "Électrique Ultium", "300ch-600ch+",
-      "batterie|charge|autonomie|BMS|software|ADAS|Super Cruise|thermal|12V",
-      "critique", 0.92,
-      "Plateforme Ultium GM premium : batterie, charge, logiciel, ADAS.",
-      "Sécurité L.423-1; produits défectueux 1245.",
-      "NHTSA Cadillac; GM recalls",
-      "batterie|charge|ADAS|logiciel"],
-
-    ["Ram", "1500|2500|3500", "2017-2027", "Diesel / Hurricane / électrique", "250ch-700ch",
-      "turbo|boite|8-speed|PHEV|batterie|charge|autonomie|software|ADAS|fuel pump|fuite carburant",
-      "critique", 0.75,
-      "Gros moteurs, boîtes auto, PHEV, pompes à carburant, ADAS.",
-      "Vice caché 1641; sécurité L.423-1; conformité L.217-4.",
-      "NHTSA Ram; recalls",
-      "moteur|boite|PHEV|carburant|ADAS"],
-
-    ["Chrysler", "Pacifica|Pacifica Hybrid", "2017-2027", "V6 / PHEV", "287ch-360ch",
-      "PHEV|batterie|charge|autonomie|software|ADAS|boite|fuel pump",
-      "critique", 0.72,
-      "Pacifica Hybrid : batterie, charge, logiciel, boîte.",
-      "Vice caché 1641; conformité L.217-4.",
-      "NHTSA Chrysler; recalls",
-      "PHEV|batterie|boite|ADAS"]
+      "incendie|batterie|charge|ADAS|logiciel")
   ];
-
-  var SPECIFIC_DEFECTS = SPECIFIC_RAW.map(function (a) {
-    return D(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11]);
-  });
 
   function normalizeDefect(d) {
     var out = {
@@ -2367,16 +2974,76 @@
     return out;
   }
 
+  function fetchJsonUrl(url) {
+    return fetch(url, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.json();
+      });
+  }
+
+  function fetchTextUrl(url) {
+    return fetch(url, { cache: "no-store", method: "GET" })
+      .then(function (res) {
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        return res.text();
+      });
+  }
+
   function finishAutoSync(incoming, manual, mode) {
     autoDb = mergeDefects(autoDb, incoming);
     save(KEYS.AUTO_DB, autoDb);
     autoLastSync = Date.now();
     save(KEYS.AUTO_LAST_SYNC, autoLastSync);
-    invalidateEngineCatalog();
     updateAdminStats();
     updateDataStatus("Auto-diagnostic synchronisé (" + mode + ")");
     if (manual) toast("Auto-diagnostic synchronisé : " + incoming.length + " entrées traitées.", "success");
     notify("Auto-diagnostic synchronisé", incoming.length + " entrées traitées (" + mode + ").");
+  }
+
+  function fetchEngineCatalogs(manual) {
+    if (!window.fetch) {
+      if (manual) toast("Catalogue motorisation impossible : fetch non supporté.", "warning");
+      return Promise.resolve(false);
+    }
+
+    var urls = [CONFIG.engineCatalogUrl];
+
+    if (autoConfig.baseUrl) {
+      urls.push(resolveUrl(autoConfig.baseUrl, "data/engine-catalog.json"));
+      urls.push(resolveUrl(autoConfig.baseUrl, "data/motorisations.json"));
+    }
+
+    return Promise.all(urls.map(function (url) {
+      return fetchJsonUrl(url)
+        .then(function (json) {
+          return collectEngineRecordsFromJson(json, url, 0);
+        })
+        .catch(function () {
+          return [];
+        });
+    })).then(function (results) {
+      var incoming = [];
+      results.forEach(function (arr) {
+        incoming = incoming.concat(arr);
+      });
+
+      if (incoming.length) {
+        engineExtra = mergeEngineRecords(engineExtra, incoming);
+        save(KEYS.ENGINE_EXTRA, engineExtra);
+        updateAdminStats();
+        refreshModelOptions();
+        if (manual) toast("Catalogue motorisation chargé : " + incoming.length + " entrées.", "success");
+        return true;
+      }
+
+      if (manual) toast("Aucun catalogue motorisation additionnel trouvé.", "info");
+      return false;
+    }).catch(function (err) {
+      console.warn("[AR-EXPERT] Catalogue motorisation impossible:", err);
+      if (manual) toast("Catalogue motorisation indisponible.", "warning");
+      return false;
+    });
   }
 
   function syncAutoDiagnostic(manual) {
@@ -2433,7 +3100,8 @@
             if (erecs.length) {
               engineExtra = mergeEngineRecords(engineExtra, erecs);
               save(KEYS.ENGINE_EXTRA, engineExtra);
-              invalidateEngineCatalog();
+              updateAdminStats();
+              refreshModelOptions();
             }
             return recs;
           })
@@ -2455,7 +3123,8 @@
               if (erecs.length) {
                 engineExtra = mergeEngineRecords(engineExtra, erecs);
                 save(KEYS.ENGINE_EXTRA, engineExtra);
-                invalidateEngineCatalog();
+                updateAdminStats();
+                refreshModelOptions();
               }
               return recs;
             })
@@ -2560,7 +3229,6 @@
         techUpdates = mergeDefects(techUpdates, incoming);
         save(KEYS.TECH_UPDATES, techUpdates);
         save(KEYS.LAST_UPDATE, Date.now());
-        invalidateEngineCatalog();
         updateAdminStats();
         updateDataStatus("Base mise à jour automatiquement");
 
@@ -2578,15 +3246,6 @@
   /* =========================================================
      CORRELATION TECHNIQUE / JURIDIQUE
      ========================================================= */
-  function checkYearRange(rangeStr, targetYear) {
-    if (!targetYear) return true;
-    var parts = String(rangeStr || "").split("-").map(function (s) { return parseInt(s.trim(), 10); });
-    if (parts.length === 2 && parts[0] && parts[1]) {
-      return targetYear >= parts[0] && targetYear <= parts[1];
-    }
-    return true;
-  }
-
   function symptomMatch(textNorm, symptom) {
     var s = norm(symptom);
     if (!s) return false;
@@ -3478,6 +4137,14 @@
 
     var h = "<p><strong>Objet :</strong> conclusion prudente " + addTerm("synthèse") + ".</p>";
 
+    h += "<p><strong>Sélections prises en compte :</strong> " +
+      esc(vData.marque || "marque non précisée") + " / " +
+      esc(vData.modele || "modèle non précisé") + " / " +
+      esc(vData.annee || "année non précisée") + " / " +
+      esc(vData.engine || "motorisation non précisée") +
+      (vData.engineType ? " (" + esc(vData.engineType) + ")" : "") +
+      ".</p>";
+
     h += "<p>";
     if (high && critical && auto) {
       h += "Le croisement local technique/juridique/motorisation/auto-diagnostic oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave. L’appui auto-diagnostic renforce la démonstration du caractère documenté et non isolé du désordre.";
@@ -3492,6 +4159,14 @@
 
     if (flags.engineType) {
       h += "<p><strong>Motorisation :</strong> le type " + esc(flags.engineType) + " est intégré comme critère d’analyse technique et juridique.</p>";
+    }
+
+    if (flags.diesel) {
+      h += "<p><strong>Incidence diesel :</strong> la qualification peut mobiliser conformité antipollution, tromperie, rappel et sécurité produit.</p>";
+    }
+
+    if (flags.electricLike) {
+      h += "<p><strong>Incidence électrifiée :</strong> la qualification peut mobiliser batterie, autonomie, charge, logiciel, sécurité incendie et produits défectueux.</p>";
     }
 
     h += "<p><strong>Recommandation opérationnelle :</strong> ne pas effectuer de réparation destructrice avant constat/expertise. Conserver le véhicule en l’état si possible, photographier, obtenir devis, exporter les fiches auto-diagnostic corrélées, puis mise en demeure LRAR.</p>";
@@ -3526,16 +4201,11 @@
       if (d.b && d.b !== "Toutes marques") brands[d.b] = true;
     });
 
-    var cat = engineCatalog();
-    var engineCount = 0;
-    Object.keys(cat).forEach(function (b) {
-      Object.keys(cat[b]).forEach(function (m) {
-        engineCount += cat[b][m].length;
-      });
-    });
+    getUniqueBrands().forEach(function (b) { brands[b] = true; });
 
     var statEntries = q("#statEntries");
     var statBrands = q("#statBrands");
+    var statModels = q("#statModels");
     var statEngines = q("#statEngines");
     var statAutoEntries = q("#statAutoEntries");
     var statAutoSync = q("#statAutoSync");
@@ -3543,7 +4213,8 @@
 
     if (statEntries) statEntries.textContent = allDefects().length;
     if (statBrands) statBrands.textContent = Object.keys(brands).length;
-    if (statEngines) statEngines.textContent = engineCount;
+    if (statModels) statModels.textContent = getUniqueModels().length;
+    if (statEngines) statEngines.textContent = getUniqueEngines();
     if (statAutoEntries) statAutoEntries.textContent = autoDb.length;
 
     if (statAutoSync) statAutoSync.textContent = autoLastSync ? new Date(autoLastSync).toLocaleString("fr-FR") : "Jamais";
@@ -4092,13 +4763,48 @@
     clearCacheAndReload();
   });
 
-  on("#vehicleBrand", "input", scheduleEngineRefresh);
-  on("#vehicleBrand", "change", scheduleEngineRefresh);
-  on("#vehicleModel", "input", scheduleEngineRefresh);
-  on("#vehicleModel", "change", scheduleEngineRefresh);
-  on("#vehicleYear", "input", scheduleEngineRefresh);
-  on("#vehicleYear", "change", scheduleEngineRefresh);
-  on("#vehicleEngine", "change", refreshEngineOptions);
+  on("#vehicleBrand", "input", function () {
+    renderBrandSuggestions();
+    scheduleVehicleRefresh();
+  });
+
+  on("#vehicleBrand", "focus", function () {
+    renderBrandSuggestions();
+  });
+
+  on("#vehicleBrand", "blur", function () {
+    setTimeout(hideBrandSuggestions, 150);
+  });
+
+  on("#brandSuggestions", "mousedown", function (e) {
+    var btn = e.target.closest("button[data-brand]");
+    if (!btn) return;
+    e.preventDefault();
+    selectBrand(btn.dataset.brand);
+  });
+
+  document.addEventListener("click", function (e) {
+    var wrap = q("#brandWrap");
+    if (wrap && !wrap.contains(e.target)) {
+      hideBrandSuggestions();
+    }
+  });
+
+  on("#vehicleModel", "change", function () {
+    refreshEngineOptions();
+  });
+
+  on("#vehicleYear", "input", function () {
+    scheduleVehicleRefresh();
+  });
+
+  on("#vehicleYear", "change", function () {
+    refreshModelOptions();
+  });
+
+  on("#vehicleEngine", "change", function () {
+    updateSelectionSummary();
+  });
 
   on("#pdfUpload", "change", function (e) {
     var file = e.target.files && e.target.files[0];
@@ -4160,14 +4866,13 @@
       return;
     }
 
-    refreshEngineOptions();
+    refreshModelOptions();
 
     var textEl = q("#textInput");
     var contextEl = q("#contextInfo");
     var objectiveEl = q("#objectiveInfo");
     var goalEl = q("#goalSelect");
     var sellerEl = q("#sellerType");
-    var engineEl = q("#vehicleEngine");
 
     var text = textEl ? textEl.value.trim() : "";
     if (!text) text = extractedText.trim();
@@ -4176,17 +4881,7 @@
     var objective = (objectiveEl && objectiveEl.value.trim()) || (goalEl ? goalEl.value : "") || "";
     var sellerType = sellerEl ? sellerEl.value : "unknown";
 
-    var engineOption = engineEl && engineOptionMap[engineEl.value] ? engineOptionMap[engineEl.value] : null;
-
-    vehicleData = {
-      marque: (q("#vehicleBrand") || {}).value || "",
-      modele: (q("#vehicleModel") || {}).value || "",
-      annee: (q("#vehicleYear") || {}).value || "",
-      engine: engineOption ? engineOption.engine : "",
-      engineType: engineOption ? engineOption.type : "",
-      kilometrage: (q("#vehicleKilometrage") || {}).value || "",
-      vin: (q("#vehicleVin") || {}).value || ""
-    };
+    vehicleData = getSelectedVehicleData();
 
     if (!text) {
       toast("Saisissez des faits ou importez un PDF.", "warning");
@@ -4464,7 +5159,7 @@
     var blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
     var a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "aide-redactionnelle-expert-data-v15.json";
+    a.download = "aide-redactionnelle-expert-data-v16.json";
     a.click();
     toast("Données exportées.", "success");
   });
@@ -4529,9 +5224,9 @@
             }
           }
 
-          invalidateEngineCatalog();
-          renderAdmin();
           updateAdminStats();
+          refreshModelOptions();
+          renderAdmin();
           toast("Données importées.", "success");
         } catch (err) {
           console.error(err);
@@ -4719,11 +5414,13 @@
       showLogin();
     }
 
+    refreshModelOptions();
+
     syncAutoDiagnostic(false).then(function () {
       return fetchEngineCatalogs(false);
     }).catch(function () {});
 
-    toast("Application prête. Base locale + motorisation + auto-diagnostic chargés.", "success");
+    toast("Application prête. Marque prédictive + modèle/motorisation filtrés + auto-diagnostic chargés.", "success");
   }
 
   function boot() {
