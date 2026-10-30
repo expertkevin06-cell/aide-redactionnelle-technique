@@ -626,7 +626,7 @@ footer {
 
 .modal-card {
   width: 100%;
-  max-width: 960px;
+  max-width: 980px;
   max-height: 92vh;
   overflow-y: auto;
   background: #fff;
@@ -679,6 +679,10 @@ footer {
 
 .admin-pane.active {
   display: block;
+}
+
+.admin-field {
+  margin: 12px 0;
 }
 
 .list {
@@ -742,7 +746,7 @@ footer {
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
   margin: 14px 0;
 }
@@ -763,7 +767,7 @@ footer {
 }
 
 .stat-box b {
-  font-size: 1.15rem;
+  font-size: 1.08rem;
   color: var(--dark);
 }
 
@@ -822,8 +826,7 @@ footer {
 }
 
 @media (max-width: 760px) {
-  .grid-2,
-  .stats-grid {
+  .grid-2 {
     grid-template-columns: 1fr;
   }
 
