@@ -38,6 +38,15 @@ body {
   font-size: 0.92rem;
 }
 
+.help-text {
+  display: block;
+  margin-top: -8px;
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .version {
   display: block;
   margin-top: 6px;
@@ -154,6 +163,12 @@ textarea:focus {
   outline: none;
   border-color: var(--primary);
   box-shadow: 0 0 0 4px rgba(102,126,234,0.12);
+}
+
+select:disabled {
+  background: #f3f4f6;
+  color: #9ca3af;
+  cursor: not-allowed;
 }
 
 textarea {
@@ -421,7 +436,7 @@ main {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 14px;
 }
 
