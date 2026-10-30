@@ -104,6 +104,39 @@
     ["Audi", "A3", "2020-2026", "40 TDI", "204ch", "Diesel", "S tronic"],
     ["Audi", "A3", "2020-2026", "Sportback 45 TFSI e", "245ch|310ch", "Hybride rechargeable", "S tronic"],
 
+    ["Skoda", "Fabia IV", "2021-2026", "1.0 MPI", "65ch|80ch", "Essence", "BVM5"],
+    ["Skoda", "Fabia IV", "2021-2026", "1.0 TSI", "95ch|110ch", "Essence", "BVM5|DSG"],
+    ["Skoda", "Fabia IV", "2021-2026", "1.5 TSI", "150ch", "Essence", "DSG"],
+
+    ["Skoda", "Octavia IV", "2020-2026", "1.5 TSI", "110ch|150ch", "Essence", "BVM6|DSG"],
+    ["Skoda", "Octavia IV", "2020-2026", "2.0 TSI", "190ch|265ch", "Essence", "DSG"],
+    ["Skoda", "Octavia IV", "2020-2026", "2.0 TDI", "115ch|150ch|200ch", "Diesel", "DSG"],
+    ["Skoda", "Octavia IV", "2020-2026", "iV", "204ch", "Hybride rechargeable", "DSG"],
+
+    ["Skoda", "Superb III", "2015-2024", "1.5 TSI", "150ch", "Essence", "DSG"],
+    ["Skoda", "Superb III", "2015-2024", "2.0 TSI", "190ch|272ch|280ch", "Essence", "DSG"],
+    ["Skoda", "Superb III", "2015-2024", "2.0 TDI", "150ch|190ch|200ch", "Diesel", "DSG"],
+    ["Skoda", "Superb III", "2015-2024", "iV", "218ch", "Hybride rechargeable", "DSG"],
+
+    ["Skoda", "Karoq", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG"],
+    ["Skoda", "Karoq", "2017-2026", "2.0 TSI", "190ch", "Essence", "DSG"],
+    ["Skoda", "Karoq", "2017-2026", "2.0 TDI", "150ch|190ch", "Diesel", "DSG"],
+
+    ["Skoda", "Kodiaq", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG"],
+    ["Skoda", "Kodiaq", "2017-2026", "2.0 TSI", "190ch", "Essence", "DSG"],
+    ["Skoda", "Kodiaq", "2017-2026", "2.0 TDI", "150ch|200ch", "Diesel", "DSG"],
+    ["Skoda", "Kodiaq", "2017-2026", "iV", "245ch", "Hybride rechargeable", "DSG"],
+
+    ["Skoda", "Enyaq", "2021-2026", "60", "180ch|204ch", "Électrique", "réducteur"],
+    ["Skoda", "Enyaq", "2021-2026", "80", "204ch", "Électrique", "réducteur"],
+    ["Skoda", "Enyaq", "2021-2026", "80x", "265ch", "Électrique", "AWD / réducteur"],
+    ["Skoda", "Enyaq", "2021-2026", "vRS", "340ch", "Électrique", "AWD / réducteur"],
+
+    ["Skoda", "Elroq", "2024-2026", "Elroq 50", "55 kWh|125kW|170ch", "Électrique", "RWD / réducteur"],
+    ["Skoda", "Elroq", "2024-2026", "Elroq 60", "63 kWh|150kW|204ch", "Électrique", "RWD / réducteur"],
+    ["Skoda", "Elroq", "2024-2026", "Elroq 85", "77 kWh|210kW|286ch", "Électrique", "RWD / réducteur"],
+    ["Skoda", "Elroq", "2024-2026", "Elroq 85x", "77 kWh|210kW|286ch", "Électrique", "AWD / réducteur"],
+
     ["BMW", "Serie 3", "2019-2026", "320i", "170ch|184ch", "Essence", "BVM8|Steptronic"],
     ["BMW", "Serie 3", "2019-2026", "330i", "245ch|258ch", "Essence", "Steptronic"],
     ["BMW", "Serie 3", "2019-2026", "M340i", "374ch", "Essence", "Steptronic"],
