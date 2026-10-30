@@ -1,4 +1,5 @@
-const CACHE_NAME = "arex-expert-v11";
+const CACHE_NAME = "arex-expert-v12-notif-fix";
+
 const ASSETS = [
   "./",
   "./index.html",
@@ -13,8 +14,13 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(ASSETS).catch(() => {
-        // Si une icône manque, ne pas bloquer l'installation du SW.
-        return cache.addAll(["./", "./index.html", "./styles.css", "./app.js", "./manifest.json"]);
+        return cache.addAll([
+          "./",
+          "./index.html",
+          "./styles.css",
+          "./app.js",
+          "./manifest.json"
+        ]);
       });
     })
   );
@@ -25,7 +31,9 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
       return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+        keys
+          .filter((key) => key !== CACHE_NAME)
+          .map((key) => caches.delete(key))
       );
     })
   );
@@ -35,7 +43,6 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   const url = new URL(event.request.url);
 
-  // Ne pas intercepter les requêtes cross-origin type CDN si elles échouent.
   if (url.origin !== location.origin) {
     return;
   }
@@ -51,6 +58,7 @@ self.addEventListener("fetch", (event) => {
           }
 
           const clone = response.clone();
+
           caches.open(CACHE_NAME).then((cache) => {
             cache.put(event.request, clone);
           });
@@ -62,6 +70,25 @@ self.addEventListener("fetch", (event) => {
             return caches.match("./index.html");
           }
         });
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (let i = 0; i < clientList.length; i++) {
+        const client = clientList[i];
+        if ("focus" in client) {
+          return client.focus();
+        }
+      }
+
+      if (clients.openWindow) {
+        return clients.openWindow("./index.html");
+      }
     })
   );
 });
