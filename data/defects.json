@@ -1,0 +1,51 @@
+[
+  {
+    "brand": "Peugeot",
+    "models": ["208", "2008", "308", "3008", "5008"],
+    "engines": ["EB2", "1.2 PureTech"],
+    "powers": ["110ch", "130ch"],
+    "fuels": ["Essence"],
+    "symptoms": [
+      "courroie distribution",
+      "wet belt",
+      "désagrégation courroie",
+      "crépine pompe à huile",
+      "casse moteur",
+      "pression huile basse",
+      "consommation huile",
+      "mode dégradé"
+    ],
+    "severity": "critique",
+    "description": "Courroie humide susceptible de se désagréger et d’obstruer la crépine de pompe à huile.",
+    "legal": "Vice caché 1641 C.civ.; tromperie L.213-1 C.consom.; pratique commerciale trompeuse L.121-2 C.consom.",
+    "recall": "TSB / extension Stellantis PureTech à vérifier via VIN",
+    "dtc": ["P052B", "P0011", "P0300"],
+    "tags": ["moteur", "distribution", "courroie", "huile", "pompe"],
+    "source": "Auto-Diagnostic",
+    "sourceUrl": "https://expertkevin06-cell.github.io/auto-diagnostic/"
+  },
+  {
+    "brand": "Renault",
+    "models": ["Clio", "Megane", "Scenic", "Kangoo"],
+    "engines": ["K9K", "1.5 dCi"],
+    "powers": ["90ch", "110ch"],
+    "fuels": ["Diesel"],
+    "symptoms": [
+      "casse bielle",
+      "claquement moteur",
+      "usure coussinets",
+      "pompe à huile",
+      "bruit métallique",
+      "pression huile basse",
+      "voyant huile"
+    ],
+    "severity": "critique",
+    "description": "Risque de casse bielle / coussinets lié à la lubrification.",
+    "legal": "Vice caché 1641 C.civ.; responsabilité contractuelle 1231-1 C.civ.",
+    "recall": "Programme technique Renault K9K à vérifier via VIN",
+    "dtc": ["P0524", "P0525", "P0300"],
+    "tags": ["moteur", "huile", "bielle", "pompe"],
+    "source": "Auto-Diagnostic",
+    "sourceUrl": "https://expertkevin06-cell.github.io/auto-diagnostic/"
+  }
+]
