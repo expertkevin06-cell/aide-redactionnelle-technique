@@ -1,4 +1,4 @@
-const CACHE_NAME = "arex-expert-v23-sync-live";
+const CACHE_NAME = "arex-expert-v24-offline-first";
 
 const CORE_ASSETS = [
   "./",
