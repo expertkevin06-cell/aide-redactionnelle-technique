@@ -1,4 +1,4 @@
-const CACHE_NAME = "arex-expert-v22-massive-db-fixed";
+const CACHE_NAME = "arex-expert-v23-sync-live";
 
 const CORE_ASSETS = [
   "./",
@@ -46,12 +46,15 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Priorité réseau pour les données dynamiques afin d'avoir toujours la dernière version GitHub
   if (
     url.pathname.includes("/data/technical-updates.json") ||
     url.pathname.includes("/data/engine-catalog.json") ||
     url.pathname.includes("/data/vehicle-catalog.json") ||
     url.pathname.includes("/data/motorisations.json") ||
-    url.pathname.includes("/data/models.json")
+    url.pathname.includes("/data/models.json") ||
+    url.pathname.includes("/data/vehicles.json") ||
+    url.pathname.includes("/data/defects.json")
   ) {
     event.respondWith(
       fetch(event.request)
