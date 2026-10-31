@@ -75,43 +75,12 @@
   };
 
   const parseKm = (v) => parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10) || 0;
-  const parseYear = (v) => {
-    const n = parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10) || 0;
-    return n >= 1980 && n <= 2035 ? n : 0;
-  };
-
-  // Fonction utilitaire pour formater les années de manière lisible dans les listes
-  const formatYearsDisplay = (rangeStr) => {
-    if (!rangeStr || rangeStr === "*") return "";
-    const parts = String(rangeStr).split(/[|\-–—]/).map(p => p.trim()).filter(Boolean);
-    const years = [];
-    for (const part of parts) {
-      const match = part.match(/(\d{4})\D*(\d{4})?/);
-      if (match) {
-        const start = match[1];
-        const end = match[2] || start;
-        years.push(start === end ? start : `${start}-${end}`);
-      } else {
-        const single = parseInt(part, 10);
-        if (!isNaN(single)) years.push(String(single));
-      }
-    }
-    return years.join(", ");
-  };
-
-  const yearMatches = (range, year) => {
-    if (!year) return true;
-    const s = String(range || "").trim();
-    if (!s || s === "*" || norm(s).includes("tous")) return true;
-    const parts = s.split(/[|\-–—]/).map(p => p.trim()).filter(Boolean);
-    for (const part of parts) {
-      const m = part.match(/(\d{4})\D*(\d{4})?/);
-      if (!m) continue;
-      const a = parseInt(m[1], 10);
-      const b = m[2] ? parseInt(m[2], 10) : a;
-      if (year >= a && year <= b) return true;
-    }
-    return false;
+  
+  // Parseur de puissance robuste pour le tri
+  const getPowerValue = (powerStr) => {
+    if (!powerStr) return 0;
+    const match = String(powerStr).match(/(\d+)/);
+    return match ? parseInt(match[1], 10) : 0;
   };
 
   const brandMatches = (a, b) => {
@@ -153,12 +122,6 @@
   };
 
   const modelListContains = (list, model) => String(list || "").split("|").some((m) => nameMatch(m, model));
-
-  const stripTags = (html) => {
-    const tmp = document.createElement("div");
-    tmp.innerHTML = html || "";
-    return tmp.textContent || tmp.innerText || "";
-  };
 
   const ensureToast = () => {
     let t = q("#toast");
@@ -225,10 +188,6 @@
     if (history.replaceState) history.replaceState({}, document.title, clean);
   };
 
-  const resolveUrl = (base, path) => {
-    try { return new URL(path, base).href; } catch { return String(base || "") + String(path || ""); }
-  };
-
   const valToString = (v) => {
     if (Array.isArray(v)) return v.join("|");
     if (v == null) return "";
@@ -253,18 +212,6 @@
     return "";
   };
 
-  const getBrandField = (o) => valToString(getField(o, ["b", "brand", "marque", "constructeur", "make"]));
-  const getModelField = (o) => valToString(getField(o, ["m", "model", "modele", "modèle", "vehicle", "vehicule"]));
-  const getEngineField = (o) => valToString(getField(o, ["e", "engine", "motorisation", "moteur", "powertrain", "version", "variant"]));
-  const getPowerField = (o) => valToString(getField(o, ["p", "power", "puissance", "ch", "kw", "kwh"]));
-  const getFuelField = (o) => valToString(getField(o, ["t", "type", "fuel", "energie", "énergie", "carburant", "engineType"]));
-  const getTransField = (o) => valToString(getField(o, ["tr", "transmission", "boite", "boîte", "gearbox"]));
-  const getYearsField = (o) => valToString(getField(o, ["y", "years", "annee", "année", "period", "range"]));
-  const getSymptomsField = (o) => valToString(getField(o, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"]));
-  const getDtcField = (o) => valToString(getField(o, ["dtc", "codeDtc", "code", "codes"]));
-  const getDisplacementField = (o) => valToString(getField(o, ["d", "cyl", "cylindree", "cylindrée", "displacement", "engineSize", "cubic"]));
-  const getCodeField = (o) => valToString(getField(o, ["code", "codeMoteur", "engineCode", "codemoteur"]));
-
   const fetchJson = async (url) => {
     const res = await fetch(url, { cache: "no-store", method: "GET" });
     if (!res.ok) throw new Error("HTTP " + res.status);
@@ -288,6 +235,18 @@
   };
 
   const KEYS = {
+    SESSION: "arex_session_v28",
+    USERS: "arex_users_v28",
+    REQUESTS: "arex_requests_v28",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v28",
+    TECH_UPDATES: "arex_tech_updates_v28",
+    LAST_UPDATE: "arex_last_update_v28",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v28",
+    CATALOG_CFG: "arex_catalog_cfg_v28",
+    IMPORTED_RAW: "arex_imported_raw_v28"
+  };
+
+  const OLD_KEYS = {
     SESSION: "arex_session_v27",
     USERS: "arex_users_v27",
     REQUESTS: "arex_requests_v27",
@@ -297,18 +256,6 @@
     AUTO_LAST_SYNC: "arex_auto_last_sync_v27",
     CATALOG_CFG: "arex_catalog_cfg_v27",
     IMPORTED_RAW: "arex_imported_raw_v27"
-  };
-
-  const OLD_KEYS = {
-    SESSION: "arex_session_v26",
-    USERS: "arex_users_v26",
-    REQUESTS: "arex_requests_v26",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v26",
-    TECH_UPDATES: "arex_tech_updates_v26",
-    LAST_UPDATE: "arex_last_update_v26",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v26",
-    CATALOG_CFG: "arex_catalog_cfg_v26",
-    IMPORTED_RAW: "arex_imported_raw_v26"
   };
 
   /* =========================================================
@@ -325,11 +272,9 @@
   let lastPendingSignature = "";
   let broadcast = null;
   let autoLastSync = 0;
-  let modelLoadToken = 0;
 
   const selection = { brand: null, model: null, engine: null };
   
-  // Index interne pour recherche rapide O(1)
   const index = {
     brands: {}, 
     models: {}, 
@@ -345,7 +290,7 @@
   } catch { broadcast = null; }
 
   /* =========================================================
-     NOTIFICATIONS
+     NOTIFICATIONS & AUTH (Identiques V27)
      ========================================================= */
   const notificationPermissionState = () => {
     if (!("Notification" in window)) return "unsupported";
@@ -395,9 +340,6 @@
 
   const notify = (title, body, tag) => showSystemNotification(title, body, tag);
 
-  /* =========================================================
-     AUTH / USERS / REQUESTS
-     ========================================================= */
   const normIdentity = (value) => norm(String(value == null ? "" : value)).replace(/\s+/g, " ").trim();
   const userEmailKey = (email) => normIdentity(email).replace(/\s/g, "");
   const userNameKey = (name) => normIdentity(name);
@@ -670,223 +612,273 @@
   };
 
   /* =========================================================
-     BASE DE DONNÉES MASSIVE CONSOLIDÉE (OFFLINE FIRST)
-     Inclut toutes les générations et variantes.
-     Format: [Marque, Modèle, Années, MoteurLabel, Puissance, Energie, Boite, Code/Cyl/KWh]
-     NOTE: Les années sont utilisées ici pour l'AFFICHAGE mais NE FILTRENT PAS la liste moteur.
+     BASE DE DONNÉES ULTRA-CONSOLIDÉE (2010-2026)
+     Pas de filtre année. Tout est regroupé par Modèle.
+     Format: [Marque, Modèle, MoteurLabel, Puissance, Energie, Boite, Code/Cyl/KWh]
      ========================================================= */
   const EMBEDDED_MASTER_DB = [
-    // --- PEUGEOT (TOUTES GÉNÉRATIONS 3008/5008/308/208/2008) ---
-    ["Peugeot", "3008", "2016-2020", "1.2 PureTech 130", "130ch", "Essence", "EAT6", "EB2|1.2 L"],
-    ["Peugeot", "3008", "2016-2020", "1.6 PureTech 180", "180ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
-    ["Peugeot", "3008", "2016-2020", "1.6 PureTech 225", "225ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
-    ["Peugeot", "3008", "2016-2020", "1.5 BlueHDi 120", "120ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
-    ["Peugeot", "3008", "2016-2020", "2.0 BlueHDi 150", "150ch", "Diesel", "EAT8", "DW10|2.0 L"],
-    ["Peugeot", "3008", "2016-2020", "2.0 BlueHDi 180", "180ch", "Diesel", "EAT8", "DW10|2.0 L"],
-    ["Peugeot", "3008", "2020-2024", "1.2 PureTech 130", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
-    ["Peugeot", "3008", "2020-2024", "1.5 BlueHDi 130", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
-    ["Peugeot", "3008", "2020-2024", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Peugeot", "3008", "2020-2024", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
-    ["Peugeot", "3008", "2024-2026", "1.6 Hybrid 130", "130ch", "Hybride", "automatique", "HEV|1.6 L"],
-    ["Peugeot", "3008", "2024-2026", "1.6 Hybrid 180", "180ch", "Hybride", "automatique", "HEV|1.6 L"],
-    ["Peugeot", "3008", "2024-2026", "1.6 Hybrid 225", "225ch", "Hybride rechargeable", "automatique", "PHEV|1.6 L"],
-    ["Peugeot", "3008", "2024-2026", "1.6 Hybrid 320 4x4", "320ch", "Hybride rechargeable", "automatique 4x4", "PHEV4|1.6 L"],
-    ["Peugeot", "3008", "2024-2026", "e-3008", "210ch", "Électrique", "réducteur", "STLA Medium|73 kWh|97 kWh"],
+    // --- PEUGEOT ---
+    ["Peugeot", "208", "1.2 VTi", "82ch", "Essence", "BVM5", "EB2|1.2 L"],
+    ["Peugeot", "208", "1.2 PureTech", "110ch|130ch", "Essence", "BVM5|ETG6|EAT8", "EB2|1.2 L"],
+    ["Peugeot", "208", "1.6 HDi", "92ch|115ch", "Diesel", "BVM5|ETG6", "DV6|1.6 L"],
+    ["Peugeot", "208", "1.5 BlueHDi", "100ch", "Diesel", "BVM6", "DV5|1.5 L"],
+    ["Peugeot", "208", "e-208", "100kW|115kW|156ch", "Électrique", "réducteur", "e-CMP|50 kWh"],
+    
+    ["Peugeot", "2008", "1.2 PureTech", "82ch|110ch|130ch", "Essence", "BVM5|ETG6|EAT8", "EB2|1.2 L"],
+    ["Peugeot", "2008", "1.6 HDi", "92ch|115ch", "Diesel", "BVM5|ETG6", "DV6|1.6 L"],
+    ["Peugeot", "2008", "1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Peugeot", "2008", "e-2008", "100kW|115kW|156ch", "Électrique", "réducteur", "e-CMP|50 kWh"],
 
-    ["Peugeot", "5008", "2017-2020", "1.2 PureTech 130", "130ch", "Essence", "EAT6", "EB2|1.2 L"],
-    ["Peugeot", "5008", "2017-2020", "1.6 PureTech 180", "180ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
-    ["Peugeot", "5008", "2017-2020", "1.6 PureTech 225", "225ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
-    ["Peugeot", "5008", "2017-2020", "1.5 BlueHDi 120", "120ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
-    ["Peugeot", "5008", "2017-2020", "2.0 BlueHDi 150", "150ch", "Diesel", "EAT8", "DW10|2.0 L"],
-    ["Peugeot", "5008", "2017-2020", "2.0 BlueHDi 180", "180ch", "Diesel", "EAT8", "DW10|2.0 L"],
-    ["Peugeot", "5008", "2020-2024", "1.2 PureTech 130", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
-    ["Peugeot", "5008", "2020-2024", "1.5 BlueHDi 130", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
-    ["Peugeot", "5008", "2020-2024", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Peugeot", "5008", "2020-2024", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
-    ["Peugeot", "5008", "2024-2026", "1.6 Hybrid 130", "130ch", "Hybride", "automatique", "HEV|1.6 L"],
-    ["Peugeot", "5008", "2024-2026", "1.6 Hybrid 180", "180ch", "Hybride", "automatique", "HEV|1.6 L"],
-    ["Peugeot", "5008", "2024-2026", "1.6 Hybrid 225", "225ch", "Hybride rechargeable", "automatique", "PHEV|1.6 L"],
-    ["Peugeot", "5008", "2024-2026", "1.6 Hybrid 320 4x4", "320ch", "Hybride rechargeable", "automatique 4x4", "PHEV4|1.6 L"],
-    ["Peugeot", "5008", "2024-2026", "e-5008", "210ch", "Électrique", "réducteur", "STLA Medium|73 kWh|97 kWh"],
+    ["Peugeot", "308", "1.6 THP", "125ch|150ch|200ch", "Essence", "BVM6|EAT6", "EP6|1.6 L"],
+    ["Peugeot", "308", "1.2 PureTech", "110ch|130ch", "Essence", "BVM5|ETG6|EAT6|EAT8", "EB2|1.2 L"],
+    ["Peugeot", "308", "1.6 HDi", "92ch|115ch", "Diesel", "BVM5|ETG6", "DV6|1.6 L"],
+    ["Peugeot", "308", "2.0 HDi", "150ch", "Diesel", "BVM6|EAT6", "DW10|2.0 L"],
+    ["Peugeot", "308", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
+    ["Peugeot", "308", "Hybrid 180", "180ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["Peugeot", "308", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["Peugeot", "308", "e-308", "115kW|150kW", "Électrique", "réducteur", "eCMP|54 kWh"],
 
-    ["Peugeot", "308", "2013-2021", "1.2 PureTech", "110ch|130ch", "Essence", "BVM5|ETG6|EAT6", "EB2|1.2 L"],
-    ["Peugeot", "308", "2013-2021", "1.6 THP", "125ch|150ch|200ch", "Essence", "BVM6|EAT6", "EP6|1.6 L"],
-    ["Peugeot", "308", "2013-2021", "1.6 HDi", "92ch|115ch", "Diesel", "BVM5|ETG6", "DV6|1.6 L"],
-    ["Peugeot", "308", "2013-2021", "2.0 HDi", "150ch", "Diesel", "BVM6|EAT6", "DW10|2.0 L"],
-    ["Peugeot", "308", "2021-2026", "1.2 PureTech 110", "110ch", "Essence", "BVM6", "EB2|1.2 L"],
-    ["Peugeot", "308", "2021-2026", "1.2 PureTech 130", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
-    ["Peugeot", "308", "2021-2026", "1.5 BlueHDi 130", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
-    ["Peugeot", "308", "2021-2026", "Hybrid 180", "180ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Peugeot", "308", "2021-2026", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Peugeot", "308", "2021-2026", "e-308", "115kW|150kW", "Électrique", "réducteur", "eCMP|54 kWh"],
+    ["Peugeot", "3008", "1.2 PureTech 130", "130ch", "Essence", "EAT6|EAT8", "EB2|1.2 L"],
+    ["Peugeot", "3008", "1.6 PureTech 180", "180ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
+    ["Peugeot", "3008", "1.6 PureTech 225", "225ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
+    ["Peugeot", "3008", "1.5 BlueHDi 120", "120ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Peugeot", "3008", "2.0 BlueHDi 150", "150ch", "Diesel", "EAT8", "DW10|2.0 L"],
+    ["Peugeot", "3008", "2.0 BlueHDi 180", "180ch", "Diesel", "EAT8", "DW10|2.0 L"],
+    ["Peugeot", "3008", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["Peugeot", "3008", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
+    ["Peugeot", "3008", "1.6 Hybrid 130", "130ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Peugeot", "3008", "1.6 Hybrid 180", "180ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Peugeot", "3008", "e-3008", "210ch", "Électrique", "réducteur", "STLA Medium|73 kWh|97 kWh"],
 
-    ["Peugeot", "208", "2012-2019", "1.2 VTi", "82ch", "Essence", "BVM5", "EB2|1.2 L"],
-    ["Peugeot", "208", "2012-2019", "1.2 PureTech", "110ch|130ch", "Essence", "BVM5|ETG6", "EB2|1.2 L"],
-    ["Peugeot", "208", "2012-2019", "1.6 e-HDi", "92ch", "Diesel", "ETG6", "DV6|1.6 L"],
-    ["Peugeot", "208", "2012-2019", "1.6 HDi", "92ch|115ch", "Diesel", "BVM5", "DV6|1.6 L"],
-    ["Peugeot", "208", "2019-2026", "1.2 PureTech 75", "75ch", "Essence", "BVM5", "EB2|1.2 L"],
-    ["Peugeot", "208", "2019-2026", "1.2 PureTech 100", "100ch", "Essence", "BVM6", "EB2|1.2 L"],
-    ["Peugeot", "208", "2019-2026", "1.2 PureTech 130", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
-    ["Peugeot", "208", "2019-2026", "1.5 BlueHDi 100", "100ch", "Diesel", "BVM6", "DV5|1.5 L"],
-    ["Peugeot", "208", "2019-2026", "e-208", "100kW|115kW|156ch", "Électrique", "réducteur", "e-CMP|50 kWh"],
+    ["Peugeot", "5008", "1.2 PureTech 130", "130ch", "Essence", "EAT6|EAT8", "EB2|1.2 L"],
+    ["Peugeot", "5008", "1.6 PureTech 180", "180ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
+    ["Peugeot", "5008", "1.6 PureTech 225", "225ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
+    ["Peugeot", "5008", "1.5 BlueHDi 120", "120ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Peugeot", "5008", "2.0 BlueHDi 150", "150ch", "Diesel", "EAT8", "DW10|2.0 L"],
+    ["Peugeot", "5008", "2.0 BlueHDi 180", "180ch", "Diesel", "EAT8", "DW10|2.0 L"],
+    ["Peugeot", "5008", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["Peugeot", "5008", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
+    ["Peugeot", "5008", "1.6 Hybrid 130", "130ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Peugeot", "5008", "1.6 Hybrid 180", "180ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Peugeot", "5008", "e-5008", "210ch", "Électrique", "réducteur", "STLA Medium|73 kWh|97 kWh"],
 
-    ["Peugeot", "2008", "2013-2019", "1.2 PureTech", "82ch|110ch|130ch", "Essence", "BVM5|ETG6", "EB2|1.2 L"],
-    ["Peugeot", "2008", "2013-2019", "1.6 HDi", "92ch|115ch", "Diesel", "BVM5|ETG6", "DV6|1.6 L"],
-    ["Peugeot", "2008", "2019-2026", "1.2 PureTech 100", "100ch", "Essence", "BVM6", "EB2|1.2 L"],
-    ["Peugeot", "2008", "2019-2026", "1.2 PureTech 130", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
-    ["Peugeot", "2008", "2019-2026", "1.5 BlueHDi 100|130", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
-    ["Peugeot", "2008", "2019-2026", "e-2008", "100kW|115kW|156ch", "Électrique", "réducteur", "e-CMP|50 kWh"],
+    ["Peugeot", "Partner", "1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Peugeot", "Partner", "1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Peugeot", "Partner", "e-Partner", "100kW|136ch", "Électrique", "réducteur", "eCMP|50 kWh"],
 
-    // --- CITROEN (CONSOLIDÉ) ---
-    ["Citroen", "C3", "2016-2026", "1.2 PureTech", "82ch|110ch|130ch", "Essence", "BVM5|BVM6|EAT6", "EB2|1.2 L"],
-    ["Citroen", "C3", "2016-2026", "1.5 BlueHDi", "100ch", "Diesel", "BVM6", "DV5|1.5 L"],
-    ["Citroen", "C3", "2024-2026", "ë-C3", "94ch|118ch", "Électrique", "réducteur", "eCMP|44 kWh"],
-    ["Citroen", "C4", "2020-2026", "1.2 PureTech", "100ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
-    ["Citroen", "C4", "2020-2026", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
-    ["Citroen", "C4", "2020-2026", "ë-C4", "100kW|115kW|156ch", "Électrique", "réducteur", "eCMP|50 kWh"],
-    ["Citroen", "C5 Aircross", "2018-2026", "1.2 PureTech", "130ch|180ch", "Essence", "EAT8", "EB2|1.2 L"],
-    ["Citroen", "C5 Aircross", "2018-2026", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
-    ["Citroen", "C5 Aircross", "2018-2026", "2.0 BlueHDi", "160ch|180ch", "Diesel", "EAT8", "DW10|2.0 L"],
-    ["Citroen", "C5 Aircross", "2019-2026", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Citroen", "C5 Aircross", "2020-2026", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
+    ["Peugeot", "Boxer", "2.2 BlueHDi", "120ch|140ch|165ch", "Diesel", "BVM6", "DW12|2.2 L"],
+    ["Peugeot", "Boxer", "3.0 BlueHDi", "160ch|180ch", "Diesel", "BVM6", "DV6|3.0 L"],
+    ["Peugeot", "Boxer", "e-Boxer", "90kW|122ch", "Électrique", "réducteur", "eBoxer|70 kWh"],
 
-    // --- RENAULT (CONSOLIDÉ) ---
-    ["Renault", "Clio", "2012-2019", "1.2 16V", "75ch", "Essence", "BVM5", "D4F|1.2 L"],
-    ["Renault", "Clio", "2012-2019", "0.9 TCe", "90ch", "Essence", "BVM5|EDC", "H4B|0.9 L"],
-    ["Renault", "Clio", "2012-2019", "1.5 dCi", "75ch|90ch|110ch", "Diesel", "BVM5|EDC", "K9K|1.5 L"],
-    ["Renault", "Clio", "2019-2026", "1.0 TCe", "65ch|90ch", "Essence", "BVM5|BVM6", "H4D|1.0 L"],
-    ["Renault", "Clio", "2019-2026", "1.3 TCe", "100ch|130ch|140ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
-    ["Renault", "Clio", "2019-2026", "1.5 dCi", "75ch|100ch|115ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
-    ["Renault", "Clio", "2019-2026", "E-Tech Hybrid", "140ch|145ch", "Hybride", "automatique", "TCe 140|1.6 L"],
-    ["Renault", "Captur", "2013-2019", "1.2 TCe", "120ch", "Essence", "EDC", "H5F|1.2 L"],
-    ["Renault", "Captur", "2013-2019", "1.5 dCi", "90ch|110ch", "Diesel", "EDC|BVM6", "K9K|1.5 L"],
-    ["Renault", "Captur", "2020-2026", "1.0 TCe", "90ch|100ch", "Essence", "BVM6", "H4D|1.0 L"],
-    ["Renault", "Captur", "2020-2026", "1.3 TCe", "130ch|155ch", "Essence", "EDC", "H5H|1.3 L"],
-    ["Renault", "Captur", "2020-2026", "1.5 Blue dCi", "100ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
-    ["Renault", "Captur", "2020-2026", "E-Tech Hybrid", "140ch|160ch", "Hybride", "automatique", "TCe 160|1.6 L"],
-    ["Renault", "Megane", "2010-2016", "1.5 dCi", "90ch|110ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
-    ["Renault", "Megane", "2010-2016", "1.2 TCe", "130ch", "Essence", "EDC", "H5F|1.2 L"],
-    ["Renault", "Megane", "2016-2024", "1.3 TCe", "100ch|140ch|160ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
-    ["Renault", "Megane", "2016-2024", "1.5 dCi", "90ch|115ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
-    ["Renault", "Megane", "2020-2024", "E-Tech Hybrid", "160ch|205ch", "Hybride", "automatique", "TCe 200|1.6 L"],
+    // --- CITROEN ---
+    ["Citroen", "C3", "1.2 PureTech", "82ch|110ch|130ch", "Essence", "BVM5|BVM6|EAT6", "EB2|1.2 L"],
+    ["Citroen", "C3", "1.5 BlueHDi", "100ch", "Diesel", "BVM6", "DV5|1.5 L"],
+    ["Citroen", "C3", "ë-C3", "94ch|118ch", "Électrique", "réducteur", "eCMP|44 kWh"],
+    
+    ["Citroen", "C4", "1.2 PureTech", "100ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Citroen", "C4", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
+    ["Citroen", "C4", "ë-C4", "100kW|115kW|156ch", "Électrique", "réducteur", "eCMP|50 kWh"],
 
-    // --- VOLKSWAGEN (CONSOLIDÉ) ---
-    ["Volkswagen", "Golf", "2012-2020", "1.0 TSI", "85ch|110ch|125ch", "Essence", "BVM6|DSG", "EA211|1.0 L"],
-    ["Volkswagen", "Golf", "2012-2020", "1.4 TSI", "125ch|150ch", "Essence", "DSG", "EA211|1.4 L"],
-    ["Volkswagen", "Golf", "2012-2020", "1.5 TSI", "130ch|150ch|180ch", "Essence", "DSG|BVM6", "EA211 evo|1.5 L"],
-    ["Volkswagen", "Golf", "2012-2020", "2.0 TSI", "230ch|310ch", "Essence", "DSG", "EA888|2.0 L"],
-    ["Volkswagen", "Golf", "2012-2020", "1.6 TDI", "90ch|110ch|115ch", "Diesel", "BVM5|DSG", "EA288|1.6 L"],
-    ["Volkswagen", "Golf", "2012-2020", "2.0 TDI", "110ch|150ch|184ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
-    ["Volkswagen", "Golf", "2014-2020", "GTE", "204ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
-    ["Volkswagen", "Golf", "2020-2026", "1.0 eTSI", "110ch", "Hybride léger 48V", "DSG", "EA211 evo|1.0 L"],
-    ["Volkswagen", "Golf", "2020-2026", "1.5 eTSI", "130ch|150ch", "Hybride léger 48V", "DSG", "EA211 evo|1.5 L"],
-    ["Volkswagen", "Golf", "2020-2026", "2.0 TSI", "245ch|320ch", "Essence", "DSG", "EA888|2.0 L"],
-    ["Volkswagen", "Golf", "2020-2026", "2.0 TDI", "115ch|150ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
-    ["Volkswagen", "Golf", "2020-2026", "eHybrid", "204ch|245ch", "Hybride rechargeable", "DSG", "PHEV|1.5 L"],
-    ["Volkswagen", "Polo", "2017-2026", "1.0 MPI", "65ch|75ch", "Essence", "BVM5", "EA211|1.0 L"],
-    ["Volkswagen", "Polo", "2017-2026", "1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM5|DSG", "EA211|1.0 L"],
-    ["Volkswagen", "Polo", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
-    ["Volkswagen", "Polo", "2017-2026", "1.6 TDI", "80ch", "Diesel", "BVM5", "EA288|1.6 L"],
-    ["Volkswagen", "Polo", "2017-2026", "2.0 TDI", "95ch|115ch|150ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
-    ["Volkswagen", "Tiguan", "2016-2026", "1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
-    ["Volkswagen", "Tiguan", "2016-2026", "2.0 TSI", "190ch|245ch|320ch", "Essence", "DSG 4Motion", "EA888|2.0 L"],
-    ["Volkswagen", "Tiguan", "2016-2026", "2.0 TDI", "150ch|190ch|200ch", "Diesel", "DSG|4Motion", "EA288|2.0 L"],
-    ["Volkswagen", "Tiguan", "2019-2026", "eHybrid", "245ch|300ch", "Hybride rechargeable", "DSG 4Motion", "PHEV|1.4 L|2.0 L"],
+    ["Citroen", "C5 Aircross", "1.2 PureTech", "130ch|180ch", "Essence", "EAT8", "EB2|1.2 L"],
+    ["Citroen", "C5 Aircross", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
+    ["Citroen", "C5 Aircross", "2.0 BlueHDi", "160ch|180ch", "Diesel", "EAT8", "DW10|2.0 L"],
+    ["Citroen", "C5 Aircross", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["Citroen", "C5 Aircross", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
 
-    // --- AUDI (CONSOLIDÉ) ---
-    ["Audi", "A3", "2012-2020", "1.4 TFSI", "125ch|150ch", "Essence", "S tronic", "EA211|1.4 L"],
-    ["Audi", "A3", "2012-2020", "2.0 TFSI", "190ch|230ch", "Essence", "S tronic quattro", "EA888|2.0 L"],
-    ["Audi", "A3", "2012-2020", "2.0 TDI", "150ch|184ch", "Diesel", "S tronic|quattro", "EA288|2.0 L"],
-    ["Audi", "A3", "2020-2026", "30 TFSI", "110ch", "Essence", "S tronic", "EA211|1.0 L"],
-    ["Audi", "A3", "2020-2026", "35 TFSI", "150ch", "Essence", "S tronic", "EA211 evo|1.5 L"],
-    ["Audi", "A3", "2020-2026", "40 TFSI", "204ch", "Essence", "S tronic", "EA888|2.0 L"],
-    ["Audi", "A3", "2020-2026", "35 TDI", "150ch", "Diesel", "S tronic", "EA288|2.0 L"],
-    ["Audi", "A3", "2020-2026", "40 TDI", "204ch", "Diesel", "S tronic quattro", "EA288|2.0 L"],
-    ["Audi", "A3", "2020-2026", "Sportback 45 TFSI e", "245ch|310ch", "Hybride rechargeable", "S tronic", "PHEV|1.4 L"],
-    ["Audi", "Q3", "2018-2026", "30 TFSI", "110ch|150ch", "Essence", "S tronic", "EA211|1.0 L|1.5 L"],
-    ["Audi", "Q3", "2018-2026", "40 TFSI", "190ch|204ch", "Essence", "S tronic quattro", "EA888|2.0 L"],
-    ["Audi", "Q3", "2018-2026", "35 TDI", "150ch", "Diesel", "S tronic", "EA288|2.0 L"],
-    ["Audi", "Q3", "2018-2026", "40 TDI", "190ch", "Diesel", "S tronic quattro", "EA288|2.0 L"],
-    ["Audi", "Q3", "2019-2026", "45 TFSI e", "245ch", "Hybride rechargeable", "S tronic quattro", "PHEV|1.4 L"],
+    ["Citroen", "Berlingo", "1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Citroen", "Berlingo", "1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Citroen", "Berlingo", "ë-Berlingo", "100kW|136ch", "Électrique", "réducteur", "eCMP|50 kWh"],
 
-    // --- BMW (CONSOLIDÉ) ---
-    ["BMW", "Serie 1", "2011-2019", "116i", "136ch", "Essence", "BVM6|Steptronic", "N13|1.6 L"],
-    ["BMW", "Serie 1", "2011-2019", "118i", "170ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
-    ["BMW", "Serie 1", "2011-2019", "116d", "116ch", "Diesel", "BVM6|Steptronic", "B37|1.5 L"],
-    ["BMW", "Serie 1", "2011-2019", "118d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
-    ["BMW", "Serie 1", "2019-2026", "116i", "109ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
-    ["BMW", "Serie 1", "2019-2026", "118i", "136ch|156ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
-    ["BMW", "Serie 1", "2019-2026", "120i", "170ch|218ch", "Essence", "Steptronic", "B48|2.0 L"],
-    ["BMW", "Serie 1", "2019-2026", "125i", "245ch", "Essence", "Steptronic xDrive", "B48|2.0 L"],
-    ["BMW", "Serie 1", "2019-2026", "116d", "116ch", "Diesel", "BVM6|Steptronic", "B37|1.5 L"],
-    ["BMW", "Serie 1", "2019-2026", "118d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
-    ["BMW", "Serie 1", "2019-2026", "120d", "163ch|190ch", "Diesel", "Steptronic|xDrive", "B47|2.0 L"],
-    ["BMW", "X1", "2015-2026", "sDrive18i", "136ch|170ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
-    ["BMW", "X1", "2015-2026", "sDrive18d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
-    ["BMW", "X1", "2020-2026", "xDrive25e", "245ch", "Hybride rechargeable", "Steptronic xDrive", "PHEV|1.5 L"],
+    ["Citroen", "Jumper", "2.2 BlueHDi", "120ch|140ch|165ch", "Diesel", "BVM6", "DW12|2.2 L"],
+    ["Citroen", "Jumper", "3.0 BlueHDi", "160ch|180ch", "Diesel", "BVM6", "DV6|3.0 L"],
+    ["Citroen", "Jumper", "ë-Jumper", "90kW|122ch", "Électrique", "réducteur", "eJumper|70 kWh"],
 
-    // --- MERCEDES BENZ (CONSOLIDÉ) ---
-    ["Mercedes-Benz", "Classe A", "2012-2018", "A180", "122ch", "Essence", "7G-DCT", "M270|1.6 L"],
-    ["Mercedes-Benz", "Classe A", "2012-2018", "A200", "156ch|184ch", "Essence", "7G-DCT", "M270|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "2012-2018", "A180 CDI", "109ch", "Diesel", "7G-DCT", "OM651|1.5 L"],
-    ["Mercedes-Benz", "Classe A", "2012-2018", "A200 CDI", "136ch", "Diesel", "7G-DCT", "OM651|2.1 L"],
-    ["Mercedes-Benz", "Classe A", "2018-2026", "A180", "120ch|136ch", "Essence", "7G-DCT", "M282|1.3 L"],
-    ["Mercedes-Benz", "Classe A", "2018-2026", "A200", "163ch|190ch", "Essence", "7G-DCT|8G-DCT", "M282/M260|1.3 L|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "2018-2026", "A250", "224ch", "Essence", "8G-DCT 4MATIC", "M260|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "2018-2026", "AMG A35", "306ch", "Essence", "AMG SPEEDSHIFT 4MATIC", "M260|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "2018-2026", "A180d", "116ch", "Diesel", "7G-DCT", "OM654|1.5 L|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "2018-2026", "A200d", "150ch", "Diesel", "8G-DCT", "OM654|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "2020-2026", "A250e", "218ch", "Hybride rechargeable", "8G-DCT", "PHEV|1.3 L"],
+    // --- RENAULT ---
+    ["Renault", "Clio", "1.2 16V", "75ch", "Essence", "BVM5", "D4F|1.2 L"],
+    ["Renault", "Clio", "0.9 TCe", "90ch", "Essence", "BVM5|EDC", "H4B|0.9 L"],
+    ["Renault", "Clio", "1.5 dCi", "75ch|90ch|110ch|115ch", "Diesel", "BVM5|BVM6|EDC", "K9K|1.5 L"],
+    ["Renault", "Clio", "1.0 TCe", "65ch|90ch|100ch", "Essence", "BVM5|BVM6", "H4D|1.0 L"],
+    ["Renault", "Clio", "1.3 TCe", "100ch|130ch|140ch|155ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
+    ["Renault", "Clio", "E-Tech Hybrid", "140ch|145ch", "Hybride", "automatique", "TCe 140|1.6 L"],
 
-    // --- TOYOTA (CONSOLIDÉ) ---
-    ["Toyota", "Yaris", "2011-2020", "1.0 VVT-i", "69ch", "Essence", "BVM5", "1KR-FE|1.0 L"],
-    ["Toyota", "Yaris", "2011-2020", "1.33 VVT-i", "101ch", "Essence", "Multidrive S", "2NR-FE|1.3 L"],
-    ["Toyota", "Yaris", "2011-2020", "1.5 D-4D", "100ch", "Diesel", "BVM5", "ND|1.5 L"],
-    ["Toyota", "Yaris", "2020-2026", "1.0", "72ch", "Essence", "BVM5", "1KR-FE|1.0 L"],
-    ["Toyota", "Yaris", "2020-2026", "1.5 Hybrid", "116ch|130ch", "Hybride", "e-CVT", "THS II|1.5 L"],
-    ["Toyota", "Yaris", "2020-2026", "GR Yaris", "261ch|280ch", "Essence", "BVM6 4x4", "G16E-GTS|1.6 L"],
-    ["Toyota", "Corolla", "2018-2026", "1.8 Hybrid", "122ch|140ch", "Hybride", "e-CVT", "THS II|1.8 L"],
-    ["Toyota", "Corolla", "2018-2026", "2.0 Hybrid", "184ch|196ch", "Hybride", "e-CVT", "Dynamic Force|2.0 L"],
-    ["Toyota", "Corolla", "2018-2026", "2.0", "169ch|197ch", "Essence", "BVM6|Direct Shift", "Dynamic Force|2.0 L"],
-    ["Toyota", "Corolla", "2018-2026", "1.8 Plug-in Hybrid", "196ch", "Hybride rechargeable", "e-CVT", "PHEV|1.8 L"],
-    ["Toyota", "RAV4", "2018-2026", "2.0", "171ch", "Essence", "BVM6|Direct Shift", "Dynamic Force|2.0 L"],
-    ["Toyota", "RAV4", "2018-2026", "2.5 Hybrid", "218ch|222ch", "Hybride", "e-CVT AWD-i", "THS II|2.5 L"],
-    ["Toyota", "RAV4", "2020-2026", "2.5 Plug-in Hybrid", "306ch|320ch", "Hybride rechargeable", "e-CVT AWD-i", "PHEV|2.5 L"],
-    ["Toyota", "RAV4", "2018-2026", "2.5 D-4D", "150ch|200ch", "Diesel", "BVM6|Direct Shift 4x4", "GD|2.5 L"],
+    ["Renault", "Captur", "1.2 TCe", "120ch", "Essence", "EDC", "H5F|1.2 L"],
+    ["Renault", "Captur", "1.5 dCi", "90ch|110ch", "Diesel", "EDC|BVM6", "K9K|1.5 L"],
+    ["Renault", "Captur", "1.0 TCe", "90ch|100ch", "Essence", "BVM6", "H4D|1.0 L"],
+    ["Renault", "Captur", "1.3 TCe", "130ch|155ch", "Essence", "EDC", "H5H|1.3 L"],
+    ["Renault", "Captur", "1.5 Blue dCi", "100ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
+    ["Renault", "Captur", "E-Tech Hybrid", "140ch|160ch", "Hybride", "automatique", "TCe 160|1.6 L"],
 
-    // --- TESLA (CONSOLIDÉ) ---
-    ["Tesla", "Model 3", "2017-2026", "Standard Range Plus", "283ch", "Électrique", "RWD / réducteur", "BEV|57.5 kWh|60 kWh"],
-    ["Tesla", "Model 3", "2017-2026", "Long Range", "351ch|442ch", "Électrique", "RWD/AWD / réducteur", "BEV|75 kWh|82 kWh"],
-    ["Tesla", "Model 3", "2017-2026", "Performance", "513ch|534ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
-    ["Tesla", "Model Y", "2020-2026", "Standard Range", "299ch", "Électrique", "RWD / réducteur", "BEV|60 kWh|62.5 kWh"],
-    ["Tesla", "Model Y", "2020-2026", "Long Range", "442ch|534ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
-    ["Tesla", "Model Y", "2020-2026", "Performance", "534ch|615ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
-    ["Tesla", "Model S", "2012-2026", "Long Range", "670ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
-    ["Tesla", "Model S", "2012-2026", "Plaid", "1020ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
-    ["Tesla", "Model X", "2015-2026", "Long Range", "670ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
-    ["Tesla", "Model X", "2015-2026", "Plaid", "1020ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
+    ["Renault", "Megane", "1.5 dCi", "90ch|110ch|115ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
+    ["Renault", "Megane", "1.2 TCe", "130ch", "Essence", "EDC", "H5F|1.2 L"],
+    ["Renault", "Megane", "1.3 TCe", "100ch|140ch|160ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
+    ["Renault", "Megane", "E-Tech Hybrid", "160ch|205ch", "Hybride", "automatique", "TCe 200|1.6 L"],
+    ["Renault", "Megane", "Evolution 60 kWh", "130ch|220ch", "Électrique", "réducteur", "CMF-EV|60 kWh"],
+    ["Renault", "Megane", "Iconic 60 kWh", "220ch", "Électrique", "réducteur", "CMF-EV|60 kWh"],
 
-    // --- SKODA (CONSOLIDÉ) ---
-    ["Skoda", "Octavia", "2012-2020", "1.4 TSI", "125ch|150ch", "Essence", "DSG|BVM6", "EA211|1.4 L"],
-    ["Skoda", "Octavia", "2012-2020", "1.6 TDI", "110ch|115ch", "Diesel", "DSG|BVM5", "EA288|1.6 L"],
-    ["Skoda", "Octavia", "2012-2020", "2.0 TDI", "150ch|184ch", "Diesel", "DSG|4x4", "EA288|2.0 L"],
-    ["Skoda", "Octavia", "2020-2026", "1.5 TSI", "110ch|150ch", "Essence", "BVM6|DSG", "EA211 evo|1.5 L"],
-    ["Skoda", "Octavia", "2020-2026", "2.0 TSI", "190ch|265ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
-    ["Skoda", "Octavia", "2020-2026", "2.0 TDI", "115ch|150ch|200ch", "Diesel", "DSG|4x4", "EA288|2.0 L"],
-    ["Skoda", "Octavia", "2020-2026", "iV", "204ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
-    ["Skoda", "Elroq", "2024-2026", "Elroq 50", "55 kWh|125kW|170ch", "Électrique", "RWD / réducteur", "MEB|55 kWh"],
-    ["Skoda", "Elroq", "2024-2026", "Elroq 60", "63 kWh|150kW|204ch", "Électrique", "RWD / réducteur", "MEB|63 kWh"],
-    ["Skoda", "Elroq", "2024-2026", "Elroq 85", "77 kWh|210kW|286ch", "Électrique", "RWD / réducteur", "MEB|77 kWh"],
-    ["Skoda", "Elroq", "2024-2026", "Elroq 85x", "77 kWh|210kW|286ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
+    ["Renault", "Scenic", "1.3 TCe", "115ch|140ch|160ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
+    ["Renault", "Scenic", "1.5 dCi", "95ch|115ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
+    ["Renault", "Scenic", "60 kWh", "170ch|210ch", "Électrique", "réducteur", "CMF-EV|60 kWh"],
+    ["Renault", "Scenic", "87 kWh", "210ch", "Électrique", "réducteur", "CMF-EV|87 kWh"],
 
-    // --- DAUTRES MARQUES MAJEURES (Extraits pour performance, principe identique) ---
-    ["Ford", "Focus", "2011-2018", "1.0 EcoBoost", "100ch|125ch", "Essence", "BVM5|PowerShift", "EcoBoost|1.0 L"],
-    ["Ford", "Focus", "2018-2025", "1.0 EcoBoost", "100ch|125ch|155ch", "Essence", "BVM6|PowerShift", "EcoBoost|1.0 L"],
-    ["Ford", "Kuga", "2019-2026", "1.5 EcoBoost", "120ch|150ch", "Essence", "BVM6|Auto", "EcoBoost|1.5 L"],
-    ["Opel", "Corsa", "2019-2026", "1.2", "75ch|100ch|130ch", "Essence", "BVM5|BVM6|EAT8", "EB2|1.2 L"],
-    ["Seat", "Leon", "2020-2026", "1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
-    ["Hyundai", "Tucson", "2021-2026", "1.6 TGDI", "150ch|177ch", "Essence", "BVM6|DCT", "Smartstream|1.6 L"],
-    ["Kia", "Sportage", "2021-2026", "1.6 TGDI", "150ch|180ch", "Essence", "BVM6|DCT", "Smartstream|1.6 L"]
+    ["Renault", "Kangoo", "1.3 TCe", "100ch|130ch", "Essence", "BVM6", "H5H|1.3 L"],
+    ["Renault", "Kangoo", "1.5 Blue dCi", "85ch|100ch|115ch", "Diesel", "BVM6", "K9K|1.5 L"],
+    ["Renault", "Kangoo", "E-Tech Electric", "100kW|136ch", "Électrique", "réducteur", "eKangoo|45 kWh"],
+
+    ["Renault", "Trafic", "2.0 dCi", "120ch|150ch|170ch", "Diesel", "BVM6", "M9R|2.0 L"],
+    ["Renault", "Master", "2.3 dCi", "100ch|125ch|135ch|150ch", "Diesel", "BVM6", "9H|2.3 L"],
+    ["Renault", "Master", "2.0 dCi", "136ch|160ch|180ch", "Diesel", "BVM6|EDC", "M9R|2.0 L"],
+
+    ["Renault", "Zoe", "R110/R135", "110ch|135ch", "Électrique", "réducteur", "Zoe|52 kWh"],
+
+    // --- VOLKSWAGEN ---
+    ["Volkswagen", "Golf", "1.0 TSI", "85ch|110ch|125ch", "Essence", "BVM6|DSG", "EA211|1.0 L"],
+    ["Volkswagen", "Golf", "1.4 TSI", "125ch|150ch", "Essence", "DSG", "EA211|1.4 L"],
+    ["Volkswagen", "Golf", "1.5 TSI", "130ch|150ch|180ch", "Essence", "DSG|BVM6", "EA211 evo|1.5 L"],
+    ["Volkswagen", "Golf", "2.0 TSI", "230ch|310ch|320ch", "Essence", "DSG", "EA888|2.0 L"],
+    ["Volkswagen", "Golf", "1.6 TDI", "90ch|110ch|115ch", "Diesel", "BVM5|DSG", "EA288|1.6 L"],
+    ["Volkswagen", "Golf", "2.0 TDI", "110ch|150ch|184ch|200ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
+    ["Volkswagen", "Golf", "GTE", "204ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
+    ["Volkswagen", "Golf", "eTSI", "110ch|130ch|150ch", "Hybride léger 48V", "DSG", "EA211 evo|1.0 L|1.5 L"],
+    ["Volkswagen", "Golf", "eHybrid", "204ch|245ch", "Hybride rechargeable", "DSG", "PHEV|1.5 L"],
+
+    ["Volkswagen", "Polo", "1.0 MPI", "65ch|75ch", "Essence", "BVM5", "EA211|1.0 L"],
+    ["Volkswagen", "Polo", "1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM5|DSG", "EA211|1.0 L"],
+    ["Volkswagen", "Polo", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Volkswagen", "Polo", "1.6 TDI", "80ch|95ch|115ch", "Diesel", "BVM5|DSG", "EA288|1.6 L"],
+    ["Volkswagen", "Polo", "2.0 TDI", "95ch|115ch|150ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
+
+    ["Volkswagen", "Tiguan", "1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Volkswagen", "Tiguan", "2.0 TSI", "190ch|245ch|320ch", "Essence", "DSG 4Motion", "EA888|2.0 L"],
+    ["Volkswagen", "Tiguan", "2.0 TDI", "150ch|190ch|200ch", "Diesel", "DSG|4Motion", "EA288|2.0 L"],
+    ["Volkswagen", "Tiguan", "eHybrid", "245ch|300ch", "Hybride rechargeable", "DSG 4Motion", "PHEV|1.4 L|2.0 L"],
+
+    ["Volkswagen", "ID.3", "Pure Performance", "145ch|174ch|204ch", "Électrique", "réducteur", "MEB|58 kWh|77 kWh"],
+    ["Volkswagen", "ID.4", "Pro", "174ch|204ch", "Électrique", "réducteur", "MEB|52 kWh|58 kWh|77 kWh"],
+    ["Volkswagen", "ID.4", "GTX", "299ch", "Électrique", "AWD / réducteur", "MEB|77 kWh|86 kWh"],
+
+    // --- AUDI ---
+    ["Audi", "A3", "1.4 TFSI", "125ch|150ch", "Essence", "S tronic", "EA211|1.4 L"],
+    ["Audi", "A3", "2.0 TFSI", "190ch|230ch|204ch", "Essence", "S tronic quattro", "EA888|2.0 L"],
+    ["Audi", "A3", "2.0 TDI", "150ch|184ch", "Diesel", "S tronic|quattro", "EA288|2.0 L"],
+    ["Audi", "A3", "30 TFSI", "110ch", "Essence", "S tronic", "EA211|1.0 L"],
+    ["Audi", "A3", "35 TFSI", "150ch", "Essence", "S tronic", "EA211 evo|1.5 L"],
+    ["Audi", "A3", "35 TDI", "150ch", "Diesel", "S tronic", "EA288|2.0 L"],
+    ["Audi", "A3", "45 TFSI e", "245ch|310ch", "Hybride rechargeable", "S tronic", "PHEV|1.4 L"],
+
+    ["Audi", "Q3", "30 TFSI", "110ch|150ch", "Essence", "S tronic", "EA211|1.0 L|1.5 L"],
+    ["Audi", "Q3", "40 TFSI", "190ch|204ch", "Essence", "S tronic quattro", "EA888|2.0 L"],
+    ["Audi", "Q3", "35 TDI", "150ch", "Diesel", "S tronic", "EA288|2.0 L"],
+    ["Audi", "Q3", "40 TDI", "190ch", "Diesel", "S tronic quattro", "EA288|2.0 L"],
+    ["Audi", "Q3", "45 TFSI e", "245ch", "Hybride rechargeable", "S tronic quattro", "PHEV|1.4 L"],
+
+    ["Audi", "Q4 e-tron", "35 e-tron", "170ch", "Électrique", "réducteur", "MEB|52 kWh|55 kWh"],
+    ["Audi", "Q4 e-tron", "40 e-tron", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Audi", "Q4 e-tron", "50 e-tron quattro", "299ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
+
+    // --- BMW ---
+    ["BMW", "Serie 1", "116i", "109ch|136ch", "Essence", "BVM6|Steptronic", "B38/N13|1.5 L|1.6 L"],
+    ["BMW", "Serie 1", "118i", "136ch|156ch|170ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
+    ["BMW", "Serie 1", "120i", "170ch|218ch", "Essence", "Steptronic", "B48|2.0 L"],
+    ["BMW", "Serie 1", "125i", "245ch", "Essence", "Steptronic xDrive", "B48|2.0 L"],
+    ["BMW", "Serie 1", "116d", "116ch", "Diesel", "BVM6|Steptronic", "B37|1.5 L"],
+    ["BMW", "Serie 1", "118d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
+    ["BMW", "Serie 1", "120d", "163ch|190ch", "Diesel", "Steptronic|xDrive", "B47|2.0 L"],
+
+    ["BMW", "X1", "sDrive18i", "136ch|170ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
+    ["BMW", "X1", "sDrive18d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
+    ["BMW", "X1", "sDrive20i", "178ch|204ch", "Essence", "Steptronic", "B48|2.0 L"],
+    ["BMW", "X1", "xDrive25e", "245ch", "Hybride rechargeable", "Steptronic xDrive", "PHEV|1.5 L"],
+
+    ["BMW", "iX1", "eDrive20", "184ch", "Électrique", "RWD / réducteur", "FAAR|64.7 kWh"],
+    ["BMW", "iX1", "eDrive30", "272ch", "Électrique", "RWD / réducteur", "FAAR|66.4 kWh"],
+    ["BMW", "iX1", "xDrive30", "313ch", "Électrique", "AWD / réducteur", "FAAR|66.4 kWh"],
+
+    // --- MERCEDES BENZ ---
+    ["Mercedes-Benz", "Classe A", "A180", "120ch|122ch|136ch", "Essence", "7G-DCT", "M282/M270|1.3 L|1.6 L"],
+    ["Mercedes-Benz", "Classe A", "A200", "156ch|163ch|184ch|190ch", "Essence", "7G-DCT|8G-DCT", "M282/M260|M270|1.3 L|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "A250", "224ch", "Essence", "8G-DCT 4MATIC", "M260|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "AMG A35", "306ch", "Essence", "AMG SPEEDSHIFT 4MATIC", "M260|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "A180d", "116ch", "Diesel", "7G-DCT", "OM654|1.5 L|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "A200d", "150ch", "Diesel", "8G-DCT", "OM654|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "A250e", "218ch", "Hybride rechargeable", "8G-DCT", "PHEV|1.3 L"],
+
+    ["Mercedes-Benz", "GLA", "GLA180", "120ch|136ch", "Essence", "7G-DCT", "M282|1.3 L"],
+    ["Mercedes-Benz", "GLA", "GLA200", "163ch|190ch", "Essence", "7G-DCT|8G-DCT", "M282/M260|1.3 L|2.0 L"],
+    ["Mercedes-Benz", "GLA", "GLA250", "224ch", "Essence", "8G-DCT 4MATIC", "M260|2.0 L"],
+    ["Mercedes-Benz", "GLA", "GLA200d", "150ch", "Diesel", "8G-DCT", "OM654|2.0 L"],
+    ["Mercedes-Benz", "GLA", "GLA250e", "218ch", "Hybride rechargeable", "8G-DCT", "PHEV|1.3 L"],
+
+    ["Mercedes-Benz", "EQB", "EQB 250", "190ch", "Électrique", "réducteur", "EVA|66.5 kWh"],
+    ["Mercedes-Benz", "EQB", "EQB 350 4MATIC", "292ch", "Électrique", "AWD / réducteur", "EVA|66.5 kWh"],
+
+    // --- TOYOTA ---
+    ["Toyota", "Yaris", "1.0 VVT-i", "69ch|72ch", "Essence", "BVM5", "1KR-FE|1.0 L"],
+    ["Toyota", "Yaris", "1.33 VVT-i", "101ch", "Essence", "Multidrive S", "2NR-FE|1.3 L"],
+    ["Toyota", "Yaris", "1.5 D-4D", "100ch", "Diesel", "BVM5", "ND|1.5 L"],
+    ["Toyota", "Yaris", "1.5 Hybrid", "116ch|130ch", "Hybride", "e-CVT", "THS II|1.5 L"],
+    ["Toyota", "Yaris", "GR Yaris", "261ch|280ch", "Essence", "BVM6 4x4", "G16E-GTS|1.6 L"],
+
+    ["Toyota", "Corolla", "1.8 Hybrid", "122ch|140ch", "Hybride", "e-CVT", "THS II|1.8 L"],
+    ["Toyota", "Corolla", "2.0 Hybrid", "184ch|196ch", "Hybride", "e-CVT", "Dynamic Force|2.0 L"],
+    ["Toyota", "Corolla", "2.0", "169ch|197ch", "Essence", "BVM6|Direct Shift", "Dynamic Force|2.0 L"],
+    ["Toyota", "Corolla", "1.8 Plug-in Hybrid", "196ch", "Hybride rechargeable", "e-CVT", "PHEV|1.8 L"],
+
+    ["Toyota", "RAV4", "2.0", "171ch", "Essence", "BVM6|Direct Shift", "Dynamic Force|2.0 L"],
+    ["Toyota", "RAV4", "2.5 Hybrid", "218ch|222ch", "Hybride", "e-CVT AWD-i", "THS II|2.5 L"],
+    ["Toyota", "RAV4", "2.5 Plug-in Hybrid", "306ch|320ch", "Hybride rechargeable", "e-CVT AWD-i", "PHEV|2.5 L"],
+    ["Toyota", "RAV4", "2.5 D-4D", "150ch|200ch", "Diesel", "BVM6|Direct Shift 4x4", "GD|2.5 L"],
+
+    // --- SKODA ---
+    ["Skoda", "Octavia", "1.4 TSI", "125ch|150ch", "Essence", "DSG|BVM6", "EA211|1.4 L"],
+    ["Skoda", "Octavia", "1.5 TSI", "110ch|150ch", "Essence", "BVM6|DSG", "EA211 evo|1.5 L"],
+    ["Skoda", "Octavia", "2.0 TSI", "190ch|265ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
+    ["Skoda", "Octavia", "1.6 TDI", "110ch|115ch", "Diesel", "DSG|BVM5", "EA288|1.6 L"],
+    ["Skoda", "Octavia", "2.0 TDI", "115ch|150ch|184ch|200ch", "Diesel", "DSG|4x4", "EA288|2.0 L"],
+    ["Skoda", "Octavia", "iV", "204ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
+
+    ["Skoda", "Elroq", "Elroq 50", "55 kWh|125kW|170ch", "Électrique", "RWD / réducteur", "MEB|55 kWh"],
+    ["Skoda", "Elroq", "Elroq 60", "63 kWh|150kW|204ch", "Électrique", "RWD / réducteur", "MEB|63 kWh"],
+    ["Skoda", "Elroq", "Elroq 85", "77 kWh|210kW|286ch", "Électrique", "RWD / réducteur", "MEB|77 kWh"],
+    ["Skoda", "Elroq", "Elroq 85x", "77 kWh|210kW|286ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
+
+    // --- TESLA ---
+    ["Tesla", "Model 3", "Standard Range Plus", "283ch", "Électrique", "RWD / réducteur", "BEV|57.5 kWh|60 kWh"],
+    ["Tesla", "Model 3", "Long Range", "351ch|442ch", "Électrique", "RWD/AWD / réducteur", "BEV|75 kWh|82 kWh"],
+    ["Tesla", "Model 3", "Performance", "513ch|534ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
+    ["Tesla", "Model Y", "Standard Range", "299ch", "Électrique", "RWD / réducteur", "BEV|60 kWh|62.5 kWh"],
+    ["Tesla", "Model Y", "Long Range", "442ch|534ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
+    ["Tesla", "Model Y", "Performance", "534ch|615ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
+    ["Tesla", "Model S", "Long Range", "670ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
+    ["Tesla", "Model S", "Plaid", "1020ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
+    ["Tesla", "Model X", "Long Range", "670ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
+    ["Tesla", "Model X", "Plaid", "1020ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
+
+    // --- AUTRES MARQUES MAJEURES (Extraits clés) ---
+    ["Ford", "Focus", "1.0 EcoBoost", "100ch|125ch|155ch", "Essence", "BVM5|BVM6|PowerShift", "EcoBoost|1.0 L"],
+    ["Ford", "Focus", "1.5 EcoBoost", "150ch|182ch", "Essence", "BVM6|PowerShift", "EcoBoost|1.5 L"],
+    ["Ford", "Focus", "1.5 TDCi", "95ch|120ch", "Diesel", "BVM5|BVM6", "TDCi|1.5 L"],
+    ["Ford", "Focus", "2.0 EcoBlue", "150ch|190ch", "Diesel", "BVM6|Auto", "EcoBlue|2.0 L"],
+    ["Ford", "Focus", "2.3 EcoBoost ST", "280ch", "Essence", "BVM6", "EcoBoost|2.3 L"],
+
+    ["Opel", "Corsa", "1.2", "75ch|100ch|130ch", "Essence", "BVM5|BVM6|EAT8", "EB2|1.2 L"],
+    ["Opel", "Corsa", "1.5 Diesel", "100ch|130ch", "Diesel", "BVM6", "DV5|1.5 L"],
+    ["Opel", "Corsa", "Corsa Electric", "136ch", "Électrique", "réducteur", "eCMP|50 kWh"],
+
+    ["Seat", "Leon", "1.0 TSI", "110ch", "Essence", "DSG", "EA211|1.0 L"],
+    ["Seat", "Leon", "1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Seat", "Leon", "2.0 TSI", "190ch|310ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
+    ["Seat", "Leon", "2.0 TDI", "115ch|150ch", "Diesel", "DSG", "EA288|2.0 L"],
+    ["Seat", "Leon", "e-HYBRID", "204ch|245ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
+
+    ["Hyundai", "Tucson", "1.6 TGDI", "150ch|177ch", "Essence", "BVM6|DCT", "Smartstream|1.6 L"],
+    ["Hyundai", "Tucson", "1.6 CRDi", "115ch|136ch", "Diesel", "BVM6|DCT", "Smartstream|1.6 L"],
+    ["Hyundai", "Tucson", "1.6 Hybrid", "215ch|230ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Hyundai", "Tucson", "1.6 Plug-in Hybrid", "253ch|265ch", "Hybride rechargeable", "automatique", "PHEV|1.6 L"],
+
+    ["Kia", "Sportage", "1.6 TGDI", "150ch|180ch", "Essence", "BVM6|DCT", "Smartstream|1.6 L"],
+    ["Kia", "Sportage", "1.6 CRDi", "136ch", "Diesel", "BVM6|DCT 4x4", "Smartstream|1.6 L"],
+    ["Kia", "Sportage", "1.6 Hybrid", "215ch|230ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Kia", "Sportage", "1.6 Plug-in Hybrid", "253ch|265ch", "Hybride rechargeable", "automatique 4x4", "PHEV|1.6 L"]
   ];
 
   const DEFECTS_KNOWN = [
@@ -947,10 +939,9 @@
       catalog.defects.push({ ...d, source: "base massive locale" });
     });
 
-    // 2. Indexer la base massive embarquée (Instantané)
-    // On groupe par Marque|Modèle pour permettre l'affichage de TOUTES les variantes
+    // 2. Indexer la base massive embarquée
     EMBEDDED_MASTER_DB.forEach(row => {
-      const [b, m, y, e, p, t, tr, codeOrDisp] = row;
+      const [b, m, e, p, t, tr, codeOrDisp] = row;
       
       const bk = normKey(b);
       const mk = normKey(m);
@@ -965,7 +956,7 @@
         index.models[modelKey] = {
           brand: b,
           name: m,
-          engines: [] // Pas de 'years' global car plusieurs plages peuvent exister pour le même nom
+          engines: []
         };
         index.brands[bk].models.push(index.models[modelKey]);
       }
@@ -973,7 +964,6 @@
       const engineObj = {
         brand: b,
         model: m,
-        years: y, // Conservé pour l'affichage
         engine: e,
         displacement: codeOrDisp.includes("L") || codeOrDisp.includes("cm3") ? codeOrDisp : "",
         power: p,
@@ -988,7 +978,7 @@
     });
   };
 
-  const addModelToIndex = (b, m, y) => {
+  const addModelToIndex = (b, m) => {
     const bk = normKey(b);
     const mk = normKey(m);
     if (!index.brands[bk]) index.brands[bk] = { name: b, models: [] };
@@ -1000,19 +990,18 @@
     }
   };
 
-  const addEngineToIndex = (b, m, y, e, p, t, tr, code) => {
+  const addEngineToIndex = (b, m, e, p, t, tr, code) => {
     const bk = normKey(b);
     const mk = normKey(m);
     const modelKey = `${bk}|${mk}`;
     
     if (!index.models[modelKey]) return; 
     
-    // Éviter doublons exacts
-    const exists = index.models[modelKey].engines.some(ex => ex.engine === e && ex.power === p && ex.years === y);
+    const exists = index.models[modelKey].engines.some(ex => ex.engine === e && ex.power === p);
     if (exists) return;
 
     const engineObj = {
-      brand: b, model: m, years: y, engine: e, power: p, fuel: t, transmission: tr, code: code,
+      brand: b, model: m, engine: e, power: p, fuel: t, transmission: tr, code: code,
       displacement: code?.includes("L") ? code : "",
       source: "auto-diagnostic distant",
       confidence: 0.98
@@ -1022,7 +1011,7 @@
   };
 
   /* =========================================================
-     SYNCHRONISATION PASSIVE (EN ARRIÈRE-PLAN)
+     SYNCHRONISATION PASSIVE
      ========================================================= */
   const syncRemoteCatalogPassive = async () => {
     const lastSync = loadWithMigration(KEYS.AUTO_LAST_SYNC, OLD_KEYS.AUTO_LAST_SYNC, 0);
@@ -1030,8 +1019,8 @@
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
     
     if (lastSync && (now - lastSync) < thirtyDaysMs) {
-      console.log("[AR-EXPERT] Synchro distante inutile (<30 jours). Utilisation du cache/local.");
-      updateDataStatus(`Base locale massive active • Dernière synchro : ${new Date(lastSync).toLocaleDateString()}`);
+      console.log("[AR-EXPERT] Synchro distante inutile (<30 jours).");
+      updateDataStatus(`Base locale active • Dernière synchro : ${new Date(lastSync).toLocaleDateString()}`);
       return;
     }
 
@@ -1046,7 +1035,7 @@
       autoLastSync = Date.now();
       save(KEYS.AUTO_LAST_SYNC, autoLastSync);
       updateDataStatus(`Auto-Diagnostic synchronisé (${new Date().toLocaleTimeString()})`);
-      toast("Données Auto-Diagnostic mises à jour en arrière-plan.", "success");
+      toast("Données mises à jour en arrière-plan.", "success");
       
       if (selection.brand) {
         loadModelsForBrand(selection.brand.name, false);
@@ -1054,7 +1043,7 @@
       
     } catch (err) {
       console.warn("Échec synchro distante silencieux :", err);
-      updateDataStatus("Mode Secours Local Actif (Pas de connexion GitHub récente)");
+      updateDataStatus("Mode Secours Local Actif");
       save(KEYS.AUTO_LAST_SYNC, Date.now()); 
     }
   };
@@ -1066,8 +1055,7 @@
       vehicles.forEach(v => {
         const b = v.b || v.marque || v.brand;
         const m = v.m || v.modele || v.model;
-        const y = v.y || v.annee || v.years;
-        if (b && m) addModelToIndex(b, m, y);
+        if (b && m) addModelToIndex(b, m);
       });
     }
 
@@ -1075,7 +1063,6 @@
       motors.forEach(mo => {
         const b = mo.b || mo.marque || mo.brand;
         const m = mo.m || mo.modele || mo.model;
-        const y = mo.y || mo.annee || mo.years;
         const e = mo.e || mo.engine || mo.motorisation;
         const p = mo.p || mo.power || mo.puissance;
         const t = mo.t || mo.type || mo.fuel || mo.energie;
@@ -1083,14 +1070,14 @@
         const code = mo.code || mo.d || mo.displacement;
         
         if (b && m && e) {
-          addEngineToIndex(b, m, y, e, p, t, tr, code);
+          addEngineToIndex(b, m, e, p, t, tr, code);
         }
       });
     }
   };
 
   /* =========================================================
-     LOGIQUE DE PRÉDICTION STRICTE (CASCADE SANS FILTRE ANNÉE)
+     LOGIQUE DE PRÉDICTION (CASCADE PURE)
      ========================================================= */
   const predictBrands = (query) => {
     const q = norm(query);
@@ -1121,7 +1108,7 @@
       .slice(0, 100);
   };
 
-  // CORRECTION MAJEURE : Suppression du filtre année
+  // SUPPRESSION TOTALE DU FILTRE ANNÉE
   const predictEngines = (brandName, modelName) => {
     if (!brandName || !modelName) return [];
     const bk = normKey(brandName);
@@ -1131,19 +1118,17 @@
     
     if (!modelData) return [];
 
-    // On retourne TOUS les moteurs associés à ce modèle, quelle que soit leur année
-    // Les années seront affichées dans le label pour guider l'utilisateur
+    // Tri par Énergie puis Puissance Descendante
     return modelData.engines.map(e => ({
-      id: `${modelKey}|${normKey(e.engine)}|${normKey(e.years)}`, // ID unique incluant l'année pour éviter conflits
+      id: `${modelKey}|${normKey(e.engine)}`,
       ...e
     })).sort((a, b) => {
-      // Tri par énergie puis puissance
       const rankA = ["Essence","Diesel","Hybride","Hybride rechargeable","Hybride léger 48V","Électrique"].indexOf(a.fuel);
       const rankB = ["Essence","Diesel","Hybride","Hybride rechargeable","Hybride léger 48V","Électrique"].indexOf(b.fuel);
       if (rankA !== rankB) return (rankA === -1 ? 99 : rankA) - (rankB === -1 ? 99 : rankB);
       
-      const powA = parseFloat(String(a.power).match(/(\d+)/)?.[0] || 0);
-      const powB = parseFloat(String(b.power).match(/(\d+)/)?.[0] || 0);
+      const powA = getPowerValue(a.power);
+      const powB = getPowerValue(b.power);
       return powB - powA;
     });
   };
@@ -1231,7 +1216,6 @@
     }
   };
 
-  // Label amélioré incluant les années pour clarifier les choix multiples
   const engineLabel = (o) => {
     const parts = [];
     if (o.fuel) parts.push(o.fuel);
@@ -1240,11 +1224,6 @@
     if (o.power && o.power !== "N/A") parts.push(o.power);
     if (o.transmission) parts.push(o.transmission);
     if (o.code) parts.push(o.code);
-    
-    // Ajout critique : Affichage des années de validité de CETTE motorisation
-    const yrDisplay = formatYearsDisplay(o.years);
-    if (yrDisplay) parts.push(`(${yrDisplay})`);
-    
     return parts.join(" • ");
   };
 
@@ -1300,7 +1279,7 @@
     selection.engine = null;
     closeAllCombos();
     updateModelButton();
-    renderEngineList(""); // Pré-chargement immédiat
+    renderEngineList(""); 
     updateSelectionSummary();
   };
 
@@ -1316,14 +1295,13 @@
     const el = q("#selectionSummary");
     if (!el) return;
     const v = getSelectedVehicleData();
-    if (!v.marque && !v.modele && !v.annee && !v.engine) {
+    if (!v.marque && !v.modele && !v.engine) {
       el.textContent = "Aucune sélection véhicule complète.";
       return;
     }
     const parts = [];
     if (v.marque) parts.push(v.marque);
     if (v.modele) parts.push(v.modele);
-    if (v.annee) parts.push(v.annee);
     if (v.engine) parts.push(v.engine);
     if (v.displacement) parts.push(v.displacement);
     if (v.power && v.power !== "N/A") parts.push(v.power);
@@ -1335,13 +1313,11 @@
 
   const getSelectedVehicleData = () => {
     const brandEl = q("#brandInput");
-    const yearEl = q("#vehicleYear");
     const kmEl = q("#vehicleKilometrage");
     const vinEl = q("#vehicleVin");
     return {
       marque: selection.brand ? selection.brand.name : (brandEl ? brandEl.value.trim() : ""),
       modele: selection.model ? selection.model.name : "",
-      annee: yearEl ? yearEl.value.trim() : "",
       engine: selection.engine ? selection.engine.engine : "",
       displacement: selection.engine ? selection.engine.displacement : "",
       power: selection.engine ? selection.engine.power : "",
@@ -1356,7 +1332,7 @@
   };
 
   /* =========================================================
-     ANALYSE / RAPPORT (IDENTIQUE À V26 MAIS ROBUSTE)
+     ANALYSE / RAPPORT (Adapté sans année)
      ========================================================= */
   const addTerm = (...args) => {
     args.forEach((t) => termesMobilises.add(t));
@@ -1370,13 +1346,11 @@
 
   const matchDefects = (v, text) => {
     const txt = norm(text);
-    const yr = parseYear(v.annee);
     const results = [];
 
     catalog.defects.forEach(d => {
       if (v.marque && !brandMatches(d.b, v.marque)) return;
       if (v.modele && d.m && d.m !== "*" && !modelListContains(d.m, v.modele)) return;
-      if (!yearMatches(d.y, yr)) return;
 
       let score = 0;
       const found = [];
@@ -1396,7 +1370,7 @@
           constructeur: d.b,
           moteur: d.e,
           puissance: d.p,
-          periode: d.y,
+          periode: d.y, // Toujours affiché comme référence historique
           modeles: d.m === "*" ? ["Toutes motorisations"] : String(d.m || "").split("|"),
           severite: d.sev,
           description: d.n,
@@ -1475,13 +1449,12 @@
     renderAnalysis();
   };
 
-  // Helpers de rendu section (identiques à v26)
+  // Helpers de rendu section (adaptés pour ignorer l'année dans l'identification principale)
   const secIdentification = (text, context) => {
     let h = `<p><strong>Objet :</strong> recensement des éléments fournis ${addTerm("éléments factuels", "faits allégués")}.</p>`;
     h += "<h4>A. Véhicule sélectionné</h4><ul>";
     h += `<li><strong>Marque :</strong> ${esc(vehicleData.marque || "non précisée")}</li>`;
     h += `<li><strong>Modèle :</strong> ${esc(vehicleData.modele || "non précisé")}</li>`;
-    h += `<li><strong>Année :</strong> ${esc(vehicleData.annee || "non précisée")} ${addTerm("millésime", "date de première mise en circulation")}</li>`;
     h += `<li><strong>Motorisation :</strong> ${esc(vehicleData.engine || "non précisée")}</li>`;
     h += `<li><strong>Cylindrée / capacité :</strong> ${esc(vehicleData.displacement || "non précisée")}</li>`;
     h += `<li><strong>Puissance :</strong> ${esc(vehicleData.power || "non précisée")}</li>`;
@@ -1502,14 +1475,12 @@
 
   const secTechnique = (matches, flags, vData) => {
     const km = parseKm(vData.kilometrage);
-    const yr = parseYear(vData.annee);
-    const age = new Date().getFullYear() - (yr || new Date().getFullYear());
     let h = "";
     
     if (!matches.length) {
       h += `<p><strong>Objet :</strong> recherche de défauts conceptuels connus ${addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série")}.</p>`;
       h += '<div class="verification-needed">';
-      h += "<p>Aucune correspondance exacte trouvée dans la base locale massive pour Marque/Modèle/Année/Motorisation/Puissance/Symptômes.</p>";
+      h += "<p>Aucune correspondance exacte trouvée dans la base locale massive pour Marque/Modèle/Motorisation/Puissance/Symptômes.</p>";
       h += "<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>";
       h += `<p>Une expertise individuelle est nécessaire ${addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine")}.</p>`;
       h += "</div>";
@@ -1522,7 +1493,7 @@
       const cls = m.severite === "critique" ? "rappel-critical" : "rappel-info";
       const confColor = m.confiance === "Haute" ? "#10b981" : (m.confiance === "Moyenne" ? "#f59e0b" : "#ef4444");
       h += `<div class="${cls}">`;
-      h += `<h4>${i + 1}. ${esc(m.moteur)} — ${esc(m.puissance)} — ${esc(m.periode)}</h4>`;
+      h += `<h4>${i + 1}. ${esc(m.moteur)} — ${esc(m.puissance)} — Réf Période: ${esc(m.periode)}</h4>`;
       h += `<p><strong>Constructeur :</strong> ${esc(m.constructeur)}</p>`;
       h += `<p><strong>Modèles concernés :</strong> ${esc(m.modeles.join(", "))}</p>`;
       h += `<p><strong>Type motorisation :</strong> ${esc(m.engineType || "non précisé")}</p>`;
@@ -1540,9 +1511,7 @@
     });
 
     h += "<h4>Analyse de vétusté et kilométrage</h4><ul>";
-    h += `<li><strong>Âge approximatif :</strong> ${age} ans</li>`;
     h += `<li><strong>Kilométrage :</strong> ${km.toLocaleString("fr-FR")} km</li>`;
-    h += `<li><strong>Rythme estimé :</strong> ${age > 0 ? Math.round(km / age).toLocaleString("fr-FR") : "N/A"} km/an</li>`;
     if (km > 200000) {
       h += '<li class="certainty-low">Kilométrage très élevé : usure normale fortement plausible. Expertise indispensable pour distinguer défaut et usure.</li>';
     } else if (km > 120000) {
@@ -1724,7 +1693,7 @@
     const critical = matches.some((m) => m.severite === "critique");
     const auto = matches.some((m) => m.source === "auto-diagnostic");
     let h = `<p><strong>Objet :</strong> conclusion prudente orientée ingénieur / juriste ${addTerm("synthèse", "conclusion")}.</p>`;
-    h += `<p><strong>Sélections prises en compte :</strong> ${esc(vData.marque || "marque non précisée")} / ${esc(vData.modele || "modèle non précisé")} / ${esc(vData.annee || "année non précisée")} / ${esc(vData.engine || "motorisation non précisée")}${vData.displacement ? " / " + esc(vData.displacement) : ""}${vData.power && vData.power !== "N/A" ? " / " + esc(vData.power) : ""}${vData.fuel ? " / " + esc(vData.fuel) : ""}${vData.transmission ? " / " + esc(vData.transmission) : ""}${vData.code ? " / code " + esc(vData.code) : ""}.</p>`;
+    h += `<p><strong>Sélections prises en compte :</strong> ${esc(vData.marque || "marque non précisée")} / ${esc(vData.modele || "modèle non précisé")} / ${esc(vData.engine || "motorisation non précisée")}${vData.displacement ? " / " + esc(vData.displacement) : ""}${vData.power && vData.power !== "N/A" ? " / " + esc(vData.power) : ""}${vData.fuel ? " / " + esc(vData.fuel) : ""}${vData.transmission ? " / " + esc(vData.transmission) : ""}${vData.code ? " / code " + esc(vData.code) : ""}.</p>`;
     h += "<p>";
     if (high && critical && auto) {
       h += "Le croisement local technique/juridique/motorisation/auto-diagnostic oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave. L’appui auto-diagnostic renforce la démonstration du caractère documenté et non isolé du désordre.";
@@ -2002,12 +1971,6 @@
       if (!e.target.closest(".combo")) closeAllCombos();
     });
 
-    // Le champ année n'affecte PLUS la liste moteur, donc on ne rafraîchit plus la liste moteur sur input année
-    // Mais on met à jour le résumé pour information
-    on("#vehicleYear", "input", () => {
-      updateSelectionSummary();
-    });
-
     // Analyze Btn
     on("#analyzeBtn", "click", () => {
       if (!currentUser) { toast("Connectez-vous.", "error"); return; }
@@ -2130,7 +2093,7 @@
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "aide-redactionnelle-expert-data-v27.json";
+      a.download = "aide-redactionnelle-expert-data-v28.json";
       a.click();
       toast("Données exportées.", "success");
     });
@@ -2143,7 +2106,7 @@
     initIndexOfflineFirst();
     
     updateAdminStats();
-    updateDataStatus("Base locale massive consolidée chargée (Off-line First)");
+    updateDataStatus("Base locale ultra-consolidée chargée (Off-line First)");
     updateNotificationState();
     registerServiceWorker();
     refreshSavedPasswordButton();
@@ -2166,7 +2129,7 @@
     
     syncRemoteCatalogPassive();
     
-    toast("Application prête. Toutes les motorisations visibles sans filtre année.", "success");
+    toast("Application prête. Aucune restriction d'année. Toutes les motorisations disponibles.", "success");
   };
 
   const boot = () => {
