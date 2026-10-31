@@ -1,20 +1,91 @@
 (() => {
   "use strict";
 
-  const APP_VERSION = "v30-dynamic-auto-diagnostic-apk";
+  const VERSION = "v31-apk-robust-engineer";
+  const ADMIN_PASSWORD = "Kevin83600";
+  const MAX_DAILY_ANALYSES = 10;
+  const REMOTE_BASE = "https://expertkevin06-cell.github.io/auto-diagnostic/";
 
-  window.addEventListener("error", (e) => {
-    console.warn("[EXPERT-AUTO] Erreur globale:", e?.message);
-  });
+  const DB_NAME = "expert_auto_apk_v31";
+  const DB_VERSION = 1;
+  const STORES = ["meta", "brands", "models", "engines", "defects"];
 
-  window.addEventListener("unhandledrejection", (e) => {
-    console.warn("[EXPERT-AUTO] Promesse rejetée:", e?.reason);
-    if (e.preventDefault) e.preventDefault();
-  });
+  const KEYS = {
+    SESSION: "arex_session_v31",
+    USERS: "arex_users_v31",
+    REQUESTS: "arex_requests_v31",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v31",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v31",
+    BACKGROUND: "arex_background_v31",
+    SETTINGS: "arex_settings_v31"
+  };
 
-  const q = (sel) => { try { return document.querySelector(sel); } catch { return null; } };
-  const qa = (sel) => { try { return Array.from(document.querySelectorAll(sel)); } catch { return []; } };
-  const on = (sel, evt, fn) => { const el = q(sel); if (el) el.addEventListener(evt, fn); };
+  const OLD_KEYS = {
+    SESSION: "arex_session_v30",
+    USERS: "arex_users_v30",
+    REQUESTS: "arex_requests_v30",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v30",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v30"
+  };
+
+  const ENDPOINT_GROUPS = [
+    {
+      kind: "brands",
+      paths: [
+        "data/brands.json",
+        "data/marques.json",
+        "api/brands.json"
+      ]
+    },
+    {
+      kind: "models",
+      paths: [
+        "data/models.json",
+        "data/vehicles.json",
+        "data/modeles.json"
+      ]
+    },
+    {
+      kind: "engines",
+      paths: [
+        "data/engines.json",
+        "data/motorisations.json",
+        "data/moteurs.json"
+      ]
+    },
+    {
+      kind: "defects",
+      paths: [
+        "data/defects.json",
+        "data/pannes.json",
+        "data/rappels.json",
+        "data/recalls.json",
+        "data/technical-updates.json"
+      ]
+    }
+  ];
+
+  const PROXIES = [
+    (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
+    (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
+    (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`
+  ];
+
+  /* =========================================================
+     HELPERS DOM / TEXTE / STOCKAGE
+     ========================================================= */
+  const q = (sel) => {
+    try { return document.querySelector(sel); } catch { return null; }
+  };
+
+  const qa = (sel) => {
+    try { return Array.from(document.querySelectorAll(sel)); } catch { return []; }
+  };
+
+  const on = (sel, evt, fn) => {
+    const el = q(sel);
+    if (el) el.addEventListener(evt, fn);
+  };
 
   const todayKey = () => {
     const d = new Date();
@@ -29,17 +100,27 @@
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
-    } catch { return fallback; }
+    } catch {
+      return fallback;
+    }
   };
 
-  const save = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} };
-  const del = (key) => { try { localStorage.removeItem(key); } catch {} };
+  const save = (key, value) => {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
+  };
+
+  const del = (key) => {
+    try { localStorage.removeItem(key); } catch {}
+  };
 
   const loadWithMigration = (newKey, oldKey, fallback) => {
     const cur = load(newKey, null);
     if (cur != null) return cur;
     const old = load(oldKey, null);
-    if (old != null) { save(newKey, old); return old; }
+    if (old != null) {
+      save(newKey, old);
+      return old;
+    }
     return fallback;
   };
 
@@ -58,6 +139,11 @@
 
   const normKey = (s) => norm(s).replace(/[^a-z0-9]+/g, "");
 
+  const splitList = (v) => String(v == null ? "" : v)
+    .split(/[|,;\n]/)
+    .map((x) => String(x || "").trim())
+    .filter(Boolean);
+
   const unique = (arr) => {
     const seen = new Set();
     return (arr || []).filter((x) => {
@@ -75,11 +161,6 @@
     return m ? parseInt(m[1], 10) : 0;
   };
 
-  const splitList = (v) => String(v == null ? "" : v)
-    .split(/[|,;\n]/)
-    .map((x) => x.trim())
-    .filter(Boolean);
-
   const expandPowers = (p) => {
     const parts = splitList(p);
     return parts.length ? parts : [""];
@@ -93,7 +174,8 @@
   const isElectricLike = (fuel) => /electrique|bev|ev|hybride rechargeable|plug.in|phev/.test(norm(fuel));
 
   const brandMatches = (a, b) => {
-    const na = normKey(a), nb = normKey(b);
+    const na = normKey(a);
+    const nb = normKey(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
 
@@ -118,15 +200,16 @@
       vag: ["volkswagen audi group"]
     };
 
-    if (aliases[na]?.includes(nb)) return true;
-    if (aliases[nb]?.includes(na)) return true;
+    if (aliases[na] && aliases[na].includes(nb)) return true;
+    if (aliases[nb] && aliases[nb].includes(na)) return true;
     if (na.length > 3 && nb.includes(na)) return true;
     if (nb.length > 3 && na.includes(nb)) return true;
     return false;
   };
 
   const nameMatch = (a, b) => {
-    const na = normKey(a), nb = normKey(b);
+    const na = normKey(a);
+    const nb = normKey(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
     if (na.length > 2 && nb.includes(na)) return true;
@@ -150,7 +233,7 @@
     el.textContent = msg;
     el.className = `toast ${type}`;
     clearTimeout(el._timer);
-    el._timer = setTimeout(() => el.classList.add("hidden"), 4500);
+    el._timer = setTimeout(() => el.classList.add("hidden"), 5000);
   };
 
   const simpleHash = (str) => {
@@ -165,11 +248,13 @@
 
   const sha256 = async (text) => {
     text = String(text || "");
-    if (!window.crypto?.subtle || typeof TextEncoder === "undefined") return simpleHash(text);
+    if (!window.crypto || !crypto.subtle || typeof TextEncoder === "undefined") return simpleHash(text);
     try {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
       return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-    } catch { return simpleHash(text); }
+    } catch {
+      return simpleHash(text);
+    }
   };
 
   const utf8ToB64Url = (str) => {
@@ -203,9 +288,13 @@
 
   const getField = (obj, keys) => {
     if (!obj || typeof obj !== "object") return "";
-    for (const k of keys) if (obj[k] != null && obj[k] !== "") return obj[k];
+    for (const k of keys) {
+      if (obj[k] != null && obj[k] !== "") return obj[k];
+    }
     const lower = {};
-    for (const p in obj) if (Object.prototype.hasOwnProperty.call(obj, p)) lower[normKey(p)] = p;
+    for (const p in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, p)) lower[normKey(p)] = p;
+    }
     for (const k of keys) {
       const lk = lower[normKey(k)];
       if (lk && obj[lk] != null && obj[lk] !== "") return obj[lk];
@@ -213,512 +302,466 @@
     return "";
   };
 
-  const getBrandField = (o) => valToString(getField(o, ["b", "brand", "marque", "constructeur", "make"]));
-  const getModelField = (o) => valToString(getField(o, ["m", "model", "modele", "modèle", "vehicle", "vehicule"]));
-  const getEngineField = (o) => valToString(getField(o, ["e", "engine", "motorisation", "moteur", "powertrain", "version", "variant"]));
-  const getPowerField = (o) => valToString(getField(o, ["p", "power", "puissance", "ch", "kw"]));
-  const getFuelField = (o) => valToString(getField(o, ["t", "type", "fuel", "energie", "énergie", "carburant", "engineType"]));
-  const getTransField = (o) => valToString(getField(o, ["tr", "transmission", "boite", "boîte", "gearbox"]));
+  const getBrandField = (o) => valToString(getField(o, ["b", "brand", "marque", "constructeur", "make", "brandName", "brand_name"]));
+  const getModelField = (o) => valToString(getField(o, ["m", "model", "modele", "modèle", "vehicle", "vehicule", "modelName", "model_name", "name"]));
+  const getEngineField = (o) => valToString(getField(o, ["e", "engine", "motorisation", "moteur", "powertrain", "version", "variant", "engineName", "engine_name"]));
+  const getPowerField = (o) => valToString(getField(o, ["p", "power", "puissance", "ch", "kw", "hp"]));
+  const getFuelField = (o) => valToString(getField(o, ["t", "type", "fuel", "energie", "énergie", "carburant", "engineType", "energy"]));
+  const getTransField = (o) => valToString(getField(o, ["tr", "transmission", "boite", "boîte", "gearbox", "gearboxName"]));
   const getCodeField = (o) => valToString(getField(o, ["code", "codeMoteur", "engineCode", "codemoteur", "d", "cyl", "cylindree", "cylindrée", "displacement"]));
   const getSymptomsField = (o) => valToString(getField(o, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"]));
 
-  const extractArray = (payload) => {
-    if (Array.isArray(payload)) return payload;
-    if (payload && Array.isArray(payload.data)) return payload.data;
-    if (payload && Array.isArray(payload.items)) return payload.items;
-    if (payload && Array.isArray(payload.results)) return payload.results;
-    if (payload && Array.isArray(payload.catalog)) return payload.catalog;
-    return [];
+  const downloadText = (text, filename, mime = "application/json") => {
+    const blob = new Blob([text], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const fetchJson = async (url, timeoutMs = 9000) => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, { cache: "no-store", signal: ctrl.signal, mode: "cors" });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return await res.json();
-    } finally {
-      clearTimeout(timer);
-    }
+  const downloadDataUrl = (dataUrl, filename) => {
+    const a = document.createElement("a");
+    a.href = dataUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
   };
 
-  const tryFetchJson = async (urls) => {
-    for (const url of urls || []) {
-      try {
-        return await fetchJson(url);
-      } catch {}
-    }
-    return null;
-  };
+  const readFileAsText = (file) => new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ""));
+    fr.onerror = reject;
+    fr.readAsText(file);
+  });
 
-  const CONFIG = {
-    adminPassword: "Kevin83600",
-    maxDailyAnalyses: 10,
-    pollAdminMs: 5000,
-    syncIntervalMs: 5 * 60 * 1000,
-    remote: {
-      base: "https://expertkevin06-cell.github.io/auto-diagnostic/",
-      endpoints: {
-        brands: [
-          "data/brands.json",
-          "data/marques.json",
-          "api/brands.json"
-        ],
-        models: [
-          "data/models.json",
-          "data/vehicles.json",
-          "data/modeles.json",
-          "api/models.json"
-        ],
-        engines: [
-          "data/engines.json",
-          "data/motorisations.json",
-          "data/moteurs.json",
-          "api/engines.json"
-        ],
-        defects: [
-          "data/defects.json",
-          "data/pannes.json",
-          "data/recalls.json",
-          "data/rappels.json",
-          "data/technical-updates.json",
-          "api/defects.json"
-        ]
-      }
-    },
-    mail: {
-      adminEmail: ""
-    }
-  };
-
-  const KEYS = {
-    SESSION: "arex_session_v30",
-    USERS: "arex_users_v30",
-    REQUESTS: "arex_requests_v30",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v30",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v30",
-    BACKGROUND: "arex_background_v30",
-    SETTINGS: "arex_settings_v30"
-  };
-
-  const OLD_KEYS = {
-    SESSION: "arex_session_v29",
-    USERS: "arex_users_v29",
-    REQUESTS: "arex_requests_v29",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v29",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v29"
-  };
-
-  let currentUser = null;
-  let vehicleData = {};
-  let analysisData = {};
-  let termesMobilises = new Set();
-  let deferredPrompt = null;
-  let swRegistration = null;
-  let adminPollTimer = null;
-  let liveSyncTimer = null;
-  let lastPendingSignature = "";
-  let broadcast = null;
-
-  const selection = { brand: null, model: null, engine: null };
-  let engineFuelFilter = "all";
-
-  const index = {
-    brands: {},
-    models: {}
-  };
-
-  const catalog = {
-    defects: [],
-    defectKeys: new Set()
-  };
-
-  try {
-    if ("BroadcastChannel" in window) broadcast = new BroadcastChannel("arex_expert_channel_v30");
-  } catch { broadcast = null; }
+  const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result || ""));
+    fr.onerror = reject;
+    fr.readAsDataURL(file);
+  });
 
   /* =========================================================
-     AUTH / USERS / REQUESTS
+     INJECTION CSS / PURGE ANNÉE
      ========================================================= */
-  const normIdentity = (v) => norm(String(v == null ? "" : v)).replace(/\s+/g, " ").trim();
-  const userEmailKey = (email) => normIdentity(email).replace(/\s/g, "");
-  const userNameKey = (name) => normIdentity(name);
-  const userCompositeKey = (name, email) => `${userNameKey(name)}|${userEmailKey(email)}`;
-
-  const migrateUser = (u) => {
-    const user = { ...(u || {}) };
-    user.name = String(user.name || "").trim();
-    user.email = String(user.email || "").trim();
-    user.nameNorm = userNameKey(user.name);
-    user.emailNorm = userEmailKey(user.email);
-    user.key = user.key || userCompositeKey(user.name, user.email);
-    user.role = user.role || "user";
-    user.status = user.status || "pending";
-    if (!user.daily) user.daily = { date: todayKey(), count: 0 };
-    return user;
+  const injectCss = () => {
+    if (q("#apkEngineerStyles")) return;
+    const style = document.createElement("style");
+    style.id = "apkEngineerStyles";
+    style.textContent = `
+      .apk-update-bar{
+        width:min(1180px,100%);
+        margin:0 auto 14px;
+        padding:14px 16px;
+        border-radius:18px;
+        background:linear-gradient(135deg, rgba(34,211,238,0.12), rgba(59,130,246,0.12), rgba(139,92,246,0.12));
+        border:1px solid rgba(148,163,184,0.18);
+        box-shadow:0 18px 50px rgba(0,0,0,0.22);
+        display:grid;
+        gap:10px;
+      }
+      .apk-update-row{
+        display:flex;
+        flex-wrap:wrap;
+        gap:10px;
+        align-items:center;
+      }
+      .apk-update-title{
+        font-weight:800;
+        letter-spacing:.2px;
+      }
+      .apk-update-status{
+        color:#cbd5e1;
+        font-size:.95rem;
+        min-height:22px;
+      }
+      .apk-progress{
+        width:100%;
+        height:10px;
+        border-radius:999px;
+        overflow:hidden;
+        background:rgba(2,6,23,0.45);
+        border:1px solid rgba(148,163,184,0.16);
+      }
+      .apk-progress-inner{
+        height:100%;
+        width:0%;
+        background:linear-gradient(90deg,#22d3ee,#3b82f6,#8b5cf6);
+        transition:width .25s ease;
+      }
+      .apk-mini-stat{
+        padding:6px 10px;
+        border-radius:999px;
+        background:rgba(255,255,255,0.06);
+        border:1px solid rgba(148,163,184,0.16);
+        font-size:.86rem;
+        color:#e2e8f0;
+      }
+      .apk-admin-block{
+        margin-top:14px;
+        padding:14px;
+        border-radius:16px;
+        background:rgba(2,6,23,0.28);
+        border:1px solid rgba(148,163,184,0.16);
+      }
+      .apk-admin-block h4{
+        margin:0 0 10px;
+      }
+      .btn.apk-action{
+        background:linear-gradient(135deg,#06b6d4,#3b82f6);
+        border-color:transparent;
+        color:white;
+      }
+      .btn.apk-export{
+        background:linear-gradient(135deg,#22c55e,#0ea5e9);
+        border-color:transparent;
+        color:white;
+      }
+      .btn.apk-danger{
+        background:rgba(239,68,68,0.14);
+        border-color:rgba(239,68,68,0.28);
+        color:#fecaca;
+      }
+      .year-purged{
+        display:none !important;
+      }
+    `;
+    document.head.appendChild(style);
   };
 
-  const getUsers = () => (loadWithMigration(KEYS.USERS, OLD_KEYS.USERS, []) || []).map(migrateUser);
-  const saveUsers = (users) => save(KEYS.USERS, (users || []).map(migrateUser));
-
-  const migrateRequest = (r) => {
-    const req = { ...(r || {}) };
-    req.name = String(req.name || "").trim();
-    req.email = String(req.email || "").trim();
-    req.reason = String(req.reason || "").trim();
-    req.nameNorm = userNameKey(req.name);
-    req.emailNorm = userEmailKey(req.email);
-    req.key = req.key || userCompositeKey(req.name, req.email);
-    req.status = req.status || "pending";
-    req.ts = req.ts || Date.now();
-    req.date = req.date || new Date(req.ts).toLocaleString("fr-FR");
-    return req;
-  };
-
-  const getRequests = () => (loadWithMigration(KEYS.REQUESTS, OLD_KEYS.REQUESTS, []) || []).map(migrateRequest);
-  const saveRequests = (requests) => save(KEYS.REQUESTS, (requests || []).map(migrateRequest));
-
-  const findApprovedUser = (name, email) => {
-    const emailKey = userEmailKey(email);
-    if (!emailKey) return null;
-    return getUsers().find((u) =>
-      u.status === "approved" &&
-      u.role !== "admin" &&
-      (u.key === userCompositeKey(name, email) || u.emailNorm === emailKey)
-    ) || null;
-  };
-
-  const upsertUser = (user) => {
-    const next = migrateUser(user);
-    const users = getUsers();
-    const idx = users.findIndex((u) => u.key === next.key || (u.emailNorm === next.emailNorm && u.role !== "admin"));
-    if (idx >= 0) {
-      users[idx] = { ...users[idx], ...next };
-      saveUsers(users);
-      return users[idx];
-    }
-    users.push(next);
-    saveUsers(users);
-    return next;
-  };
-
-  const setSession = (user) => { currentUser = migrateUser(user); save(KEYS.SESSION, currentUser); };
-  const clearSession = () => { currentUser = null; del(KEYS.SESSION); };
-
-  const restoreSession = () => {
-    const session = loadWithMigration(KEYS.SESSION, OLD_KEYS.SESSION, null);
-    if (!session) return false;
-    if (session.role === "admin") { clearSession(); return false; }
-    const fresh = findApprovedUser(session.name, session.email);
-    if (fresh && fresh.status === "approved") { currentUser = fresh; setSession(fresh); return true; }
-    clearSession();
-    return false;
-  };
-
-  const dailyInfo = () => {
-    if (!currentUser) return { allowed: false, remaining: 0, unlimited: false };
-    if (currentUser.role === "admin") return { allowed: true, remaining: Infinity, unlimited: true };
-    const user = findApprovedUser(currentUser.name, currentUser.email) || currentUser;
-    const daily = user.daily && user.daily.date === todayKey() ? user.daily.count : 0;
-    return { allowed: daily < CONFIG.maxDailyAnalyses, remaining: Math.max(0, CONFIG.maxDailyAnalyses - daily), unlimited: false };
-  };
-
-  const incrementDaily = () => {
-    if (!currentUser || currentUser.role === "admin") return;
-    const users = getUsers();
-    const idx = users.findIndex((u) => u.key === currentUser.key || (u.emailNorm === currentUser.emailNorm && u.role !== "admin"));
-    if (idx < 0) return;
-    const user = users[idx];
-    if (!user.daily || user.daily.date !== todayKey()) user.daily = { date: todayKey(), count: 0 };
-    user.daily.count += 1;
-    users[idx] = user;
-    saveUsers(users);
-    currentUser = user;
-    setSession(user);
-    updateCounter();
-  };
-
-  const updateCounter = () => {
-    const el = q("#dailyCounter");
-    if (!el) return;
-    const info = dailyInfo();
-    el.textContent = info.unlimited ? "👑 Admin illimité" : `📊 ${info.remaining}/${CONFIG.maxDailyAnalyses}`;
-  };
-
-  const authMessage = (msg, type) => {
-    const el = q("#authMsg");
-    if (el) { el.textContent = msg; el.className = "auth-msg " + (type || ""); }
-    else toast(msg, type || "info");
-  };
-
-  const getSettings = () => loadWithMigration(KEYS.SETTINGS, "arex_settings_v29", { adminEmail: "" }) || { adminEmail: "" };
-  const saveSettings = (s) => save(KEYS.SETTINGS, s);
-
-  const makeAccessGrantUrl = (user) => {
-    const safe = migrateUser(user);
-    const payload = { name: safe.name, email: safe.email, status: "approved", role: "user", key: safe.key, grantedAt: Date.now() };
-    const baseUrl = location.href.split("?")[0].split("#")[0];
-    return baseUrl + "?access_grant=" + utf8ToB64Url(JSON.stringify(payload));
-  };
-
-  const processIncomingAccessGrantFromUrl = () => {
+  const purgeYearControls = () => {
     try {
-      const raw = getQueryParam("access_grant");
-      if (!raw) return false;
-      const payload = JSON.parse(b64UrlToUtf8(raw));
-      if (!payload?.email) return false;
-      const user = upsertUser({
-        name: payload.name || payload.email,
-        email: payload.email,
-        role: "user",
-        status: "approved",
-        key: payload.key,
-        daily: { date: todayKey(), count: 0 }
+      const selectors = [
+        "#vehicleYear",
+        "[id*='year' i]",
+        "[name*='annee' i]",
+        "[data-field='year']",
+        "[placeholder*='année' i]",
+        "[placeholder*='millésime' i]"
+      ];
+
+      document.querySelectorAll(selectors.join(",")).forEach((el) => {
+        const group = el.closest(".field, .input-group, .form-grid > div, .two-cols > div, div");
+        if (group && /année|millésime|mise en circulation/i.test(group.textContent || "")) {
+          group.classList.add("year-purged");
+          group.style.display = "none";
+        } else {
+          el.classList.add("year-purged");
+          el.style.display = "none";
+        }
       });
-      setSession(user);
-      showApp();
-      toast("Accès approuvé importé.", "success");
-      cleanUrlAfterParam();
-      return true;
-    } catch {
-      toast("Lien d’accès invalide.", "error");
-      return false;
+
+      document.querySelectorAll("label").forEach((label) => {
+        if (/année|millésime|mise en circulation/i.test(label.textContent || "")) {
+          const group = label.closest(".field, .input-group, .form-grid > div, .two-cols > div, div");
+          if (group) {
+            group.classList.add("year-purged");
+            group.style.display = "none";
+          } else {
+            label.classList.add("year-purged");
+            label.style.display = "none";
+          }
+        }
+      });
+    } catch (e) {
+      console.warn("[EXPERT-AUTO] Purge année ignorée:", e);
     }
   };
 
-  const processIncomingAccessRequestFromUrl = () => {
-    try {
-      const raw = getQueryParam("access_request");
-      if (!raw) return false;
-      const payload = JSON.parse(b64UrlToUtf8(raw));
-      if (!payload?.email) return false;
-      const req = migrateRequest({
-        id: uid(),
-        name: payload.name || payload.email,
-        email: payload.email,
-        reason: payload.reason || "Demande via lien partagé",
-        status: "pending",
-        date: new Date().toLocaleString("fr-FR"),
-        ts: Date.now(),
-        source: "lien-partage"
-      });
-      const requests = getRequests();
-      requests.push(req);
-      saveRequests(requests);
-      publishAccessRequest(req);
-      cleanUrlAfterParam();
-      toast("Demande importée.", "success");
-      return true;
-    } catch {
-      return false;
-    }
-  };
+  /* =========================================================
+     INDEXEDDB
+     ========================================================= */
+  let idb = null;
 
-  const pendingRequests = () => getRequests().filter((r) => r.status === "pending");
-  const pendingSignature = () => pendingRequests().map((r) => r.id).sort().join("|");
-
-  const updateNotificationBell = () => {
-    const bell = q("#notifBellBtn");
-    const badge = q("#notifBadge");
-    if (!bell) return;
-    if (!currentUser || currentUser.role !== "admin") {
-      bell.classList.add("hidden");
-      if (badge) badge.classList.add("hidden");
+  const openIdb = () => new Promise((resolve) => {
+    if (!("indexedDB" in window)) {
+      resolve(null);
       return;
     }
-    bell.classList.remove("hidden");
-    const count = pendingRequests().length;
-    if (badge) {
-      badge.textContent = String(count);
-      badge.classList.toggle("hidden", count === 0);
-    }
-  };
 
-  const notificationPermissionState = () => {
-    if (!("Notification" in window)) return "unsupported";
-    return Notification.permission;
-  };
-
-  const updateNotificationState = () => {
-    const el = q("#notifState");
-    const state = notificationPermissionState();
-    const labels = {
-      granted: "✅ Notifications autorisées",
-      default: "⏳ Permission non encore accordée",
-      denied: "❌ Notifications bloquées",
-      unsupported: "⚠️ Non supporté"
-    };
-    if (el) el.textContent = "État notifications : " + (labels[state] || state);
-  };
-
-  const askNotification = async () => {
-    if (!("Notification" in window)) { updateNotificationState(); return "unsupported"; }
-    if (Notification.permission === "granted" || Notification.permission === "denied") {
-      updateNotificationState();
-      return Notification.permission;
-    }
     try {
-      const p = await Notification.requestPermission();
-      updateNotificationState();
-      return p;
+      const req = indexedDB.open(DB_NAME, DB_VERSION);
+
+      req.onupgradeneeded = (event) => {
+        const db = event.target.result;
+        STORES.forEach((store) => {
+          if (!db.objectStoreNames.contains(store)) {
+            db.createObjectStore(store, { keyPath: "key" });
+          }
+        });
+      };
+
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
     } catch {
-      updateNotificationState();
-      return Notification.permission || "denied";
+      resolve(null);
     }
+  });
+
+  const idbGetAll = (store) => new Promise((resolve) => {
+    if (!idb) {
+      resolve([]);
+      return;
+    }
+
+    try {
+      const tx = idb.transaction(store, "readonly");
+      const req = tx.objectStore(store).getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    } catch {
+      resolve([]);
+    }
+  });
+
+  const idbClear = (store) => new Promise((resolve) => {
+    if (!idb) {
+      resolve();
+      return;
+    }
+
+    try {
+      const tx = idb.transaction(store, "readwrite");
+      tx.objectStore(store).clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+
+  const idbPutAll = (store, items) => new Promise((resolve) => {
+    if (!idb || !items || !items.length) {
+      resolve();
+      return;
+    }
+
+    try {
+      const tx = idb.transaction(store, "readwrite");
+      const os = tx.objectStore(store);
+      items.forEach((item) => os.put(item));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    } catch {
+      resolve();
+    }
+  });
+
+  /* =========================================================
+     MÉMOIRE / INDEX LOCAL MASSIF
+     ========================================================= */
+  const mem = {
+    brands: new Map(),
+    models: new Map(),
+    engines: new Map(),
+    defects: new Map()
   };
 
-  const showSystemNotification = async (title, body, tag) => {
-    const options = { body: body || "", tag: tag || "arex-" + Date.now(), data: { url: "./index.html" } };
-    const fallback = () => {
-      if ("Notification" in window && Notification.permission === "granted") {
-        try { const n = new Notification(title, options); n.onclick = () => window.focus(); } catch {}
-      }
+  const counts = () => ({
+    brands: mem.brands.size,
+    models: mem.models.size,
+    engines: mem.engines.size,
+    defects: mem.defects.size
+  });
+
+  const addSource = (obj, source) => {
+    obj.sources = obj.sources || [];
+    if (source && !obj.sources.includes(source)) obj.sources.push(source);
+  };
+
+  const recomputeCounts = () => {
+    mem.brands.forEach((b) => { b.modelCount = 0; });
+    mem.models.forEach((m) => {
+      m.engineCount = 0;
+      const b = mem.brands.get(m.brandKey);
+      if (b) b.modelCount = (b.modelCount || 0) + 1;
+    });
+    mem.engines.forEach((e) => {
+      const m = mem.models.get(e.modelKey);
+      if (m) m.engineCount = (m.engineCount || 0) + 1;
+    });
+  };
+
+  const ensureBrand = (name, source = "local") => {
+    name = String(name || "").trim();
+    if (!name) return null;
+
+    const key = normKey(name);
+    let b = mem.brands.get(key);
+
+    if (!b) {
+      b = {
+        key,
+        name,
+        modelCount: 0,
+        sources: []
+      };
+      mem.brands.set(key, b);
+    }
+
+    addSource(b, source);
+    return b;
+  };
+
+  const ensureModel = (brandName, modelName, source = "local") => {
+    const b = ensureBrand(brandName, source);
+    modelName = String(modelName || "").trim();
+    if (!b || !modelName) return null;
+
+    const key = `${b.key}|${normKey(modelName)}`;
+    let m = mem.models.get(key);
+
+    if (!m) {
+      m = {
+        key,
+        brandKey: b.key,
+        brandName: b.name,
+        name: modelName,
+        engineCount: 0,
+        sources: []
+      };
+      mem.models.set(key, m);
+      b.modelCount = (b.modelCount || 0) + 1;
+    }
+
+    addSource(m, source);
+    return m;
+  };
+
+  const addEngine = (brandName, modelName, engine, power, fuel, transmission, code, source = "local") => {
+    const m = ensureModel(brandName, modelName, source);
+    engine = String(engine || "").trim();
+    if (!m || !engine) return 0;
+
+    let added = 0;
+    const powers = expandPowers(power);
+
+    powers.forEach((p) => {
+      const key = [
+        m.key,
+        normKey(engine),
+        normKey(p),
+        normKey(fuel),
+        normKey(transmission),
+        normKey(code)
+      ].join("|");
+
+      if (mem.engines.has(key)) return;
+
+      const e = {
+        key,
+        modelKey: m.key,
+        brandKey: m.brandKey,
+        brandName: m.brandName,
+        modelName: m.name,
+        engine,
+        power: String(p || "").trim(),
+        fuel: String(fuel || "").trim(),
+        transmission: String(transmission || "").trim(),
+        code: String(code || "").trim(),
+        displacement: /l|cm3|cylindrée/i.test(String(code || "")) ? String(code) : "",
+        sources: [],
+        confidence: String(source || "").includes("distant") ? 0.98 : 0.94
+      };
+
+      addSource(e, source);
+      mem.engines.set(key, e);
+      m.engineCount = (m.engineCount || 0) + 1;
+      added++;
+    });
+
+    return added;
+  };
+
+  const addDefect = (d) => {
+    if (!d || !d.brand) return 0;
+
+    const key = normKey(JSON.stringify({
+      b: d.brand,
+      m: d.models || [],
+      e: d.engines || [],
+      p: d.powers || [],
+      f: d.fuels || [],
+      s: d.symptoms || [],
+      desc: d.description || ""
+    }));
+
+    if (mem.defects.has(key)) return 0;
+
+    const defect = {
+      key,
+      brand: String(d.brand || "").trim(),
+      models: unique(d.models || []),
+      engines: unique(d.engines || []),
+      powers: unique(d.powers || []),
+      fuels: unique(d.fuels || []),
+      symptoms: unique(d.symptoms || []),
+      severity: String(d.severity || "info").trim(),
+      description: String(d.description || "").trim(),
+      legal: String(d.legal || "").trim(),
+      recall: String(d.recall || "").trim(),
+      tags: String(d.tags || "").trim(),
+      dtc: String(d.dtc || "").trim(),
+      source: String(d.source || "base locale").trim(),
+      sourceUrl: String(d.sourceUrl || "").trim(),
+      sources: []
     };
-    if (swRegistration?.showNotification) {
-      try { await swRegistration.showNotification(title, options); return; } catch { fallback(); return; }
-    }
-    fallback();
+
+    addSource(defect, defect.source);
+    mem.defects.set(key, defect);
+    return 1;
   };
 
-  const notify = (title, body, tag) => showSystemNotification(title, body, tag);
+  const persistMemory = async () => {
+    if (!idb) return;
 
-  const mailto = (to, subject, body) => {
-    const url = `mailto:${encodeURIComponent(to || "")}?subject=${encodeURIComponent(subject || "")}&body=${encodeURIComponent(body || "")}`;
-    window.location.href = url;
+    await Promise.all([
+      idbClear("brands"),
+      idbClear("models"),
+      idbClear("engines"),
+      idbClear("defects")
+    ]);
+
+    await idbPutAll("brands", [...mem.brands.values()]);
+    await idbPutAll("models", [...mem.models.values()]);
+    await idbPutAll("engines", [...mem.engines.values()]);
+    await idbPutAll("defects", [...mem.defects.values()]);
+    await idbPutAll("meta", [{
+      key: "state",
+      version: VERSION,
+      updatedAt: Date.now(),
+      counts: counts()
+    }]);
+
+    save(KEYS.AUTO_LAST_SYNC, Date.now());
   };
 
-  const sendAdminMail = (req) => {
-    const settings = getSettings();
-    const adminEmail = settings.adminEmail || CONFIG.mail.adminEmail || "";
-    if (!adminEmail) return;
-    mailto(
-      adminEmail,
-      "[Expert Auto] Nouvelle demande d’accès",
-      `Nouvelle demande d'accès\n\nNom: ${req.name}\nEmail: ${req.email}\nMotif: ${req.reason}\nDate: ${req.date}`
-    );
-  };
+  const loadMemoryFromIdb = async () => {
+    mem.brands.clear();
+    mem.models.clear();
+    mem.engines.clear();
+    mem.defects.clear();
 
-  const sendUserApprovalMail = (user, grantUrl) => {
-    mailto(
-      user.email,
-      "[Expert Auto] Votre accès a été approuvé",
-      `Bonjour ${user.name},\n\nVotre accès a été approuvé.\n\nLien d'accès :\n${grantUrl}\n\nCordialement,\nL'administrateur.`
-    );
-  };
+    const brands = await idbGetAll("brands");
+    const models = await idbGetAll("models");
+    const engines = await idbGetAll("engines");
+    const defects = await idbGetAll("defects");
 
-  const onAccessRequestReceived = (req) => {
-    if (!currentUser || currentUser.role !== "admin" || !req) return;
-    notify("Nouvelle demande d’accès", `${req.name || "Tiers"} — ${req.email || ""}`, "access-" + (req.id || Date.now()));
-    updateNotificationBell();
-    renderAdminIfOpen();
-    sendAdminMail(req);
-    toast("Nouvelle demande : " + (req.name || "Tiers"), "info");
-  };
+    brands.forEach((b) => mem.brands.set(b.key, b));
+    models.forEach((m) => mem.models.set(m.key, m));
+    engines.forEach((e) => mem.engines.set(e.key, e));
+    defects.forEach((d) => mem.defects.set(d.key, d));
 
-  const pollAdminNotifications = () => {
-    if (!currentUser || currentUser.role !== "admin") return;
-    const sig = pendingSignature();
-    if (sig === lastPendingSignature) { updateNotificationBell(); return; }
-    const oldIds = lastPendingSignature ? lastPendingSignature.split("|") : [];
-    const newIds = sig ? sig.split("|").filter((id) => id && !oldIds.includes(id)) : [];
-    lastPendingSignature = sig;
-    updateNotificationBell();
-    if (newIds.length) {
-      const all = getRequests();
-      newIds.forEach((id) => {
-        const req = all.find((r) => r.id === id);
-        if (req) onAccessRequestReceived(req);
-      });
-    }
-    renderAdminIfOpen();
-  };
-
-  const startAdminPolling = () => {
-    stopAdminPolling();
-    lastPendingSignature = pendingSignature();
-    updateNotificationBell();
-    adminPollTimer = setInterval(pollAdminNotifications, CONFIG.pollAdminMs);
-    const count = pendingRequests().length;
-    if (count > 0) toast(`${count} demande(s) en attente`, "info");
-  };
-
-  const stopAdminPolling = () => {
-    if (adminPollTimer) { clearInterval(adminPollTimer); adminPollTimer = null; }
-  };
-
-  const publishAccessRequest = (req) => {
-    if (!req) return;
-    if (broadcast) { try { broadcast.postMessage({ type: "access-request", payload: req }); } catch {} }
-    try { window.dispatchEvent(new CustomEvent("arex:access-request", { detail: req })); } catch {}
-    updateNotificationBell();
-  };
-
-  const enforceTierAccess = () => {
-    if (!currentUser || currentUser.role === "admin") return;
-    const fresh = findApprovedUser(currentUser.name, currentUser.email);
-    if (!fresh || fresh.status !== "approved") {
-      clearSession();
-      showLogin();
-      toast("Votre accès a été révoqué ou refusé.", "error");
-    } else {
-      currentUser = fresh;
-      setSession(fresh);
-      updateCounter();
-    }
-  };
-
-  const refreshSavedPasswordButton = () => {
-    const btn = q("#useSavedPwdBtn");
-    const saved = loadWithMigration(KEYS.ADMIN_PWD_HASH, OLD_KEYS.ADMIN_PWD_HASH, null);
-    if (btn) btn.classList.toggle("hidden", !saved);
-  };
-
-  const verifyAdminPassword = async (input) => {
-    if (!input) return false;
-    const adminHash = await sha256(CONFIG.adminPassword);
-    const inputHash = await sha256(input);
-    return inputHash === adminHash;
-  };
-
-  const loginAdminFromHash = async (savedHash) => {
-    if (!savedHash) return false;
-    const adminHash = await sha256(CONFIG.adminPassword);
-    return savedHash === adminHash;
-  };
-
-  const showApp = () => {
-    const login = q("#loginScreen");
-    if (login) login.classList.add("hidden");
-    const app = q("#mainApp");
-    if (app) app.classList.remove("hidden");
-    const badge = q("#userBadge");
-    if (badge) badge.textContent = currentUser.role === "admin" ? "👑 Admin" : "👤 " + currentUser.name;
-    const adminBtn = q("#adminPanelBtn");
-    if (adminBtn) adminBtn.classList.toggle("hidden", currentUser.role !== "admin");
-    updateCounter();
-    updateNotificationBell();
-    updateNotificationState();
-    updateSelectionSummary();
-    if (currentUser?.role === "admin") { startAdminPolling(); askNotification(); } else { stopAdminPolling(); }
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const showLogin = () => {
-    const login = q("#loginScreen");
-    if (login) login.classList.remove("hidden");
-    const app = q("#mainApp");
-    if (app) app.classList.add("hidden");
-    const admin = q("#adminPanel");
-    if (admin) admin.classList.add("hidden");
-    stopAdminPolling();
-    updateNotificationBell();
-    updateNotificationState();
-    refreshSavedPasswordButton();
+    recomputeCounts();
   };
 
   /* =========================================================
-     BASE LOCALE DE SECOURS
+     BASE DE SECOURS LOCALE
      ========================================================= */
   const SEED_VEHICLES = [
     ["Peugeot", "208", "1.2 VTi", "82ch", "Essence", "BVM5", "EB2|1.2 L"],
@@ -936,7 +979,7 @@
       recall: "Extensions / TSB Stellantis PureTech; DGCCRF; forums techniques.",
       tags: "moteur|distribution|courroie|huile|pompe|critique",
       dtc: "P052B|P0011|P0300|P0420",
-      source: "base locale"
+      source: "base locale ingénieur"
     },
     {
       brand: "Renault",
@@ -951,7 +994,7 @@
       recall: "Programmes techniques Renault K9K; TSB; jurisprudences.",
       tags: "moteur|huile|bielle|pompe|bruit|critique",
       dtc: "P0524|P0525|P0300|P0301",
-      source: "base locale"
+      source: "base locale ingénieur"
     },
     {
       brand: "Tesla",
@@ -966,7 +1009,7 @@
       recall: "NHTSA Tesla recalls; DGCCRF; SafetyGate.",
       tags: "ADAS|batterie|charge|logiciel|sécurité",
       dtc: "P0Axx|U1xxx|B1xxx",
-      source: "base locale"
+      source: "base locale ingénieur"
     },
     {
       brand: "Skoda",
@@ -981,152 +1024,150 @@
       recall: "Rappels EV/MEB; DGCCRF; KBA; NHTSA; vérification VIN; lecture SOH/BMS.",
       tags: "batterie|charge|autonomie|électricité|sécurité|logiciel|MEB",
       dtc: "P0Axx|U1xxx|P1xxx|B1xxx",
-      source: "base locale"
+      source: "base locale ingénieur"
+    },
+    {
+      brand: "Volkswagen",
+      models: ["Golf", "Polo", "Tiguan", "Passat", "Touran"],
+      engines: ["EA189", "EA288", "2.0 TDI", "1.6 TDI"],
+      powers: ["105ch", "110ch", "115ch", "150ch", "184ch"],
+      fuels: ["Diesel"],
+      symptoms: ["fap", "dpf", "egr", "adblue", "nox", "反排放", "défaut antipollution", "voyant moteur", "mode dégradé", "consommation adblue"],
+      severity: "critique",
+      description: "Systèmes antipollution diesel : EGR, FAP/DPF, AdBlue/NOx, logiciel de gestion des émissions.",
+      legal: "Conformité L.217-4 C.consom.; tromperie L.213-1; sécurité produit L.423-1.",
+      recall: "Campagnes diesel VW/Audi; KBA; DGCCRF; NHTSA.",
+      tags: "diesel|pollution|egr|fap|adblue|nox|logiciel",
+      dtc: "P0401|P0420|P2002|P20EE",
+      source: "base locale ingénieur"
+    },
+    {
+      brand: "Ford",
+      models: ["Focus", "Kuga", "Puma", "Fiesta"],
+      engines: ["EcoBoost", "1.0 EcoBoost"],
+      powers: ["100ch", "125ch", "140ch", "155ch"],
+      fuels: ["Essence"],
+      symptoms: ["surchauffe", "refroidissement", "joint culasse", "fuite liquide refroidissement", "voyant température", "huile dans liquide", "casse moteur"],
+      severity: "critique",
+      description: "Surveillance thermique et circuit de refroidissement sur certains EcoBoost 3 cylindres.",
+      legal: "Vice caché 1641 C.civ.; sécurité produit L.423-1; conformité L.217-4.",
+      recall: "TSB Ford; forums techniques; DGCCRF.",
+      tags: "moteur|refroidissement|joint culasse|turbo|essence",
+      dtc: "P0117|P0118|P0217|P0300",
+      source: "base locale ingénieur"
     }
   ];
 
-  /* =========================================================
-     INDEXATION
-     ========================================================= */
-  const addVehicle = (b, m, e, p, f, tr, code, source = "seed") => {
-    if (!b || !m || !e) return;
-    const bk = normKey(b);
-    const mk = normKey(m);
-    if (!index.brands[bk]) index.brands[bk] = { name: b, models: [] };
+  const seedLocal = () => {
+    SEED_VEHICLES.forEach(([b, m, e, p, f, tr, code]) => {
+      addEngine(b, m, e, p, f, tr, code, "seed-local");
+    });
 
-    const modelKey = `${bk}|${mk}`;
-    if (!index.models[modelKey]) {
-      index.models[modelKey] = {
-        brand: b,
-        name: m,
-        engines: [],
-        engineKeys: new Set()
-      };
-      index.brands[bk].models.push(index.models[modelKey]);
+    SEED_DEFECTS.forEach(addDefect);
+    recomputeCounts();
+  };
+
+  /* =========================================================
+     SYNCHRONISATION DISTANTE ROBUSTE
+     ========================================================= */
+  const fetchUrl = async (url, kind = "json", timeout = 10000) => {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+
+    try {
+      const res = await fetch(url, {
+        cache: "no-store",
+        mode: "cors",
+        signal: ctrl.signal
+      });
+
+      clearTimeout(timer);
+
+      if (!res.ok) return null;
+      return kind === "json" ? await res.json() : await res.text();
+    } catch {
+      clearTimeout(timer);
+      return null;
+    }
+  };
+
+  const smartFetch = async (url, kind = "json") => {
+    const direct = await fetchUrl(url, kind, 9000);
+    if (direct != null) return { data: direct, source: "direct" };
+
+    for (let i = 0; i < PROXIES.length; i++) {
+      const proxied = PROXIES[i](url);
+      const data = await fetchUrl(proxied, kind, 12000);
+      if (data != null) return { data, source: `proxy-${i + 1}` };
     }
 
-    const powers = expandPowers(p);
-    powers.forEach((power) => {
-      const engineKey = normKey(`${e}|${power}|${f}|${tr}|${code}`);
-      if (index.models[modelKey].engineKeys.has(engineKey)) return;
-      index.models[modelKey].engineKeys.add(engineKey);
-
-      index.models[modelKey].engines.push({
-        brand: b,
-        model: m,
-        engine: e,
-        power: power || "",
-        fuel: f || "",
-        transmission: tr || "",
-        code: code || "",
-        displacement: /l|cm3|cylindrée/i.test(code || "") ? code : "",
-        source,
-        confidence: source === "seed" ? 0.94 : 0.98
-      });
-    });
+    return null;
   };
 
-  const addDefect = (d) => {
-    if (!d?.brand) return;
-    const key = normKey(`${d.brand}|${(d.models || []).join(",")}|${(d.engines || []).join(",")}|${(d.symptoms || []).join(",")}`);
-    if (catalog.defectKeys.has(key)) return;
-    catalog.defectKeys.add(key);
-    catalog.defects.push({
-      brand: d.brand,
-      models: d.models || [],
-      engines: d.engines || [],
-      powers: d.powers || [],
-      fuels: d.fuels || [],
-      symptoms: d.symptoms || [],
-      severity: d.severity || "info",
-      description: d.description || "",
-      legal: d.legal || "",
-      recall: d.recall || "",
-      tags: d.tags || "",
-      dtc: d.dtc || "",
-      source: d.source || "base locale",
-      sourceUrl: d.sourceUrl || ""
-    });
+  const collectArrays = (value, depth = 0, out = []) => {
+    if (Array.isArray(value)) {
+      out.push(value);
+      if (depth < 3) value.forEach((v) => collectArrays(v, depth + 1, out));
+    } else if (value && typeof value === "object" && depth < 4) {
+      Object.values(value).forEach((v) => collectArrays(v, depth + 1, out));
+    }
+    return out;
   };
 
-  const initSeed = () => {
-    index.brands = {};
-    index.models = {};
-    catalog.defects = [];
-    catalog.defectKeys = new Set();
+  const inferRowKind = (row) => {
+    if (!row || typeof row !== "object") return null;
+    const keys = Object.keys(row).map(normKey).join("|");
 
-    SEED_VEHICLES.forEach(([b, m, e, p, f, tr, code]) => addVehicle(b, m, e, p, f, tr, code, "seed"));
-    SEED_DEFECTS.forEach(addDefect);
+    if (/panne|defaut|symptome|fault|issue|dtc|rappel|recall|description/.test(keys)) return "defects";
+    if (/engine|motorisation|moteur|power|puissance/.test(keys)) return "engines";
+    if (/model|modele|vehicle|vehicule/.test(keys)) return "models";
+    if (/brand|marque|constructeur/.test(keys)) return "brands";
+    return null;
   };
 
-  /* =========================================================
-     SYNCHRONISATION DISTANTE
-     ========================================================= */
-  const remoteUrl = (path) => {
-    const base = CONFIG.remote.base.replace(/\/$/, "");
-    return `${base}/${String(path).replace(/^\//, "")}`;
-  };
+  const mergeRow = (kind, row, source) => {
+    if (!row) return 0;
 
-  const mergeRemoteBrands = (payload) => {
-    const rows = extractArray(payload);
-    rows.forEach((row) => {
-      const name = typeof row === "string" ? row : getBrandField(row);
-      if (!name) return;
-      const bk = normKey(name);
-      if (!index.brands[bk]) index.brands[bk] = { name, models: [] };
-      else index.brands[bk].name = index.brands[bk].name || name;
-    });
-  };
+    if (typeof row === "string") {
+      if (kind === "brands") return ensureBrand(row, source) ? 1 : 0;
+      return 0;
+    }
 
-  const mergeRemoteModels = (payload) => {
-    const rows = extractArray(payload);
-    rows.forEach((row) => {
-      const b = getBrandField(row);
-      const m = getModelField(row);
-      if (!b || !m) return;
-      const bk = normKey(b), mk = normKey(m);
-      if (!index.brands[bk]) index.brands[bk] = { name: b, models: [] };
-      const modelKey = `${bk}|${mk}`;
-      if (!index.models[modelKey]) {
-        index.models[modelKey] = { brand: b, name: m, engines: [], engineKeys: new Set() };
-        index.brands[bk].models.push(index.models[modelKey]);
-      }
-    });
-  };
+    if (typeof row !== "object") return 0;
 
-  const mergeRemoteEngines = (payload) => {
-    const rows = extractArray(payload);
-    rows.forEach((row) => {
-      const b = getBrandField(row);
-      const m = getModelField(row);
-      const e = getEngineField(row);
-      if (!b || !m || !e) return;
-      addVehicle(
-        b,
-        m,
-        e,
-        getPowerField(row),
-        getFuelField(row),
-        getTransField(row),
-        getCodeField(row),
-        "auto-diagnostic distant"
-      );
-    });
-  };
+    const inferred = kind === "auto" ? inferRowKind(row) : kind;
 
-  const mergeRemoteDefects = (payload) => {
-    const rows = extractArray(payload);
-    rows.forEach((row) => {
-      const brand = getBrandField(row);
-      if (!brand) return;
+    if (inferred === "brands") {
+      const name = getBrandField(row) || row.name || row.nom || row.label;
+      return ensureBrand(name, source) ? 1 : 0;
+    }
 
-      const models = splitList(getModelField(row) || row.models || row.modeles || "*");
+    if (inferred === "models") {
+      const brand = getBrandField(row) || row.brandName || row.marque;
+      const model = getModelField(row) || row.name || row.modele;
+      return ensureModel(brand, model, source) ? 1 : 0;
+    }
+
+    if (inferred === "engines") {
+      const brand = getBrandField(row) || row.brandName || row.marque;
+      const model = getModelField(row) || row.modelName || row.modele;
+      const engine = getEngineField(row) || row.version || row.variant;
+      const power = getPowerField(row);
+      const fuel = getFuelField(row);
+      const trans = getTransField(row);
+      const code = getCodeField(row);
+      return addEngine(brand, model, engine, power, fuel, trans, code, source);
+    }
+
+    if (inferred === "defects") {
+      const brand = getBrandField(row) || row.brandName || row.marque;
+      const models = splitList(getModelField(row) || row.models || row.modeles || row.vehicle);
       const engines = splitList(getEngineField(row) || row.engines || row.motorisations || row.moteurs);
       const powers = splitList(getPowerField(row) || row.powers || row.puissances);
       const fuels = splitList(getFuelField(row) || row.fuels || row.energies || row.carburants);
-      const symptoms = splitList(getSymptomsField(row) || row.symptoms || row.symptomes);
+      const symptoms = splitList(getSymptomsField(row) || row.symptoms || row.symptomes || row.issue || row.fault);
 
-      addDefect({
+      return addDefect({
         brand,
         models,
         engines,
@@ -1134,15 +1175,703 @@
         fuels,
         symptoms,
         severity: row.severity || row.severite || row.sev || "info",
-        description: row.description || row.n || row.note || row.details || "",
+        description: row.description || row.n || row.note || row.details || row.expertise || "",
         legal: row.legal || row.law || row.baseLegale || "",
-        recall: row.recall || row.rec || row.rappel || row.recalls || "",
+        recall: row.recall || row.rec || row.rappel || row.campaign || "",
         tags: row.tags || row.tg || "",
         dtc: row.dtc || row.codes || row.codeDtc || "",
-        source: row.source || "auto-diagnostic distant",
+        source: row.source || source,
         sourceUrl: row.sourceUrl || row.url || row.link || ""
       });
+    }
+
+    return 0;
+  };
+
+  const mergePayload = (kind, payload, source) => {
+    let added = 0;
+    const arrays = Array.isArray(payload) ? [payload] : collectArrays(payload);
+
+    arrays.forEach((arr) => {
+      if (!Array.isArray(arr)) return;
+      arr.forEach((row) => {
+        added += mergeRow(kind, row, source);
+      });
     });
+
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      Object.values(payload).forEach((v) => {
+        added += mergePayload(kind === "auto" ? "auto" : kind, v, source);
+      });
+    }
+
+    return added;
+  };
+
+  const headerAlias = {
+    marque: "brand",
+    brand: "brand",
+    constructeur: "brand",
+    modele: "model",
+    model: "model",
+    vehicule: "model",
+    motorisation: "engine",
+    engine: "engine",
+    moteur: "engine",
+    version: "engine",
+    puissance: "power",
+    power: "power",
+    ch: "power",
+    kw: "power",
+    energie: "fuel",
+    carburant: "fuel",
+    fuel: "fuel",
+    type: "fuel",
+    boite: "transmission",
+    transmission: "transmission",
+    code: "code",
+    cylindree: "code",
+    cylindrée: "code",
+    displacement: "code",
+    panne: "symptoms",
+    defaut: "symptoms",
+    symptome: "symptoms",
+    symptoms: "symptoms",
+    description: "description",
+    severite: "severity",
+    severity: "severity",
+    rappel: "recall",
+    recall: "recall",
+    dtc: "dtc",
+    source: "sourceUrl",
+    url: "sourceUrl",
+    lien: "sourceUrl"
+  };
+
+  const inferKindFromHeaders = (headers) => {
+    const h = headers.map(norm).join("|");
+    if (/panne|defaut|symptome|rappel|dtc|fault|issue/.test(h)) return "defects";
+    if (/motorisation|moteur|engine|puissance|power/.test(h)) return "engines";
+    if (/modele|model|vehicule|vehicle/.test(h)) return "models";
+    if (/marque|brand|constructeur/.test(h)) return "brands";
+    return null;
+  };
+
+  const parseHtml = (html, sourceLabel) => {
+    let added = 0;
+
+    try {
+      const doc = new DOMParser().parseFromString(html, "text/html");
+
+      doc.querySelectorAll('script[type="application/json"]').forEach((sc) => {
+        try {
+          const json = JSON.parse(sc.textContent || "{}");
+          added += mergePayload("auto", json, `${sourceLabel}:json-script`);
+        } catch {}
+      });
+
+      doc.querySelectorAll("script").forEach((sc) => {
+        const txt = sc.textContent || "";
+        if (!txt.trim()) return;
+
+        const arrayMatches = txt.match(/\[[\s\S]*?\]/g) || [];
+        const objectMatches = txt.match(/\{[\s\S]*?\}/g) || [];
+
+        [...arrayMatches.slice(0, 30), ...objectMatches.slice(0, 30)].forEach((m) => {
+          try {
+            const json = JSON.parse(m);
+            added += mergePayload("auto", json, `${sourceLabel}:inline-script`);
+          } catch {}
+        });
+      });
+
+      doc.querySelectorAll("table").forEach((table) => {
+        const rows = [...table.querySelectorAll("tr")];
+        if (rows.length < 2) return;
+
+        const headerCells = [...rows[0].querySelectorAll("th, td")].map((c) => norm(c.textContent || ""));
+        const kind = inferKindFromHeaders(headerCells);
+        if (!kind) return;
+
+        const bodyRows = rows.slice(1);
+
+        bodyRows.forEach((tr) => {
+          const cells = [...tr.querySelectorAll("td, th")].map((c) => c.textContent.trim());
+          if (!cells.length) return;
+
+          const obj = {};
+          headerCells.forEach((h, i) => {
+            const alias = headerAlias[h] || h;
+            obj[alias] = cells[i] || "";
+          });
+
+          added += mergeRow(kind, obj, `${sourceLabel}:table`);
+        });
+      });
+
+      doc.querySelectorAll("[data-brand], [data-marque], [data-model], [data-modele], [data-engine], [data-motorisation], [data-defect], [data-panne]").forEach((el) => {
+        const obj = {
+          brand: el.getAttribute("data-brand") || el.getAttribute("data-marque") || "",
+          model: el.getAttribute("data-model") || el.getAttribute("data-modele") || "",
+          engine: el.getAttribute("data-engine") || el.getAttribute("data-motorisation") || "",
+          power: el.getAttribute("data-power") || el.getAttribute("data-puissance") || "",
+          fuel: el.getAttribute("data-fuel") || el.getAttribute("data-energie") || "",
+          transmission: el.getAttribute("data-transmission") || el.getAttribute("data-boite") || "",
+          code: el.getAttribute("data-code") || "",
+          symptoms: el.getAttribute("data-defect") || el.getAttribute("data-panne") || "",
+          description: el.textContent || ""
+        };
+
+        if (obj.symptoms) {
+          added += mergeRow("defects", obj, `${sourceLabel}:data-attrs`);
+        } else if (obj.engine) {
+          added += mergeRow("engines", obj, `${sourceLabel}:data-attrs`);
+        } else if (obj.model) {
+          added += mergeRow("models", obj, `${sourceLabel}:data-attrs`);
+        } else if (obj.brand) {
+          added += mergeRow("brands", obj, `${sourceLabel}:data-attrs`);
+        }
+      });
+    } catch (e) {
+      console.warn("[EXPERT-AUTO] Parse HTML distant échoué:", e);
+    }
+
+    return added;
+  };
+
+  const updateFromEndpoints = async (setStatus, setProgress) => {
+    let totalAdded = 0;
+    let step = 0;
+    const totalSteps = ENDPOINT_GROUPS.reduce((acc, g) => acc + g.paths.length, 0) + 3;
+
+    for (const group of ENDPOINT_GROUPS) {
+      let gotForGroup = 0;
+
+      for (const path of group.paths) {
+        step++;
+        setStatus(`Endpoint ${group.kind} : ${path}`);
+        setProgress(Math.round((step / totalSteps) * 70));
+
+        const url = REMOTE_BASE + path;
+        const direct = await fetchUrl(url, "json", 8000);
+
+        if (direct) {
+          const added = mergePayload(group.kind, direct, `auto-diagnostic-direct:${path}`);
+          totalAdded += added;
+          if (added) gotForGroup++;
+        }
+      }
+
+      if (!gotForGroup) {
+        for (const proxy of PROXIES) {
+          for (const path of group.paths.slice(0, 2)) {
+            step++;
+            setStatus(`Proxy ${group.kind} : ${path}`);
+            setProgress(Math.round((step / totalSteps) * 70));
+
+            const url = proxy(REMOTE_BASE + path);
+            const data = await fetchUrl(url, "json", 12000);
+
+            if (data) {
+              const added = mergePayload(group.kind, data, `auto-diagnostic-proxy:${path}`);
+              totalAdded += added;
+              if (added) break;
+            }
+          }
+
+          if (gotForGroup) break;
+        }
+      }
+    }
+
+    return totalAdded;
+  };
+
+  const updateFromHtmlPage = async (setStatus, setProgress) => {
+    setStatus("Analyse page HTML Auto-Diagnostic...");
+    setProgress(80);
+
+    const res = await smartFetch(REMOTE_BASE, "text");
+    if (!res) return 0;
+
+    return parseHtml(res.data, `auto-diagnostic-page:${res.source}`);
+  };
+
+  const updateFromLocalApkBase = async (setStatus, setProgress) => {
+    setStatus("Chargement apk-base.json local si disponible...");
+    setProgress(90);
+
+    try {
+      const res = await fetch("./apk-base.json", { cache: "no-store" });
+      if (!res.ok) return 0;
+      const json = await res.json();
+      return mergePayload("auto", json, "apk-base.json-local");
+    } catch {
+      return 0;
+    }
+  };
+
+  /* =========================================================
+     ÉTAT / UI / ADMIN
+     ========================================================= */
+  let currentUser = null;
+  let vehicleData = {};
+  let analysisData = {};
+  let termesMobilises = new Set();
+  let deferredPrompt = null;
+  let swRegistration = null;
+  let adminPollTimer = null;
+  let liveSyncTimer = null;
+  let lastPendingSignature = "";
+  let broadcast = null;
+  let syncBusy = false;
+
+  const selection = { brand: null, model: null, engine: null };
+  let engineFuelFilter = "all";
+
+  try {
+    if ("BroadcastChannel" in window) broadcast = new BroadcastChannel("arex_expert_channel_v31");
+  } catch {
+    broadcast = null;
+  }
+
+  const normIdentity = (v) => norm(String(v == null ? "" : v)).replace(/\s+/g, " ").trim();
+  const userEmailKey = (email) => normIdentity(email).replace(/\s/g, "");
+  const userNameKey = (name) => normIdentity(name);
+  const userCompositeKey = (name, email) => `${userNameKey(name)}|${userEmailKey(email)}`;
+
+  const migrateUser = (u) => {
+    const user = { ...(u || {}) };
+    user.name = String(user.name || "").trim();
+    user.email = String(user.email || "").trim();
+    user.nameNorm = userNameKey(user.name);
+    user.emailNorm = userEmailKey(user.email);
+    user.key = user.key || userCompositeKey(user.name, user.email);
+    user.role = user.role || "user";
+    user.status = user.status || "pending";
+    if (!user.daily) user.daily = { date: todayKey(), count: 0 };
+    return user;
+  };
+
+  const getUsers = () => (loadWithMigration(KEYS.USERS, OLD_KEYS.USERS, []) || []).map(migrateUser);
+  const saveUsers = (users) => save(KEYS.USERS, (users || []).map(migrateUser));
+
+  const migrateRequest = (r) => {
+    const req = { ...(r || {}) };
+    req.name = String(req.name || "").trim();
+    req.email = String(req.email || "").trim();
+    req.reason = String(req.reason || "").trim();
+    req.nameNorm = userNameKey(req.name);
+    req.emailNorm = userEmailKey(req.email);
+    req.key = req.key || userCompositeKey(req.name, req.email);
+    req.status = req.status || "pending";
+    req.ts = req.ts || Date.now();
+    req.date = req.date || new Date(req.ts).toLocaleString("fr-FR");
+    return req;
+  };
+
+  const getRequests = () => (loadWithMigration(KEYS.REQUESTS, OLD_KEYS.REQUESTS, []) || []).map(migrateRequest);
+  const saveRequests = (requests) => save(KEYS.REQUESTS, (requests || []).map(migrateRequest));
+
+  const findApprovedUser = (name, email) => {
+    const emailKey = userEmailKey(email);
+    if (!emailKey) return null;
+    return getUsers().find((u) =>
+      u.status === "approved" &&
+      u.role !== "admin" &&
+      (u.key === userCompositeKey(name, email) || u.emailNorm === emailKey)
+    ) || null;
+  };
+
+  const upsertUser = (user) => {
+    const next = migrateUser(user);
+    const users = getUsers();
+    const idx = users.findIndex((u) => u.key === next.key || (u.emailNorm === next.emailNorm && u.role !== "admin"));
+    if (idx >= 0) {
+      users[idx] = { ...users[idx], ...next };
+      saveUsers(users);
+      return users[idx];
+    }
+    users.push(next);
+    saveUsers(users);
+    return next;
+  };
+
+  const setSession = (user) => { currentUser = migrateUser(user); save(KEYS.SESSION, currentUser); };
+  const clearSession = () => { currentUser = null; del(KEYS.SESSION); };
+
+  const restoreSession = () => {
+    const session = loadWithMigration(KEYS.SESSION, OLD_KEYS.SESSION, null);
+    if (!session) return false;
+    if (session.role === "admin") { clearSession(); return false; }
+    const fresh = findApprovedUser(session.name, session.email);
+    if (fresh && fresh.status === "approved") {
+      currentUser = fresh;
+      setSession(fresh);
+      return true;
+    }
+    clearSession();
+    return false;
+  };
+
+  const dailyInfo = () => {
+    if (!currentUser) return { allowed: false, remaining: 0, unlimited: false };
+    if (currentUser.role === "admin") return { allowed: true, remaining: Infinity, unlimited: true };
+    const user = findApprovedUser(currentUser.name, currentUser.email) || currentUser;
+    const daily = user.daily && user.daily.date === todayKey() ? user.daily.count : 0;
+    return { allowed: daily < MAX_DAILY_ANALYSES, remaining: Math.max(0, MAX_DAILY_ANALYSES - daily), unlimited: false };
+  };
+
+  const incrementDaily = () => {
+    if (!currentUser || currentUser.role === "admin") return;
+    const users = getUsers();
+    const idx = users.findIndex((u) => u.key === currentUser.key || (u.emailNorm === currentUser.emailNorm && u.role !== "admin"));
+    if (idx < 0) return;
+    const user = users[idx];
+    if (!user.daily || user.daily.date !== todayKey()) user.daily = { date: todayKey(), count: 0 };
+    user.daily.count += 1;
+    users[idx] = user;
+    saveUsers(users);
+    currentUser = user;
+    setSession(user);
+    updateCounter();
+  };
+
+  const updateCounter = () => {
+    const el = q("#dailyCounter");
+    if (!el) return;
+    const info = dailyInfo();
+    el.textContent = info.unlimited ? "👑 Admin illimité" : `📊 ${info.remaining}/${MAX_DAILY_ANALYSES}`;
+  };
+
+  const authMessage = (msg, type) => {
+    const el = q("#authMsg");
+    if (el) {
+      el.textContent = msg;
+      el.className = "auth-msg " + (type || "");
+    } else {
+      toast(msg, type || "info");
+    }
+  };
+
+  const getSettings = () => loadWithMigration(KEYS.SETTINGS, "arex_settings_v30", { adminEmail: "" }) || { adminEmail: "" };
+  const saveSettings = (s) => save(KEYS.SETTINGS, s);
+
+  const makeAccessGrantUrl = (user) => {
+    const safe = migrateUser(user);
+    const payload = { name: safe.name, email: safe.email, status: "approved", role: "user", key: safe.key, grantedAt: Date.now() };
+    const baseUrl = location.href.split("?")[0].split("#")[0];
+    return baseUrl + "?access_grant=" + utf8ToB64Url(JSON.stringify(payload));
+  };
+
+  const processIncomingAccessGrantFromUrl = () => {
+    try {
+      const raw = getQueryParam("access_grant");
+      if (!raw) return false;
+      const payload = JSON.parse(b64UrlToUtf8(raw));
+      if (!payload || !payload.email) return false;
+
+      const user = upsertUser({
+        name: payload.name || payload.email,
+        email: payload.email,
+        role: "user",
+        status: "approved",
+        key: payload.key,
+        daily: { date: todayKey(), count: 0 }
+      });
+
+      setSession(user);
+      showApp();
+      toast("Accès approuvé importé.", "success");
+      cleanUrlAfterParam();
+      return true;
+    } catch {
+      toast("Lien d’accès invalide.", "error");
+      return false;
+    }
+  };
+
+  const processIncomingAccessRequestFromUrl = () => {
+    try {
+      const raw = getQueryParam("access_request");
+      if (!raw) return false;
+      const payload = JSON.parse(b64UrlToUtf8(raw));
+      if (!payload || !payload.email) return false;
+
+      const req = migrateRequest({
+        id: uid(),
+        name: payload.name || payload.email,
+        email: payload.email,
+        reason: payload.reason || "Demande via lien partagé",
+        status: "pending",
+        date: new Date().toLocaleString("fr-FR"),
+        ts: Date.now(),
+        source: "lien-partage"
+      });
+
+      const requests = getRequests();
+      requests.push(req);
+      saveRequests(requests);
+      publishAccessRequest(req);
+      cleanUrlAfterParam();
+      toast("Demande importée.", "success");
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const pendingRequests = () => getRequests().filter((r) => r.status === "pending");
+  const pendingSignature = () => pendingRequests().map((r) => r.id).sort().join("|");
+
+  const updateNotificationBell = () => {
+    const bell = q("#notifBellBtn");
+    const badge = q("#notifBadge");
+    if (!bell) return;
+
+    if (!currentUser || currentUser.role !== "admin") {
+      bell.classList.add("hidden");
+      if (badge) badge.classList.add("hidden");
+      return;
+    }
+
+    bell.classList.remove("hidden");
+    const count = pendingRequests().length;
+    if (badge) {
+      badge.textContent = String(count);
+      badge.classList.toggle("hidden", count === 0);
+    }
+  };
+
+  const notificationPermissionState = () => {
+    if (!("Notification" in window)) return "unsupported";
+    return Notification.permission;
+  };
+
+  const updateNotificationState = () => {
+    const el = q("#notifState");
+    const state = notificationPermissionState();
+    const labels = {
+      granted: "✅ Notifications autorisées",
+      default: "⏳ Permission non encore accordée",
+      denied: "❌ Notifications bloquées",
+      unsupported: "⚠️ Non supporté"
+    };
+    if (el) el.textContent = "État notifications : " + (labels[state] || state);
+  };
+
+  const askNotification = async () => {
+    if (!("Notification" in window)) {
+      updateNotificationState();
+      return "unsupported";
+    }
+
+    if (Notification.permission === "granted" || Notification.permission === "denied") {
+      updateNotificationState();
+      return Notification.permission;
+    }
+
+    try {
+      const p = await Notification.requestPermission();
+      updateNotificationState();
+      return p;
+    } catch {
+      updateNotificationState();
+      return Notification.permission || "denied";
+    }
+  };
+
+  const showSystemNotification = async (title, body, tag) => {
+    const options = {
+      body: body || "",
+      tag: tag || "arex-" + Date.now(),
+      data: { url: "./index.html" }
+    };
+
+    const fallback = () => {
+      if ("Notification" in window && Notification.permission === "granted") {
+        try {
+          const n = new Notification(title, options);
+          n.onclick = () => window.focus();
+        } catch {}
+      }
+    };
+
+    if (swRegistration && typeof swRegistration.showNotification === "function") {
+      try {
+        await swRegistration.showNotification(title, options);
+        return;
+      } catch {
+        fallback();
+        return;
+      }
+    }
+
+    fallback();
+  };
+
+  const notify = (title, body, tag) => showSystemNotification(title, body, tag);
+
+  const mailto = (to, subject, body) => {
+    const url = `mailto:${encodeURIComponent(to || "")}?subject=${encodeURIComponent(subject || "")}&body=${encodeURIComponent(body || "")}`;
+    window.location.href = url;
+  };
+
+  const sendAdminMail = (req) => {
+    const settings = getSettings();
+    const adminEmail = settings.adminEmail || "";
+    if (!adminEmail) return;
+    mailto(
+      adminEmail,
+      "[Expert Auto] Nouvelle demande d’accès",
+      `Nouvelle demande d'accès\n\nNom: ${req.name}\nEmail: ${req.email}\nMotif: ${req.reason}\nDate: ${req.date}`
+    );
+  };
+
+  const sendUserApprovalMail = (user, grantUrl) => {
+    mailto(
+      user.email,
+      "[Expert Auto] Votre accès a été approuvé",
+      `Bonjour ${user.name},\n\nVotre accès a été approuvé.\n\nLien d'accès :\n${grantUrl}\n\nCordialement,\nL'administrateur.`
+    );
+  };
+
+  const onAccessRequestReceived = (req) => {
+    if (!currentUser || currentUser.role !== "admin" || !req) return;
+    notify("Nouvelle demande d’accès", `${req.name || "Tiers"} — ${req.email || ""}`, "access-" + (req.id || Date.now()));
+    updateNotificationBell();
+    renderAdminIfOpen();
+    sendAdminMail(req);
+    toast("Nouvelle demande : " + (req.name || "Tiers"), "info");
+  };
+
+  const pollAdminNotifications = () => {
+    if (!currentUser || currentUser.role !== "admin") return;
+
+    const sig = pendingSignature();
+    if (sig === lastPendingSignature) {
+      updateNotificationBell();
+      return;
+    }
+
+    const oldIds = lastPendingSignature ? lastPendingSignature.split("|") : [];
+    const newIds = sig ? sig.split("|").filter((id) => id && !oldIds.includes(id)) : [];
+    lastPendingSignature = sig;
+    updateNotificationBell();
+
+    if (newIds.length) {
+      const all = getRequests();
+      newIds.forEach((id) => {
+        const req = all.find((r) => r.id === id);
+        if (req) onAccessRequestReceived(req);
+      });
+    }
+
+    renderAdminIfOpen();
+  };
+
+  const startAdminPolling = () => {
+    stopAdminPolling();
+    lastPendingSignature = pendingSignature();
+    updateNotificationBell();
+    adminPollTimer = setInterval(pollAdminNotifications, 5000);
+    const count = pendingRequests().length;
+    if (count > 0) toast(`${count} demande(s) en attente`, "info");
+  };
+
+  const stopAdminPolling = () => {
+    if (adminPollTimer) {
+      clearInterval(adminPollTimer);
+      adminPollTimer = null;
+    }
+  };
+
+  const publishAccessRequest = (req) => {
+    if (!req) return;
+    if (broadcast) {
+      try { broadcast.postMessage({ type: "access-request", payload: req }); } catch {}
+    }
+    try { window.dispatchEvent(new CustomEvent("arex:access-request", { detail: req })); } catch {}
+    updateNotificationBell();
+  };
+
+  const enforceTierAccess = () => {
+    if (!currentUser || currentUser.role === "admin") return;
+    const fresh = findApprovedUser(currentUser.name, currentUser.email);
+    if (!fresh || fresh.status !== "approved") {
+      clearSession();
+      showLogin();
+      toast("Votre accès a été révoqué ou refusé.", "error");
+    } else {
+      currentUser = fresh;
+      setSession(fresh);
+      updateCounter();
+    }
+  };
+
+  const refreshSavedPasswordButton = () => {
+    const btn = q("#useSavedPwdBtn");
+    const saved = loadWithMigration(KEYS.ADMIN_PWD_HASH, OLD_KEYS.ADMIN_PWD_HASH, null);
+    if (btn) btn.classList.toggle("hidden", !saved);
+  };
+
+  const verifyAdminPassword = async (input) => {
+    if (!input) return false;
+    const adminHash = await sha256(ADMIN_PASSWORD);
+    const inputHash = await sha256(input);
+    return inputHash === adminHash;
+  };
+
+  const loginAdminFromHash = async (savedHash) => {
+    if (!savedHash) return false;
+    const adminHash = await sha256(ADMIN_PASSWORD);
+    return savedHash === adminHash;
+  };
+
+  const showApp = () => {
+    const login = q("#loginScreen");
+    if (login) login.classList.add("hidden");
+
+    const app = q("#mainApp");
+    if (app) app.classList.remove("hidden");
+
+    const badge = q("#userBadge");
+    if (badge) badge.textContent = currentUser.role === "admin" ? "👑 Admin" : "👤 " + currentUser.name;
+
+    const adminBtn = q("#adminPanelBtn");
+    if (adminBtn) adminBtn.classList.toggle("hidden", currentUser.role !== "admin");
+
+    updateCounter();
+    updateNotificationBell();
+    updateNotificationState();
+    updateSelectionSummary();
+    injectUpdateBar();
+    injectAdminApkBlock();
+
+    if (currentUser && currentUser.role === "admin") {
+      startAdminPolling();
+      askNotification();
+    } else {
+      stopAdminPolling();
+    }
+
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const showLogin = () => {
+    const login = q("#loginScreen");
+    if (login) login.classList.remove("hidden");
+
+    const app = q("#mainApp");
+    if (app) app.classList.add("hidden");
+
+    const admin = q("#adminPanel");
+    if (admin) admin.classList.add("hidden");
+
+    stopAdminPolling();
+    updateNotificationBell();
+    updateNotificationState();
+    refreshSavedPasswordButton();
   };
 
   const updateDataStatus = (msg) => {
@@ -1150,75 +1879,409 @@
     if (el) el.textContent = msg;
   };
 
-  const refreshSelectionLists = () => {
-    if (selection.brand) renderModelList(q("#modelSearch")?.value || "");
-    if (selection.brand && selection.model) renderEngineList(q("#engineSearch")?.value || "");
-    updateSelectionSummary();
+  const setApkStatus = (msg) => {
+    const el = q("#apkSyncStatus");
+    if (el) el.textContent = msg;
+    updateDataStatus(msg);
   };
 
-  const syncRemoteCatalog = async (manual = false) => {
-    updateDataStatus("Synchronisation dynamique Auto-Diagnostic...");
-    const ep = CONFIG.remote.endpoints;
+  const setApkProgress = (percent) => {
+    const el = q("#apkSyncProgressInner");
+    if (el) el.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+  };
 
-    const [brands, models, engines, defects] = await Promise.all([
-      tryFetchJson(ep.brands.map(remoteUrl)),
-      tryFetchJson(ep.models.map(remoteUrl)),
-      tryFetchJson(ep.engines.map(remoteUrl)),
-      tryFetchJson(ep.defects.map(remoteUrl))
-    ]);
+  const injectUpdateBar = () => {
+    if (q("#apkUpdateBar")) return;
 
-    let merged = 0;
-    if (brands) { mergeRemoteBrands(brands); merged++; }
-    if (models) { mergeRemoteModels(models); merged++; }
-    if (engines) { mergeRemoteEngines(engines); merged++; }
-    if (defects) { mergeRemoteDefects(defects); merged++; }
+    const mount = q("#dataStatus");
+    const html = `
+      <div id="apkUpdateBar" class="apk-update-bar">
+        <div class="apk-update-row">
+          <span class="apk-update-title">🧰 Base APK Ingénieur</span>
+          <button id="updateApkBaseBtn" class="btn apk-action">🔄 Mettre à jour la base APK</button>
+          <button id="exportApkBaseBtn" class="btn apk-export">⬇️ Exporter apk-base.json</button>
+          <span id="apkCountBrands" class="apk-mini-stat">Marques: 0</span>
+          <span id="apkCountModels" class="apk-mini-stat">Modèles: 0</span>
+          <span id="apkCountEngines" class="apk-mini-stat">Motorisations: 0</span>
+          <span id="apkCountDefects" class="apk-mini-stat">Pannes: 0</span>
+        </div>
+        <div id="apkSyncStatus" class="apk-update-status">Base locale initialisée.</div>
+        <div class="apk-progress"><div id="apkSyncProgressInner" class="apk-progress-inner"></div></div>
+      </div>
+    `;
 
-    save(KEYS.AUTO_LAST_SYNC, Date.now());
-    updateAdminStats();
-    refreshSelectionLists();
-
-    if (merged > 0) {
-      updateDataStatus(`Synchronisation dynamique réussie • ${merged} source(s) distante(s) intégrée(s)`);
-      if (manual) toast("Base Auto-Diagnostic synchronisée.", "success");
+    if (mount) {
+      mount.insertAdjacentHTML("afterend", html);
+    } else if (q("#mainApp")) {
+      q("#mainApp").insertAdjacentHTML("afterbegin", html);
     } else {
-      updateDataStatus("Mode secours local actif • Endpoints distants non répondants ou absents");
-      if (manual) toast("Aucun endpoint distant exploitable. Base locale conservée.", "warning");
+      document.body.insertAdjacentHTML("afterbegin", html);
+    }
+
+    on("#updateApkBaseBtn", "click", () => runApkBaseUpdate(true));
+    on("#exportApkBaseBtn", "click", exportApkBase);
+    updateApkCounters();
+  };
+
+  const injectAdminApkBlock = () => {
+    if (q("#apkAdminBlock")) return;
+
+    const pane = q("#statsPane") || q("#dataPane") || q("#adminPanel");
+    if (!pane) return;
+
+    const html = `
+      <div id="apkAdminBlock" class="apk-admin-block">
+        <h4>📦 Base APK / Auto-Diagnostic</h4>
+        <p class="muted">Mise à jour robuste, export pour intégration APK, import JSON massif.</p>
+        <div class="row-actions">
+          <button id="adminUpdateApkBaseBtn" class="btn apk-action">🔄 Mettre à jour maintenant</button>
+          <button id="adminExportApkBaseBtn" class="btn apk-export">⬇️ Exporter base APK</button>
+          <label class="btn ghost file-btn">
+            ⬆️ Importer apk-base.json
+            <input id="adminImportApkBaseInput" type="file" accept=".json" hidden />
+          </label>
+          <button id="adminResetLocalBaseBtn" class="btn apk-danger">♻ Réinitialiser base locale</button>
+        </div>
+      </div>
+    `;
+
+    pane.insertAdjacentHTML("beforeend", html);
+
+    on("#adminUpdateApkBaseBtn", "click", () => runApkBaseUpdate(true));
+    on("#adminExportApkBaseBtn", "click", exportApkBase);
+    on("#adminResetLocalBaseBtn", "click", resetLocalBase);
+
+    on("#adminImportApkBaseInput", "change", async (e) => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        const txt = await readFileAsText(file);
+        const json = JSON.parse(txt);
+        const added = mergePayload("auto", json, "import-apk-base.json");
+        await persistMemory();
+        refreshSelectionLists();
+        updateAdminStats();
+        toast(`Import réussi : ${added} entrée(s) fusionnée(s).`, "success");
+      } catch {
+        toast("Import échoué : JSON invalide.", "error");
+      }
+      e.target.value = "";
+    });
+  };
+
+  const updateApkCounters = () => {
+    const c = counts();
+    const b = q("#apkCountBrands");
+    const m = q("#apkCountModels");
+    const e = q("#apkCountEngines");
+    const d = q("#apkCountDefects");
+    if (b) b.textContent = `Marques: ${c.brands}`;
+    if (m) m.textContent = `Modèles: ${c.models}`;
+    if (e) e.textContent = `Motorisations: ${c.engines}`;
+    if (d) d.textContent = `Pannes: ${c.defects}`;
+  };
+
+  const updateAdminStats = () => {
+    const c = counts();
+
+    if (q("#statBrands")) q("#statBrands").textContent = c.brands;
+    if (q("#statModels")) q("#statModels").textContent = c.models;
+    if (q("#statEngines")) q("#statEngines").textContent = c.engines;
+    if (q("#statEntries")) q("#statEntries").textContent = c.defects;
+
+    updateApkCounters();
+
+    const last = loadWithMigration(KEYS.AUTO_LAST_SYNC, OLD_KEYS.AUTO_LAST_SYNC, 0);
+    if (q("#lastSyncText")) {
+      q("#lastSyncText").textContent = last
+        ? `Dernière synchro : ${new Date(last).toLocaleString("fr-FR")}`
+        : "Dernière synchro : jamais.";
+    }
+
+    if (q("#remoteStatus")) {
+      q("#remoteStatus").textContent = `Version ${VERSION} • IndexedDB ${idb ? "actif" : "indisponible"} • Base locale massive`;
+    }
+  };
+
+  const renderAdminIfOpen = () => {
+    const panel = q("#adminPanel");
+    if (!panel || panel.classList.contains("hidden")) return;
+    if (!currentUser || currentUser.role !== "admin") return;
+    renderAdmin();
+  };
+
+  const renderAdmin = () => {
+    updateAdminStats();
+    renderPendingRequests();
+    renderUsers();
+    renderWallpaperPreview();
+
+    const settings = getSettings();
+    const emailInput = q("#adminEmailInput");
+    if (emailInput) emailInput.value = settings.adminEmail || "";
+  };
+
+  const renderPendingRequests = () => {
+    const wrap = q("#pendingRequestsList");
+    if (!wrap) return;
+
+    const reqs = pendingRequests();
+    if (!reqs.length) {
+      wrap.innerHTML = '<div class="empty">Aucune demande en attente.</div>';
+      return;
+    }
+
+    wrap.innerHTML = reqs.map((r) => `
+      <div class="admin-item">
+        <div class="admin-item-head">
+          <div>
+            <strong>${esc(r.name)}</strong><br/>
+            <span class="muted">${esc(r.email)}</span>
+          </div>
+          <span class="pill soft">${esc(r.date)}</span>
+        </div>
+        <div class="muted">${esc(r.reason)}</div>
+        <div class="admin-actions">
+          <button class="small-btn" data-action="approve" data-id="${esc(r.id)}">✔ Accepter</button>
+          <button class="small-btn" data-action="refuse" data-id="${esc(r.id)}">✖ Refuser</button>
+          <button class="small-btn" data-action="mail-admin" data-id="${esc(r.id)}">✉ Mail admin</button>
+        </div>
+      </div>
+    `).join("");
+  };
+
+  const renderUsers = () => {
+    const wrap = q("#approvedUsersList");
+    if (!wrap) return;
+
+    const users = getUsers().filter((u) => u.role !== "admin");
+    if (!users.length) {
+      wrap.innerHTML = '<div class="empty">Aucun compte tiers.</div>';
+      return;
+    }
+
+    wrap.innerHTML = users.map((u) => {
+      const grantUrl = makeAccessGrantUrl(u);
+      return `
+        <div class="admin-item">
+          <div class="admin-item-head">
+            <div>
+              <strong>${esc(u.name)}</strong><br/>
+              <span class="muted">${esc(u.email)}</span>
+            </div>
+            <span class="pill ${u.status === "approved" ? "" : "soft"}">${esc(u.status)}</span>
+          </div>
+          <div class="admin-actions">
+            <button class="small-btn" data-action="copy-link" data-url="${esc(grantUrl)}">🔗 Copier lien</button>
+            <button class="small-btn" data-action="mail-user" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-url="${esc(grantUrl)}">✉ Mail utilisateur</button>
+            ${u.status === "approved"
+              ? `<button class="small-btn" data-action="revoke" data-email="${esc(u.email)}">⛔ Révoquer</button>`
+              : `<button class="small-btn" data-action="restore" data-email="${esc(u.email)}">♻ Rétablir</button>`}
+          </div>
+        </div>
+      `;
+    }).join("");
+  };
+
+  const applyBackground = (dataUrl, persist = true) => {
+    if (dataUrl) {
+      document.body.classList.add("has-custom-bg");
+      document.documentElement.style.setProperty("--custom-bg", `url(${dataUrl})`);
+      if (persist) {
+        try { save(KEYS.BACKGROUND, dataUrl); } catch { toast("Fond trop lourd à sauvegarder.", "warning"); }
+      }
+    } else {
+      document.body.classList.remove("has-custom-bg");
+      document.documentElement.style.removeProperty("--custom-bg");
+      if (persist) del(KEYS.BACKGROUND);
+    }
+    renderWallpaperPreview();
+  };
+
+  const renderWallpaperPreview = () => {
+    const preview = q("#wallpaperPreview");
+    if (!preview) return;
+    const bg = load(KEYS.BACKGROUND, null);
+    preview.style.backgroundImage = bg ? `url(${bg})` : "";
+  };
+
+  const generateDefaultWallpaper = () => {
+    const c = document.createElement("canvas");
+    c.width = 1080;
+    c.height = 1920;
+    const ctx = c.getContext("2d");
+
+    const g = ctx.createLinearGradient(0, 0, c.width, c.height);
+    g.addColorStop(0, "#07101f");
+    g.addColorStop(0.45, "#0f172a");
+    g.addColorStop(1, "#111827");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, c.width, c.height);
+
+    const glow = ctx.createRadialGradient(220, 240, 20, 220, 240, 520);
+    glow.addColorStop(0, "rgba(59,130,246,0.45)");
+    glow.addColorStop(1, "rgba(59,130,246,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, c.width, c.height);
+
+    const glow2 = ctx.createRadialGradient(860, 360, 20, 860, 360, 500);
+    glow2.addColorStop(0, "rgba(139,92,246,0.35)");
+    glow2.addColorStop(1, "rgba(139,92,246,0)");
+    ctx.fillStyle = glow2;
+    ctx.fillRect(0, 0, c.width, c.height);
+
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    for (let i = 0; i < 90; i++) {
+      const x = Math.random() * c.width;
+      const y = Math.random() * c.height;
+      const r = Math.random() * 2.2 + 0.4;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.font = "bold 82px Inter, Arial, sans-serif";
+    ctx.fillText("Expert Auto", 80, 300);
+
+    ctx.fillStyle = "rgba(148,163,184,0.95)";
+    ctx.font = "36px Inter, Arial, sans-serif";
+    ctx.fillText("Base APK ingénieur", 82, 370);
+    ctx.fillText("Marques • Modèles • Motorisations • Pannes", 82, 420);
+
+    return c.toDataURL("image/png");
+  };
+
+  const downloadWallpaper = () => {
+    const bg = load(KEYS.BACKGROUND, null) || generateDefaultWallpaper();
+    downloadDataUrl(bg, "wallpaper.png");
+    toast("Fond d’écran téléchargé pour intégration APK.", "success");
+  };
+
+  const exportApkBase = () => {
+    const data = {
+      version: VERSION,
+      generatedAt: new Date().toISOString(),
+      counts: counts(),
+      brands: [...mem.brands.values()],
+      models: [...mem.models.values()],
+      engines: [...mem.engines.values()],
+      defects: [...mem.defects.values()]
+    };
+
+    downloadText(JSON.stringify(data, null, 2), "apk-base.json");
+    toast("Base APK exportée. Intégrez apk-base.json dans l’APK / PWA.", "success");
+  };
+
+  const resetLocalBase = async () => {
+    if (!confirm("Réinitialiser la base locale ? Les données distantes synchronisées seront perdues et remplacées par la base de secours.")) return;
+
+    mem.brands.clear();
+    mem.models.clear();
+    mem.engines.clear();
+    mem.defects.clear();
+
+    seedLocal();
+    await persistMemory();
+    refreshSelectionLists();
+    updateAdminStats();
+    toast("Base locale réinitialisée.", "success");
+  };
+
+  const runApkBaseUpdate = async (manual = false) => {
+    if (syncBusy) {
+      toast("Mise à jour déjà en cours...", "warning");
+      return;
+    }
+
+    syncBusy = true;
+    injectUpdateBar();
+    injectAdminApkBlock();
+
+    const before = counts();
+    setApkProgress(5);
+    setApkStatus("Démarrage mise à jour base APK...");
+
+    const setStatus = (msg) => setApkStatus(msg);
+
+    try {
+      await updateFromEndpoints(setStatus, setApkProgress);
+      await updateFromHtmlPage(setStatus, setApkProgress);
+      await updateFromLocalApkBase(setStatus, setApkProgress);
+
+      setApkStatus("Sauvegarde IndexedDB...");
+      setApkProgress(95);
+
+      recomputeCounts();
+      await persistMemory();
+
+      const after = counts();
+      const diff = {
+        brands: after.brands - before.brands,
+        models: after.models - before.models,
+        engines: after.engines - before.engines,
+        defects: after.defects - before.defects
+      };
+
+      setApkProgress(100);
+      setApkStatus(
+        `Base APK mise à jour • +${diff.brands} marques, +${diff.models} modèles, +${diff.engines} motorisations, +${diff.defects} pannes`
+      );
+
+      refreshSelectionLists();
+      updateAdminStats();
+
+      if (manual) toast("Base APK mise à jour.", "success");
+    } catch (e) {
+      console.warn("[EXPERT-AUTO] Mise à jour base APK échouée:", e);
+      setApkStatus("Échec partiel. Base locale conservée.");
+      if (manual) toast("Mise à jour échouée ou partiellement disponible.", "error");
+    } finally {
+      syncBusy = false;
     }
   };
 
   const startLiveSync = () => {
     stopLiveSync();
-    liveSyncTimer = setInterval(() => syncRemoteCatalog(false), CONFIG.syncIntervalMs);
+    liveSyncTimer = setInterval(() => {
+      if (!document.hidden && navigator.onLine) runApkBaseUpdate(false);
+    }, 15 * 60 * 1000);
   };
 
   const stopLiveSync = () => {
-    if (liveSyncTimer) { clearInterval(liveSyncTimer); liveSyncTimer = null; }
+    if (liveSyncTimer) {
+      clearInterval(liveSyncTimer);
+      liveSyncTimer = null;
+    }
   };
 
   /* =========================================================
-     PREDICTION / UI
+     PRÉDICTION / UI VÉHICULE
      ========================================================= */
   const predictBrands = (query) => {
     const qq = norm(query);
-    const all = Object.values(index.brands).map((b) => ({ name: b.name, id: normKey(b.name), modelCount: b.models.length }));
-    if (!qq) return all.sort((a, b) => a.name.localeCompare(b.name)).slice(0, 200);
-    return all.filter((b) => norm(b.name).includes(qq)).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 200);
+    return [...mem.brands.values()]
+      .filter((b) => !qq || norm(b.name).includes(qq))
+      .map((b) => ({ name: b.name, id: b.key, modelCount: b.modelCount || 0 }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .slice(0, 300);
   };
 
   const predictModels = (brandName, query) => {
     if (!brandName) return [];
     const bk = normKey(brandName);
-    const brandData = index.brands[bk];
-    if (!brandData) return [];
+    const brand = mem.brands.get(bk);
+    if (!brand) return [];
+
     const qq = norm(query);
-    return brandData.models
-      .filter((m) => !qq || norm(m.name).includes(qq))
+    return [...mem.models.values()]
+      .filter((m) => m.brandKey === bk && (!qq || norm(m.name).includes(qq)))
       .map((m) => ({
-        id: `${bk}|${normKey(m.name)}`,
-        brand: m.brand,
+        id: m.key,
+        brand: m.brandName,
         name: m.name,
-        engineCount: m.engines.length,
-        source: m.source || "local"
+        engineCount: m.engineCount || 0,
+        source: (m.sources || []).join(", ") || "local"
       }))
       .sort((a, b) => a.name.localeCompare(b.name))
       .slice(0, 300);
@@ -1227,19 +2290,29 @@
   const predictEngines = (brandName, modelName) => {
     if (!brandName || !modelName) return [];
     const modelKey = `${normKey(brandName)}|${normKey(modelName)}`;
-    const modelData = index.models[modelKey];
-    if (!modelData) return [];
 
-    return modelData.engines.map((e) => ({
-      id: `${modelKey}|${normKey(e.engine)}|${normKey(e.power)}`,
-      ...e
-    })).sort((a, b) => {
-      const rank = ["Essence", "Diesel", "Hybride", "Hybride rechargeable", "Hybride léger 48V", "GPL", "Électrique"];
-      const ra = rank.indexOf(a.fuel);
-      const rb = rank.indexOf(b.fuel);
-      if (ra !== rb) return (ra === -1 ? 99 : ra) - (rb === -1 ? 99 : rb);
-      return getPowerValue(b.power) - getPowerValue(a.power);
-    });
+    return [...mem.engines.values()]
+      .filter((e) => e.modelKey === modelKey)
+      .map((e) => ({
+        id: e.key,
+        brand: e.brandName,
+        model: e.modelName,
+        engine: e.engine,
+        power: e.power,
+        fuel: e.fuel,
+        transmission: e.transmission,
+        code: e.code,
+        displacement: e.displacement,
+        source: (e.sources || []).join(", ") || "local",
+        confidence: e.confidence
+      }))
+      .sort((a, b) => {
+        const rank = ["Essence", "Diesel", "Hybride", "Hybride rechargeable", "Hybride léger 48V", "GPL", "Électrique"];
+        const ra = rank.indexOf(a.fuel);
+        const rb = rank.indexOf(b.fuel);
+        if (ra !== rb) return (ra === -1 ? 99 : ra) - (rb === -1 ? 99 : rb);
+        return getPowerValue(b.power) - getPowerValue(a.power);
+      });
   };
 
   const closeAllCombos = (exceptId) => {
@@ -1254,12 +2327,14 @@
     const input = q("#brandInput");
     const panel = q("#brandPanel");
     if (!input || !panel) return;
+
     const brands = predictBrands(input.value);
     if (!brands.length) {
       panel.innerHTML = '<div class="empty">Aucune marque trouvée.</div>';
       panel.classList.remove("hidden");
       return;
     }
+
     panel.innerHTML = brands.map((b) => `
       <button type="button" class="suggest-item" data-brand="${esc(b.name)}">
         ${esc(b.name)}
@@ -1274,8 +2349,10 @@
     selection.model = null;
     selection.engine = null;
     engineFuelFilter = "all";
+
     const input = q("#brandInput");
     if (input) input.value = name;
+
     closeAllCombos();
     updateModelButton();
     updateEngineButton();
@@ -1286,11 +2363,13 @@
   const updateModelButton = () => {
     const btn = q("#modelButton");
     if (!btn) return;
+
     if (!selection.brand) {
       btn.disabled = true;
       btn.textContent = "Choisir d’abord une marque";
       return;
     }
+
     btn.disabled = false;
     btn.textContent = selection.model ? selection.model.name : "Choisir un modèle";
   };
@@ -1298,11 +2377,13 @@
   const updateEngineButton = () => {
     const btn = q("#engineButton");
     if (!btn) return;
+
     if (!selection.brand || !selection.model) {
       btn.disabled = true;
       btn.textContent = !selection.brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle";
       return;
     }
+
     btn.disabled = false;
     btn.textContent = selection.engine ? engineLabel(selection.engine) : "Choisir une motorisation";
   };
@@ -1321,29 +2402,35 @@
   const renderModelList = (filter) => {
     const list = q("#modelList");
     if (!list) return;
+
     if (!selection.brand) {
       list.innerHTML = '<div class="empty">Sélectionnez une marque d’abord.</div>';
       return;
     }
+
     const models = predictModels(selection.brand.name, filter);
     if (!models.length) {
       list.innerHTML = '<div class="empty">Aucun modèle trouvé.</div>';
       return;
     }
+
     list.innerHTML = models.map((m, i) => `
       <button type="button" class="list-item" data-model-index="${i}">
         ${esc(m.name)}
         <small>${m.engineCount} motorisation(s)</small>
       </button>
     `).join("");
+
     window.__tempModelOptions = models;
   };
 
   const renderEngineFilters = (engines) => {
     const wrap = q("#engineFilters");
     if (!wrap) return;
+
     const fuels = unique(engines.map((e) => e.fuel).filter(Boolean));
     const chips = [{ id: "all", label: "Toutes" }].concat(fuels.map((f) => ({ id: f, label: f })));
+
     wrap.innerHTML = chips.map((c) => `
       <button type="button" class="chip ${engineFuelFilter === c.id ? "active" : ""}" data-fuel-filter="${esc(c.id)}">${esc(c.label)}</button>
     `).join("");
@@ -1352,6 +2439,7 @@
   const renderEngineList = (filter) => {
     const list = q("#engineList");
     if (!list) return;
+
     if (!selection.brand || !selection.model) {
       list.innerHTML = '<div class="empty">Sélectionnez un modèle d’abord.</div>';
       return;
@@ -1405,6 +2493,7 @@
     const brandEl = q("#brandInput");
     const kmEl = q("#vehicleKilometrage");
     const vinEl = q("#vehicleVin");
+
     return {
       marque: selection.brand ? selection.brand.name : (brandEl ? brandEl.value.trim() : ""),
       modele: selection.model ? selection.model.name : "",
@@ -1423,11 +2512,13 @@
   const updateSelectionSummary = () => {
     const el = q("#selectionSummary");
     if (!el) return;
+
     const v = getSelectedVehicleData();
     if (!v.marque && !v.modele && !v.engine) {
       el.textContent = "Aucune sélection véhicule complète.";
       return;
     }
+
     const parts = [];
     if (v.marque) parts.push(v.marque);
     if (v.modele) parts.push(v.modele);
@@ -1437,11 +2528,18 @@
     if (v.fuel) parts.push(v.fuel);
     if (v.transmission) parts.push(v.transmission);
     if (v.code) parts.push(v.code);
+
     el.textContent = "Sélection retenue : " + parts.join(" • ");
   };
 
+  const refreshSelectionLists = () => {
+    if (selection.brand) renderModelList(q("#modelSearch")?.value || "");
+    if (selection.brand && selection.model) renderEngineList(q("#engineSearch")?.value || "");
+    updateSelectionSummary();
+  };
+
   /* =========================================================
-     ANALYSE CROISÉE
+     ANALYSE CROISÉE TECHNIQUE + JURIDIQUE
      ========================================================= */
   const addTerm = (...args) => {
     args.forEach((t) => termesMobilises.add(t));
@@ -1452,9 +2550,9 @@
     const txt = norm(text);
     const results = [];
 
-    catalog.defects.forEach((d) => {
+    mem.defects.forEach((d) => {
       if (v.marque && !brandMatches(d.brand, v.marque)) return;
-      if (v.modele && d.models.length && !d.models.includes("*") && !d.models.some((m) => nameMatch(m, v.modele))) return;
+      if (v.modele && d.models && d.models.length && !d.models.includes("*") && !d.models.some((m) => nameMatch(m, v.modele))) return;
 
       let score = 0;
       const found = [];
@@ -1466,25 +2564,25 @@
         }
       });
 
-      if (v.engine && d.engines?.length) {
+      if (v.engine && d.engines && d.engines.length) {
         if (d.engines.some((e) => norm(v.engine).includes(norm(e)) || norm(e).includes(norm(v.engine)))) score += 5;
       }
 
-      if (v.fuel && d.fuels?.length) {
+      if (v.fuel && d.fuels && d.fuels.length) {
         if (d.fuels.some((f) => norm(f) === norm(v.fuel))) score += 3;
       }
 
-      if (v.power && d.powers?.length) {
+      if (v.power && d.powers && d.powers.length) {
         if (d.powers.some((p) => norm(p) === norm(v.power))) score += 2;
       }
 
       if (score >= 1) {
         results.push({
           constructeur: d.brand,
-          modeles: d.models?.length ? d.models : ["Non précisé"],
-          moteur: d.engines?.join(", ") || v.engine || "Non précisé",
-          puissance: d.powers?.join(", ") || v.power || "Non précisée",
-          energie: d.fuels?.join(", ") || v.fuel || "Non précisée",
+          modeles: d.models && d.models.length ? d.models : ["Non précisé"],
+          moteur: d.engines && d.engines.length ? d.engines.join(", ") : (v.engine || "Non précisé"),
+          puissance: d.powers && d.powers.length ? d.powers.join(", ") : (v.power || "Non précisée"),
+          energie: d.fuels && d.fuels.length ? d.fuels.join(", ") : (v.fuel || "Non précisée"),
           severite: d.severity,
           description: d.description,
           symptomes: found.length ? found : (d.symptoms || []).slice(0, 3),
@@ -1507,8 +2605,9 @@
     const baseQuery = `${brand} ${model} ${engine || ""} ${fuel || ""} ${(symptoms || []).slice(0, 3).join(" ")}`.trim();
     const q1 = encodeURIComponent(`${baseQuery} défaut panne rappel DTC motorisation puissance`);
     const q2 = encodeURIComponent(`${brand} ${model}`);
+
     return [
-      { label: "Auto-Diagnostic", url: CONFIG.remote.base },
+      { label: "Auto-Diagnostic", url: REMOTE_BASE },
       { label: "Recherche technique", url: "https://www.google.com/search?q=" + q1 },
       { label: "Rappel Conso France", url: "https://www.rappel.conso.gouv.fr/recherche/?search=" + q2 },
       { label: "NHTSA Recalls", url: "https://www.nhtsa.gov/recalls?search=" + q2 },
@@ -1520,29 +2619,37 @@
 
   const orientationContext = (objective, sellerType, flags, matches) => {
     const obj = norm(objective);
+
     if (obj.includes("annulation") || obj.includes("résolution") || obj.includes("remboursement total")) {
       return "Orientation prioritaire : résolution / annulation de vente, avec accent sur gravité, impassibilité à l’usage normal et éventuelle impossibilité d’utilisation conforme.";
     }
+
     if (obj.includes("réparation") || obj.includes("prise en charge")) {
       return "Orientation prioritaire : prise en charge chiffrée de la réparation, avec accent sur antériorité, défaut de série et coût de remise en état.";
     }
+
     if (obj.includes("indemnisation")) {
       return "Orientation prioritaire : indemnisation du préjudice, avec accent sur perte de valeur d’usage, immobilisation, trouble de jouissance et risque sécurité.";
     }
+
     if (flags.professional) {
       return "Orientation prioritaire : responsabilité du professionnel, obligation de conseil, vérification des rappels et conformité.";
     }
+
     if (flags.privateSeller) {
       return "Orientation prioritaire : vice caché, mauvaise foi éventuelle et charge probatoire renforcée.";
     }
+
     if (matches.some((m) => m.severite === "critique")) {
       return "Orientation prioritaire : sécurité produit, dangerosité et limitation immédiate d’usage.";
     }
+
     return "Orientation générale : consolidation probatoire avant qualification définitive.";
   };
 
   const secIdentification = (text, context) => {
     let h = `<div class="box info"><strong>Objet :</strong> recensement des éléments fournis ${addTerm("éléments factuels", "faits allégués")}.</div>`;
+
     h += `<div class="kv">
       <div>Marque</div><div>${esc(vehicleData.marque || "non précisée")}</div>
       <div>Modèle</div><div>${esc(vehicleData.modele || "non précisé")}</div>
@@ -1555,9 +2662,11 @@
       <div>Kilométrage</div><div>${esc(vehicleData.kilometrage || "non précisé")} km ${addTerm("kilométrage", "usure normale", "vétusté")}</div>
       <div>VIN</div><div>${esc(vehicleData.vin || "non communiqué")} ${addTerm("VIN", "traçabilité", "numéro de série")}</div>
     </div>`;
+
     h += `<h4>Faits rapportés</h4><p>${esc(String(text || "").substring(0, 1800))}${String(text || "").length > 1800 ? " [...]" : ""}</p>`;
     if (context) h += `<h4>Contexte transactionnel</h4><p>${esc(String(context).substring(0, 1200))}</p>`;
     h += `<div class="box low"><strong>Limite :</strong> faits non vérifiés par expertise contradictoire ${addTerm("principe du contradictoire", "constat amiable")}.</div>`;
+
     return h;
   };
 
@@ -1683,6 +2792,7 @@
 
   const secPreuve = (matches, flags, objective) => {
     let h = `<div class="box info"><strong>Objet :</strong> dossier probatoire et stratégie ${addTerm("preuve documentaire", "stratégie contentieuse")}.</div>`;
+
     h += `<h4>Documents à consolider</h4><ul>
       <li>Facture d’achat : ${flags.invoice ? "présente" : "à récupérer"}</li>
       <li>Certificat de cession / carte grise : vérifier motorisation, énergie, puissance, cylindrée, kilométrage</li>
@@ -1704,8 +2814,10 @@
       <li>Mise en demeure LRAR au vendeur</li>`;
 
     if (matches.length) h += `<li>Invoquer le défaut de série documenté ${addTerm("défaut de série", "présomption de connaissance")}</li>`;
+
     h += `<li>Conciliation / médiation si professionnel</li>
           <li>Assignation / expertise judiciaire si nécessaire</li>`;
+
     if (matches.some((m) => m.severite === "critique")) h += `<li>Signalement DGCCRF / préfet / NHTSA / KBA si danger collectif</li>`;
     h += `</ol>`;
 
@@ -1777,9 +2889,12 @@
     analysisData.sections.forEach(([title, body]) => {
       html += `<h3>${title}</h3>${body}`;
     });
+
     html += `<div class="box medium"><strong>Rappel méthodologique :</strong> ce rapport effectue un croisement local/dynamique technique + juridique + motorisation + Auto-Diagnostic. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>`;
+
     const result = q("#analysisResult");
     if (result) result.innerHTML = html;
+
     const section = q("#analysisSection");
     if (section) {
       section.classList.remove("hidden");
@@ -1827,223 +2942,8 @@
   };
 
   /* =========================================================
-     ADMIN / WALLPAPER / APK
+     SERVICE WORKER / INSTALLATION
      ========================================================= */
-  const updateAdminStats = () => {
-    const brands = Object.keys(index.brands).length;
-    const models = Object.keys(index.models).length;
-    let engines = 0;
-    Object.values(index.models).forEach((m) => engines += m.engines.length);
-
-    if (q("#statBrands")) q("#statBrands").textContent = brands;
-    if (q("#statModels")) q("#statModels").textContent = models;
-    if (q("#statEngines")) q("#statEngines").textContent = engines;
-    if (q("#statEntries")) q("#statEntries").textContent = catalog.defects.length;
-
-    const last = loadWithMigration(KEYS.AUTO_LAST_SYNC, OLD_KEYS.AUTO_LAST_SYNC, 0);
-    if (q("#lastSyncText")) q("#lastSyncText").textContent = last ? `Dernière synchro : ${new Date(last).toLocaleString("fr-FR")}` : "Dernière synchro : jamais.";
-  };
-
-  const renderAdminIfOpen = () => {
-    const panel = q("#adminPanel");
-    if (!panel || panel.classList.contains("hidden")) return;
-    if (!currentUser || currentUser.role !== "admin") return;
-    renderAdmin();
-  };
-
-  const renderAdmin = () => {
-    updateAdminStats();
-    renderPendingRequests();
-    renderUsers();
-    renderWallpaperPreview();
-    const settings = getSettings();
-    const emailInput = q("#adminEmailInput");
-    if (emailInput) emailInput.value = settings.adminEmail || "";
-  };
-
-  const renderPendingRequests = () => {
-    const wrap = q("#pendingRequestsList");
-    if (!wrap) return;
-    const reqs = pendingRequests();
-    if (!reqs.length) {
-      wrap.innerHTML = '<div class="empty">Aucune demande en attente.</div>';
-      return;
-    }
-    wrap.innerHTML = reqs.map((r) => `
-      <div class="admin-item">
-        <div class="admin-item-head">
-          <div>
-            <strong>${esc(r.name)}</strong><br/>
-            <span class="muted">${esc(r.email)}</span>
-          </div>
-          <span class="pill soft">${esc(r.date)}</span>
-        </div>
-        <div class="muted">${esc(r.reason)}</div>
-        <div class="admin-actions">
-          <button class="small-btn" data-action="approve" data-id="${esc(r.id)}">✔ Accepter</button>
-          <button class="small-btn" data-action="refuse" data-id="${esc(r.id)}">✖ Refuser</button>
-          <button class="small-btn" data-action="mail-admin" data-id="${esc(r.id)}">✉ Mail admin</button>
-        </div>
-      </div>
-    `).join("");
-  };
-
-  const renderUsers = () => {
-    const wrap = q("#approvedUsersList");
-    if (!wrap) return;
-    const users = getUsers().filter((u) => u.role !== "admin");
-    if (!users.length) {
-      wrap.innerHTML = '<div class="empty">Aucun compte tiers.</div>';
-      return;
-    }
-    wrap.innerHTML = users.map((u) => {
-      const grantUrl = makeAccessGrantUrl(u);
-      return `
-        <div class="admin-item">
-          <div class="admin-item-head">
-            <div>
-              <strong>${esc(u.name)}</strong><br/>
-              <span class="muted">${esc(u.email)}</span>
-            </div>
-            <span class="pill ${u.status === "approved" ? "" : "soft"}">${esc(u.status)}</span>
-          </div>
-          <div class="admin-actions">
-            <button class="small-btn" data-action="copy-link" data-url="${esc(grantUrl)}">🔗 Copier lien</button>
-            <button class="small-btn" data-action="mail-user" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-url="${esc(grantUrl)}">✉ Mail utilisateur</button>
-            ${u.status === "approved"
-              ? `<button class="small-btn" data-action="revoke" data-email="${esc(u.email)}">⛔ Révoquer</button>`
-              : `<button class="small-btn" data-action="restore" data-email="${esc(u.email)}">♻ Rétablir</button>`}
-          </div>
-        </div>
-      `;
-    }).join("");
-  };
-
-  const applyBackground = (dataUrl, persist = true) => {
-    if (dataUrl) {
-      document.body.classList.add("has-custom-bg");
-      document.documentElement.style.setProperty("--custom-bg", `url(${dataUrl})`);
-      if (persist) {
-        try { save(KEYS.BACKGROUND, dataUrl); } catch { toast("Fond trop lourd à sauvegarder.", "warning"); }
-      }
-    } else {
-      document.body.classList.remove("has-custom-bg");
-      document.documentElement.style.removeProperty("--custom-bg");
-      if (persist) del(KEYS.BACKGROUND);
-    }
-    renderWallpaperPreview();
-  };
-
-  const renderWallpaperPreview = () => {
-    const preview = q("#wallpaperPreview");
-    if (!preview) return;
-    const bg = load(KEYS.BACKGROUND, null);
-    preview.style.backgroundImage = bg ? `url(${bg})` : "";
-  };
-
-  const generateDefaultWallpaper = () => {
-    const c = document.createElement("canvas");
-    c.width = 1080;
-    c.height = 1920;
-    const ctx = c.getContext("2d");
-
-    const g = ctx.createLinearGradient(0, 0, c.width, c.height);
-    g.addColorStop(0, "#07101f");
-    g.addColorStop(0.45, "#0f172a");
-    g.addColorStop(1, "#111827");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, c.width, c.height);
-
-    const glow = ctx.createRadialGradient(220, 240, 20, 220, 240, 520);
-    glow.addColorStop(0, "rgba(59,130,246,0.45)");
-    glow.addColorStop(1, "rgba(59,130,246,0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, c.width, c.height);
-
-    const glow2 = ctx.createRadialGradient(860, 360, 20, 860, 360, 500);
-    glow2.addColorStop(0, "rgba(139,92,246,0.35)");
-    glow2.addColorStop(1, "rgba(139,92,246,0)");
-    ctx.fillStyle = glow2;
-    ctx.fillRect(0, 0, c.width, c.height);
-
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    for (let i = 0; i < 90; i++) {
-      const x = Math.random() * c.width;
-      const y = Math.random() * c.height;
-      const r = Math.random() * 2.2 + 0.4;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.font = "bold 82px Inter, Arial, sans-serif";
-    ctx.fillText("Expert Auto", 80, 300);
-
-    ctx.fillStyle = "rgba(148,163,184,0.95)";
-    ctx.font = "36px Inter, Arial, sans-serif";
-    ctx.fillText("Analyse croisée technique + juridique", 82, 370);
-    ctx.fillText("Dynamic Auto-Diagnostic • PWA / APK", 82, 420);
-
-    return c.toDataURL("image/png");
-  };
-
-  const downloadDataUrl = (dataUrl, filename) => {
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  };
-
-  const downloadText = (text, filename, mime = "application/json") => {
-    const blob = new Blob([text], { type: mime });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-
-  const downloadWallpaper = () => {
-    const bg = load(KEYS.BACKGROUND, null) || generateDefaultWallpaper();
-    downloadDataUrl(bg, "wallpaper.png");
-    toast("Fond d’écran téléchargé pour intégration APK.", "success");
-  };
-
-  const downloadManifest = () => {
-    fetch("./manifest.json", { cache: "no-store" })
-      .then((r) => r.text())
-      .then((txt) => downloadText(txt, "manifest.json"))
-      .catch(() => toast("manifest.json indisponible.", "error"));
-  };
-
-  const downloadCapacitorConfig = () => {
-    fetch("./capacitor.config.json", { cache: "no-store" })
-      .then((r) => r.text())
-      .then((txt) => downloadText(txt, "capacitor.config.json"))
-      .catch(() => toast("capacitor.config.json indisponible.", "error"));
-  };
-
-  const updateInstallUI = () => {
-    const btn = q("#installBtn");
-    const hint = q("#installHint");
-    if (!btn) return;
-    if (deferredPrompt) {
-      btn.disabled = false;
-      btn.textContent = "📲 Installer l’application";
-      if (hint) hint.textContent = "Installation PWA disponible directement depuis ce navigateur.";
-    } else {
-      btn.disabled = false;
-      btn.textContent = "📲 Instructions d’installation";
-      if (hint) hint.textContent = "Sur Android Chrome : menu ⋮ → “Ajouter à l’écran d’accueil”. Pour un APK natif, utiliser Capacitor et le fichier wallpaper.png.";
-    }
-  };
-
   const registerServiceWorker = () => {
     try {
       if ("serviceWorker" in navigator && location.protocol !== "file:") {
@@ -2054,59 +2954,42 @@
           })
           .then((reg) => {
             swRegistration = reg;
-            console.log("[EXPERT-AUTO] SW prêt.");
-            try {
-              if (reg.periodicSync?.register) {
-                reg.periodicSync.register("catalog-sync", { minInterval: 60 * 60 * 1000 }).catch(() => {});
-              } else if (reg.sync?.register) {
-                reg.sync.register("catalog-sync").catch(() => {});
-              }
-            } catch {}
+            console.log("[EXPERT-AUTO] SW prêt V31.");
           })
           .catch((err) => console.warn("[EXPERT-AUTO] SW non enregistré:", err));
       }
-    } catch (e) { console.warn("[EXPERT-AUTO] SW impossible:", e); }
+    } catch (e) {
+      console.warn("[EXPERT-AUTO] SW impossible:", e);
+    }
   };
 
   const clearCacheAndReload = () => {
     const unload = ("serviceWorker" in navigator)
       ? navigator.serviceWorker.getRegistrations().then((regs) => Promise.all(regs.map((r) => r.unregister().catch(() => {}))))
       : Promise.resolve();
+
     const delCache = ("caches" in window)
       ? caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n).catch(() => {}))))
       : Promise.resolve();
+
     Promise.all([unload.catch(() => {}), delCache.catch(() => {})])
       .then(() => location.reload(true))
       .catch(() => location.reload(true));
   };
 
-  const readFileAsText = (file) => new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result || ""));
-    fr.onerror = reject;
-    fr.readAsText(file);
-  });
+  const updateInstallUI = () => {
+    const btn = q("#installBtn");
+    const hint = q("#installHint");
+    if (!btn) return;
 
-  const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
-    const fr = new FileReader();
-    fr.onload = () => resolve(String(fr.result || ""));
-    fr.onerror = reject;
-    fr.readAsDataURL(file);
-  });
-
-  const importJsonFile = async (file, type) => {
-    try {
-      const txt = await readFileAsText(file);
-      const json = JSON.parse(txt);
-      if (type === "models") mergeRemoteModels(json);
-      if (type === "engines") mergeRemoteEngines(json);
-      if (type === "defects") mergeRemoteDefects(json);
-      updateAdminStats();
-      refreshSelectionLists();
-      toast("Import JSON réussi.", "success");
-    } catch (e) {
-      console.warn(e);
-      toast("Import JSON échoué : fichier invalide.", "error");
+    if (deferredPrompt) {
+      btn.disabled = false;
+      btn.textContent = "📲 Installer l’application";
+      if (hint) hint.textContent = "Installation PWA disponible directement depuis ce navigateur.";
+    } else {
+      btn.disabled = false;
+      btn.textContent = "📲 Instructions d’installation";
+      if (hint) hint.textContent = "Sur Android Chrome : menu ⋮ → “Ajouter à l’écran d’accueil”. Pour un APK natif, utiliser Capacitor et exporter apk-base.json.";
     }
   };
 
@@ -2130,9 +3013,12 @@
       const rememberEl = q("#rememberAdminPwd");
       const pwd = pwdEl ? pwdEl.value : "";
       const remember = rememberEl ? rememberEl.checked : false;
+
       if (!pwd) { authMessage("Mot de passe requis.", "error"); return; }
+
       const ok = await verifyAdminPassword(pwd);
       if (!ok) { authMessage("Mot de passe incorrect.", "error"); return; }
+
       if (remember) {
         const h = await sha256(pwd);
         save(KEYS.ADMIN_PWD_HASH, h);
@@ -2141,6 +3027,7 @@
         del(KEYS.ADMIN_PWD_HASH);
         refreshSavedPasswordButton();
       }
+
       setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
       showApp();
       toast("Connexion admin réussie.", "success");
@@ -2150,6 +3037,7 @@
     on("#useSavedPwdBtn", "click", async () => {
       const saved = loadWithMigration(KEYS.ADMIN_PWD_HASH, OLD_KEYS.ADMIN_PWD_HASH, null);
       if (!saved) { authMessage("Aucun mot de passe enregistré.", "warning"); return; }
+
       const ok = await loginAdminFromHash(saved);
       if (!ok) {
         authMessage("Mot de passe enregistré invalide.", "error");
@@ -2157,6 +3045,7 @@
         refreshSavedPasswordButton();
         return;
       }
+
       setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
       showApp();
       toast("Connexion admin via mot de passe enregistré.", "success");
@@ -2166,26 +3055,45 @@
       const nameEl = q("#reqName");
       const emailEl = q("#reqEmail");
       const reasonEl = q("#reqReason");
+
       const name = nameEl ? nameEl.value.trim() : "";
       const email = emailEl ? emailEl.value.trim() : "";
       const reason = reasonEl ? reasonEl.value.trim() : "";
-      if (!name || !email || !reason) { authMessage("Nom, email et motif sont requis.", "error"); return; }
+
+      if (!name || !email || !reason) {
+        authMessage("Nom, email et motif sont requis.", "error");
+        return;
+      }
+
       const requests = getRequests();
       const emailKey = userEmailKey(email);
+
       if (requests.find((r) => r.emailNorm === emailKey && r.status === "pending")) {
-        authMessage("Demande déjà en attente.", "warning"); return;
+        authMessage("Demande déjà en attente.", "warning");
+        return;
       }
+
       if (findApprovedUser(name, email)) {
-        authMessage("Accès déjà accordé. Utilisez Connexion tiers.", "success"); return;
+        authMessage("Accès déjà accordé. Utilisez Connexion tiers.", "success");
+        return;
       }
+
       const req = migrateRequest({
-        id: uid(), name, email, reason, status: "pending",
-        date: new Date().toLocaleString("fr-FR"), ts: Date.now(), source: "formulaire-local"
+        id: uid(),
+        name,
+        email,
+        reason,
+        status: "pending",
+        date: new Date().toLocaleString("fr-FR"),
+        ts: Date.now(),
+        source: "formulaire-local"
       });
+
       requests.push(req);
       saveRequests(requests);
       publishAccessRequest(req);
       authMessage("Demande envoyée.", "success");
+
       if (nameEl) nameEl.value = "";
       if (emailEl) emailEl.value = "";
       if (reasonEl) reasonEl.value = "";
@@ -2196,15 +3104,21 @@
       const emailEl = q("#loginEmail");
       const name = nameEl ? nameEl.value.trim() : "";
       const email = emailEl ? emailEl.value.trim() : "";
+
       if (!email) { authMessage("Email requis.", "error"); return; }
+
       const user = findApprovedUser(name, email);
       if (!user) {
         const emailKey = userEmailKey(email);
         const pending = getRequests().find((r) => r.status === "pending" && r.emailNorm === emailKey);
-        if (pending) { authMessage("Votre demande est en attente de validation admin.", "warning"); return; }
+        if (pending) {
+          authMessage("Votre demande est en attente de validation admin.", "warning");
+          return;
+        }
         authMessage("Aucun accès approuvé trouvé pour cet email.", "error");
         return;
       }
+
       setSession(user);
       showApp();
       toast("Connexion tiers réussie.", "success");
@@ -2238,9 +3152,11 @@
 
     on("#modelButton", "click", () => {
       if (!selection.brand) return;
+
       const panel = q("#modelPanel");
       const isOpen = panel && !panel.classList.contains("hidden");
       closeAllCombos("modelPanel");
+
       if (!isOpen && panel) {
         panel.classList.remove("hidden");
         renderModelList("");
@@ -2249,21 +3165,28 @@
       }
     });
 
-    on("#modelSearch", "input", function () { renderModelList(this.value); });
+    on("#modelSearch", "input", function () {
+      renderModelList(this.value);
+    });
 
     on("#modelList", "mousedown", (e) => {
       const btn = e.target.closest("[data-model-index]");
       if (!btn) return;
       e.preventDefault();
+
       const idx = parseInt(btn.getAttribute("data-model-index"), 10);
-      if (window.__tempModelOptions?.[idx]) selectModel(window.__tempModelOptions[idx]);
+      if (window.__tempModelOptions && window.__tempModelOptions[idx]) {
+        selectModel(window.__tempModelOptions[idx]);
+      }
     });
 
     on("#engineButton", "click", () => {
       if (!selection.brand || !selection.model) return;
+
       const panel = q("#enginePanel");
       const isOpen = panel && !panel.classList.contains("hidden");
       closeAllCombos("enginePanel");
+
       if (!isOpen && panel) {
         panel.classList.remove("hidden");
         renderEngineList("");
@@ -2272,7 +3195,9 @@
       }
     });
 
-    on("#engineSearch", "input", function () { renderEngineList(this.value); });
+    on("#engineSearch", "input", function () {
+      renderEngineList(this.value);
+    });
 
     on("#engineFilters", "click", (e) => {
       const chip = e.target.closest("[data-fuel-filter]");
@@ -2285,8 +3210,11 @@
       const btn = e.target.closest("[data-engine-index]");
       if (!btn) return;
       e.preventDefault();
+
       const idx = parseInt(btn.getAttribute("data-engine-index"), 10);
-      if (window.__tempEngineOptions?.[idx]) selectEngine(window.__tempEngineOptions[idx]);
+      if (window.__tempEngineOptions && window.__tempEngineOptions[idx]) {
+        selectEngine(window.__tempEngineOptions[idx]);
+      }
     });
 
     document.addEventListener("click", (e) => {
@@ -2295,8 +3223,12 @@
 
     on("#analyzeBtn", "click", () => {
       if (!currentUser) { toast("Connectez-vous.", "error"); return; }
+
       const info = dailyInfo();
-      if (!info.allowed) { toast(`Limite de ${CONFIG.maxDailyAnalyses} analyses/jour atteinte.`, "warning"); return; }
+      if (!info.allowed) {
+        toast(`Limite de ${MAX_DAILY_ANALYSES} analyses/jour atteinte.`, "warning");
+        return;
+      }
 
       const textEl = q("#textInput");
       const contextEl = q("#contextInfo");
@@ -2304,15 +3236,20 @@
       const goalEl = q("#goalSelect");
       const sellerEl = q("#sellerType");
 
-      const text = (textEl?.value || "").trim();
-      const context = (contextEl?.value || "").trim();
-      const objective = (objectiveEl?.value || "").trim() || (goalEl?.value || "");
-      const sellerType = sellerEl?.value || "unknown";
+      const text = (textEl && textEl.value ? textEl.value : "").trim();
+      const context = (contextEl && contextEl.value ? contextEl.value : "").trim();
+      const objective = ((objectiveEl && objectiveEl.value ? objectiveEl.value : "").trim()) || ((goalEl && goalEl.value) ? goalEl.value : "");
+      const sellerType = sellerEl ? sellerEl.value : "unknown";
 
       vehicleData = getSelectedVehicleData();
-      if (!text) { toast("Saisissez des faits.", "warning"); return; }
+
+      if (!text) {
+        toast("Saisissez des faits.", "warning");
+        return;
+      }
 
       termesMobilises = new Set();
+
       const btn = q("#analyzeBtn");
       if (btn) {
         btn.disabled = true;
@@ -2361,6 +3298,7 @@
     on("#adminPanel", "click", async (e) => {
       const btn = e.target.closest("button[data-action]");
       if (!btn) return;
+
       const action = btn.dataset.action;
 
       if (action === "approve" || action === "refuse") {
@@ -2368,15 +3306,21 @@
         const reqs = getRequests();
         const req = reqs.find((r) => r.id === id);
         if (!req) return;
+
         req.status = action === "approve" ? "approved" : "refused";
         req.processedAt = Date.now();
         req.processedDate = new Date(req.processedAt).toLocaleString("fr-FR");
 
         if (action === "approve") {
           const user = upsertUser({
-            id: req.id, name: req.name, email: req.email, role: "user", status: "approved",
+            id: req.id,
+            name: req.name,
+            email: req.email,
+            role: "user",
+            status: "approved",
             daily: { date: todayKey(), count: 0 }
           });
+
           req.userId = user.key;
           notify("Accès approuvé", `${req.name} (${req.email})`);
           const grantUrl = makeAccessGrantUrl(user);
@@ -2392,6 +3336,7 @@
         const emailKey = userEmailKey(btn.dataset.email || "");
         const users = getUsers();
         const idx = users.findIndex((u) => u.emailNorm === emailKey && u.role !== "admin");
+
         if (idx >= 0) {
           users[idx].status = action === "revoke" ? "revoked" : "approved";
           users[idx].updatedAt = Date.now();
@@ -2426,7 +3371,7 @@
       }
     });
 
-    on("#syncNowBtn", "click", () => syncRemoteCatalog(true));
+    on("#syncNowBtn", "click", () => runApkBaseUpdate(true));
     on("#clearCacheBtn", "click", clearCacheAndReload);
 
     on("#exportDataBtn", "click", () => {
@@ -2434,37 +3379,17 @@
         exportedAt: new Date().toISOString(),
         users: getUsers(),
         requests: getRequests(),
-        catalogStats: {
-          brands: Object.keys(index.brands).length,
-          models: Object.keys(index.models).length,
-          defects: catalog.defects.length
-        }
+        catalogStats: counts()
       };
-      downloadText(JSON.stringify(data, null, 2), "expert-auto-data-v30.json");
+
+      downloadText(JSON.stringify(data, null, 2), "expert-auto-data-v31.json");
       toast("Données exportées.", "success");
     });
 
-    on("#importModelsInput", "change", async (e) => {
-      const file = e.target.files?.[0];
-      if (file) await importJsonFile(file, "models");
-      e.target.value = "";
-    });
-
-    on("#importEnginesInput", "change", async (e) => {
-      const file = e.target.files?.[0];
-      if (file) await importJsonFile(file, "engines");
-      e.target.value = "";
-    });
-
-    on("#importDefectsInput", "change", async (e) => {
-      const file = e.target.files?.[0];
-      if (file) await importJsonFile(file, "defects");
-      e.target.value = "";
-    });
-
     on("#wallpaperInput", "change", async (e) => {
-      const file = e.target.files?.[0];
+      const file = e.target.files && e.target.files[0];
       if (!file) return;
+
       try {
         const dataUrl = await readFileAsDataUrl(file);
         applyBackground(dataUrl, true);
@@ -2472,6 +3397,7 @@
       } catch {
         toast("Impossible de lire l’image.", "error");
       }
+
       e.target.value = "";
     });
 
@@ -2482,8 +3408,6 @@
 
     on("#downloadWallpaperBtn", "click", downloadWallpaper);
     on("#downloadWallpaperBtn2", "click", downloadWallpaper);
-    on("#downloadManifestBtn", "click", downloadManifest);
-    on("#downloadCapacitorBtn", "click", downloadCapacitorConfig);
 
     on("#saveSettingsBtn", "click", () => {
       const email = (q("#adminEmailInput")?.value || "").trim();
@@ -2495,11 +3419,11 @@
       if (deferredPrompt) {
         deferredPrompt.prompt();
         const choice = await deferredPrompt.userChoice.catch(() => null);
-        if (choice?.outcome === "accepted") toast("Application installée.", "success");
+        if (choice && choice.outcome === "accepted") toast("Application installée.", "success");
         deferredPrompt = null;
         updateInstallUI();
       } else {
-        alert("Pour installer :\n- Android Chrome : menu ⋮ → Ajouter à l’écran d’accueil\n- iOS Safari : Partager → Sur l’écran d’accueil\n- APK natif : suivre APK-README.md avec Capacitor.");
+        alert("Pour installer :\n- Android Chrome : menu ⋮ → Ajouter à l’écran d’accueil\n- iOS Safari : Partager → Sur l’écran d’accueil\n- APK natif : exporter apk-base.json et suivre la procédure Capacitor.");
       }
     });
 
@@ -2515,27 +3439,37 @@
       toast("Application installée.", "success");
     });
 
-    window.addEventListener("online", () => syncRemoteCatalog(false));
+    window.addEventListener("online", () => runApkBaseUpdate(false));
+
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
         enforceTierAccess();
-        syncRemoteCatalog(false);
+        runApkBaseUpdate(false);
       }
     });
-
-    if (navigator.serviceWorker) {
-      navigator.serviceWorker.addEventListener("message", (event) => {
-        if (event.data?.type === "periodic-sync") syncRemoteCatalog(false);
-      });
-    }
   };
 
   /* =========================================================
      INIT
      ========================================================= */
   const init = async () => {
-    initSeed();
-    applyBackground(load(KEYS.BACKGROUND, null), false);
+    injectCss();
+    purgeYearControls();
+
+    idb = await openIdb();
+    await loadMemoryFromIdb();
+
+    if (mem.brands.size === 0) {
+      seedLocal();
+      await persistMemory();
+    } else {
+      recomputeCounts();
+    }
+
+    bindUi();
+    injectUpdateBar();
+    injectAdminApkBlock();
+
     updateAdminStats();
     updateNotificationState();
     registerServiceWorker();
@@ -2543,6 +3477,7 @@
     updateInstallUI();
 
     processIncomingAccessRequestFromUrl();
+
     if (processIncomingAccessGrantFromUrl()) {
       updateNotificationBell();
       startLiveSync();
@@ -2556,15 +3491,14 @@
     updateEngineButton();
     updateSelectionSummary();
 
-    await syncRemoteCatalog(false);
+    await runApkBaseUpdate(false);
     startLiveSync();
 
-    toast("Application prête. Analyse dynamique sans filtre année.", "success");
+    toast("V31 prête. Touche de mise à jour base APK active.", "success");
   };
 
   const boot = () => {
     try {
-      bindUi();
       init();
     } catch (e) {
       console.warn("[EXPERT-AUTO] Boot dégradé:", e);
@@ -2577,6 +3511,9 @@
     }
   };
 
-  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", boot);
-  else boot();
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot);
+  } else {
+    boot();
+  }
 })();
