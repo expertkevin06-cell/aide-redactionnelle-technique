@@ -1,0 +1,66 @@
+[
+  {
+    "brand": "Peugeot",
+    "model": "3008",
+    "engine": "1.2 PureTech 130",
+    "power": "130ch",
+    "fuel": "Essence",
+    "transmission": "EAT8",
+    "code": "EB2|1.2 L"
+  },
+  {
+    "brand": "Peugeot",
+    "model": "3008",
+    "engine": "1.5 BlueHDi 130",
+    "power": "130ch",
+    "fuel": "Diesel",
+    "transmission": "EAT8",
+    "code": "DV5|1.5 L"
+  },
+  {
+    "brand": "Peugeot",
+    "model": "3008",
+    "engine": "Hybrid 225",
+    "power": "225ch",
+    "fuel": "Hybride rechargeable",
+    "transmission": "EAT8",
+    "code": "PHEV|1.6 L"
+  },
+  {
+    "brand": "Peugeot",
+    "model": "3008",
+    "engine": "e-3008",
+    "power": "210ch",
+    "fuel": "Électrique",
+    "transmission": "réducteur",
+    "code": "STLA Medium|73 kWh|97 kWh"
+  },
+
+  {
+    "brand": "Renault",
+    "model": "Clio",
+    "engine": "1.5 dCi",
+    "power": "90ch",
+    "fuel": "Diesel",
+    "transmission": "BVM6",
+    "code": "K9K|1.5 L"
+  },
+  {
+    "brand": "Renault",
+    "model": "Clio",
+    "engine": "1.5 dCi",
+    "power": "110ch",
+    "fuel": "Diesel",
+    "transmission": "EDC",
+    "code": "K9K|1.5 L"
+  },
+  {
+    "brand": "Renault",
+    "model": "Clio",
+    "engine": "E-Tech Hybrid",
+    "power": "140ch",
+    "fuel": "Hybride",
+    "transmission": "automatique",
+    "code": "TCe 140|1.6 L"
+  }
+]
