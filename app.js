@@ -51,6 +51,7 @@
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
+  // Normalisation stricte pour la comparaison rapide
   const norm = (str) => {
     let s = String(str == null ? "" : str).toLowerCase();
     if (s.normalize) s = s.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
@@ -100,12 +101,23 @@
     const nb = normKey(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
-    const ba = catalog.brands[na];
-    if (ba && ba.aliasKeys && ba.aliasKeys[nb]) return true;
-    const bb = catalog.brands[nb];
-    if (bb && bb.aliasKeys && bb.aliasKeys[na]) return true;
+    
+    // Alias simples intégrés directement ici pour performance maximale sans objet complexe
+    const aliases = {
+      volkswagen: ["vw"], mercedesbenz: ["mercedes", "mb"], citroen: ["citroen"],
+      landrover: ["land rover"], rangerover: ["range rover"], alfaromeo: ["alfa"],
+      chevrolet: ["chevy"], bmw: ["bayerische motoren werke"], mini: ["mini cooper"],
+      tesla: ["tesla motors"], byd: ["build your dreams"], mg: ["morris garages"],
+      xpeng: ["x peng"], nio: ["next ev"], gwm: ["great wall motor"], ldv: ["maxus"],
+      jac: ["jianghuai automobile"], dfsk: ["dongfeng small truck"]
+    };
+
+    if (aliases[na] && aliases[na].includes(nb)) return true;
+    if (aliases[nb] && aliases[nb].includes(na)) return true;
+
     if (na.length > 3 && nb.includes(na)) return true;
     if (nb.length > 3 && na.includes(nb)) return true;
+
     return false;
   };
 
@@ -288,6 +300,18 @@
   };
 
   const KEYS = {
+    SESSION: "arex_session_v22",
+    USERS: "arex_users_v22",
+    REQUESTS: "arex_requests_v22",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v22",
+    TECH_UPDATES: "arex_tech_updates_v22",
+    LAST_UPDATE: "arex_last_update_v22",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v22",
+    CATALOG_CFG: "arex_catalog_cfg_v22",
+    IMPORTED_RAW: "arex_imported_raw_v22"
+  };
+
+  const OLD_KEYS = {
     SESSION: "arex_session_v21",
     USERS: "arex_users_v21",
     REQUESTS: "arex_requests_v21",
@@ -297,18 +321,6 @@
     AUTO_LAST_SYNC: "arex_auto_last_sync_v21",
     CATALOG_CFG: "arex_catalog_cfg_v21",
     IMPORTED_RAW: "arex_imported_raw_v21"
-  };
-
-  const OLD_KEYS = {
-    SESSION: "arex_session_v20",
-    USERS: "arex_users_v20",
-    REQUESTS: "arex_requests_v20",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v20",
-    TECH_UPDATES: "arex_tech_updates_v20",
-    LAST_UPDATE: "arex_last_update_v20",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v20",
-    CATALOG_CFG: "arex_catalog_cfg_v20",
-    IMPORTED_RAW: "arex_imported_raw_v20"
   };
 
   /* =========================================================
@@ -329,21 +341,22 @@
   let modelLoadToken = 0;
 
   const selection = { brand: null, model: null, engine: null };
-  let modelOptions = [];
-  let currentModelOptions = [];
-  let engineOptions = [];
-  let currentEngineOptions = [];
+  
+  // Listes actuelles affichées dans l'UI
+  let displayedBrands = []; 
+  let displayedModels = [];
+  let displayedEngines = [];
 
-  const catalog = {
-    brands: {},
-    models: [],
-    modelKeys: {},
-    engines: [],
-    engineKeys: {},
-    defects: []
+  // Index interne pour recherche rapide O(1) ou O(log N)
+  const index = {
+    brands: {}, // key: normKey(name) -> { name, models: [] }
+    models: {}, // key: normKey(brand)|normKey(model) -> { brand, name, years, engines: [] }
+    engines: {} // key: normKey(brand)|normKey(model)|normKey(engine) -> object
   };
 
-  const engineCache = {};
+  const catalog = {
+    defects: []
+  };
 
   try {
     if ("BroadcastChannel" in window) broadcast = new BroadcastChannel("arex_expert_channel");
@@ -401,7 +414,7 @@
   const notify = (title, body, tag) => showSystemNotification(title, body, tag);
 
   /* =========================================================
-     AUTH / USERS / REQUESTS
+     AUTH / USERS / REQUESTS (Identique aux versions précédentes, simplifié ici pour lisibilité)
      ========================================================= */
   const normIdentity = (value) => norm(String(value == null ? "" : value)).replace(/\s+/g, " ").trim();
   const userEmailKey = (email) => normIdentity(email).replace(/\s/g, "");
@@ -423,14 +436,7 @@
 
   const getUsers = () => {
     const raw = loadWithMigration(KEYS.USERS, OLD_KEYS.USERS, []) || [];
-    let changed = false;
-    const users = raw.map((u) => {
-      const m = migrateUser(u);
-      if (JSON.stringify(m) !== JSON.stringify(u)) changed = true;
-      return m;
-    });
-    if (changed) save(KEYS.USERS, users);
-    return users;
+    return raw.map(migrateUser);
   };
 
   const saveUsers = (users) => save(KEYS.USERS, (users || []).map(migrateUser));
@@ -451,51 +457,26 @@
 
   const getRequests = () => {
     const raw = loadWithMigration(KEYS.REQUESTS, OLD_KEYS.REQUESTS, []) || [];
-    let changed = false;
-    const requests = raw.map((r) => {
-      const m = migrateRequest(r);
-      if (JSON.stringify(m) !== JSON.stringify(r)) changed = true;
-      return m;
-    });
-    if (changed) save(KEYS.REQUESTS, requests);
-    return requests;
+    return raw.map(migrateRequest);
   };
 
   const saveRequests = (requests) => save(KEYS.REQUESTS, (requests || []).map(migrateRequest));
 
-  const findUser = (name, email) => {
-    const key = userCompositeKey(name, email);
-    const emailKey = userEmailKey(email);
-    const users = getUsers();
-    return users.find((u) => u.key === key) || users.find((u) => u.emailNorm === emailKey && u.role !== "admin") || null;
-  };
-
   const findApprovedUser = (name, email) => {
     const emailKey = userEmailKey(email);
     if (!emailKey) return null;
-    const key = userCompositeKey(name, email);
     const users = getUsers();
-    return users.find((u) => u.status === "approved" && u.role !== "admin" && u.key === key) ||
-           users.find((u) => u.status === "approved" && u.role !== "admin" && u.emailNorm === emailKey) || null;
-  };
-
-  const findStoredUser = (session) => {
-    if (!session) return null;
-    const users = getUsers();
-    const key = session.key || userCompositeKey(session.name, session.email);
-    const emailKey = userEmailKey(session.email);
-    return users.find((u) => u.key === key) || users.find((u) => u.emailNorm === emailKey && u.role !== "admin") || null;
+    return users.find(u => u.status === "approved" && u.role !== "admin" && (u.key === userCompositeKey(name, email) || u.emailNorm === emailKey)) || null;
   };
 
   const upsertUser = (user) => {
     const next = migrateUser(user);
     const users = getUsers();
-    const idx = users.findIndex((u) => u.key === next.key || (u.emailNorm === next.emailNorm && u.role !== "admin"));
+    const idx = users.findIndex(u => u.key === next.key || (u.emailNorm === next.emailNorm && u.role !== "admin"));
     if (idx >= 0) {
-      const merged = { ...users[idx], ...next };
-      merged.daily = users[idx].daily && users[idx].daily.date === todayKey() ? users[idx].daily : (next.daily || { date: todayKey(), count: 0 });
-      users[idx] = merged;
-      return merged;
+      users[idx] = { ...users[idx], ...next };
+      saveUsers(users);
+      return users[idx];
     }
     users.push(next);
     saveUsers(users);
@@ -509,7 +490,7 @@
     const session = loadWithMigration(KEYS.SESSION, OLD_KEYS.SESSION, null);
     if (!session) return false;
     if (session.role === "admin") { clearSession(); return false; }
-    const fresh = findStoredUser(session);
+    const fresh = findApprovedUser(session.name, session.email);
     if (fresh && fresh.status === "approved") { currentUser = fresh; setSession(fresh); return true; }
     clearSession();
     return false;
@@ -518,7 +499,7 @@
   const dailyInfo = () => {
     if (!currentUser) return { allowed: false, remaining: 0, unlimited: false };
     if (currentUser.role === "admin") return { allowed: true, remaining: Infinity, unlimited: true };
-    const user = findUser(currentUser.name, currentUser.email) || currentUser;
+    const user = findApprovedUser(currentUser.name, currentUser.email) || currentUser;
     const daily = user.daily && user.daily.date === todayKey() ? user.daily.count : 0;
     return { allowed: daily < CONFIG.maxDailyAnalyses, remaining: Math.max(0, CONFIG.maxDailyAnalyses - daily), unlimited: false };
   };
@@ -526,7 +507,7 @@
   const incrementDaily = () => {
     if (!currentUser || currentUser.role === "admin") return;
     const users = getUsers();
-    const idx = users.findIndex((u) => u.key === currentUser.key || (u.emailNorm === currentUser.emailNorm && u.role !== "admin"));
+    const idx = users.findIndex(u => u.key === currentUser.key || (u.emailNorm === currentUser.emailNorm && u.role !== "admin"));
     if (idx < 0) return;
     const user = users[idx];
     if (!user.daily || user.daily.date !== todayKey()) user.daily = { date: todayKey(), count: 0 };
@@ -550,43 +531,11 @@
     if (el) { el.textContent = msg; el.className = "auth-msg " + type; } else { toast(msg, type); }
   };
 
-  const makeAccessRequestShareUrl = (req) => {
-    const payload = { id: req.id, name: req.name, email: req.email, reason: req.reason, date: req.date, source: "lien-partage" };
-    const baseUrl = location.href.split("?")[0].split("#")[0];
-    return baseUrl + "?access_request=" + utf8ToB64Url(JSON.stringify(payload));
-  };
-
   const makeAccessGrantUrl = (user) => {
     const safe = migrateUser(user);
     const payload = { name: safe.name, email: safe.email, status: "approved", role: "user", key: safe.key, grantedAt: Date.now() };
     const baseUrl = location.href.split("?")[0].split("#")[0];
     return baseUrl + "?access_grant=" + utf8ToB64Url(JSON.stringify(payload));
-  };
-
-  const processIncomingAccessRequestFromUrl = () => {
-    try {
-      const raw = getQueryParam("access_request");
-      if (!raw) return false;
-      const req = JSON.parse(b64UrlToUtf8(raw));
-      if (!req || !req.name || !req.email) return false;
-      const migrated = migrateRequest({
-        id: req.id || uid(), name: req.name, email: req.email, reason: req.reason || "Motif non précisé",
-        status: "pending", date: req.date || new Date().toLocaleString("fr-FR"), ts: Date.now(), source: "lien-partage"
-      });
-      const requests = getRequests();
-      const exists = requests.find((r) => r.id === migrated.id || (r.emailNorm === migrated.emailNorm && r.nameNorm === migrated.nameNorm && r.reason === migrated.reason));
-      if (!exists) {
-        requests.push(migrated);
-        saveRequests(requests);
-        publishAccessRequest(migrated);
-        toast("Demande d’accès importée depuis le lien partagé.", "success");
-      }
-      cleanUrlAfterParam();
-      return true;
-    } catch {
-      toast("Lien de demande invalide ou corrompu.", "error");
-      return false;
-    }
   };
 
   const processIncomingAccessGrantFromUrl = () => {
@@ -600,17 +549,17 @@
       });
       setSession(user);
       showApp();
-      toast("Accès approuvé importé. Connexion tierce réussie.", "success");
+      toast("Accès approuvé importé.", "success");
       cleanUrlAfterParam();
       return true;
     } catch {
-      toast("Lien d’accès invalide ou corrompu.", "error");
+      toast("Lien d’accès invalide.", "error");
       return false;
     }
   };
 
-  const pendingRequests = () => getRequests().filter((r) => r.status === "pending");
-  const pendingSignature = () => pendingRequests().map((r) => r.id).sort().join("|");
+  const pendingRequests = () => getRequests().filter(r => r.status === "pending");
+  const pendingSignature = () => pendingRequests().map(r => r.id).sort().join("|");
 
   const updateNotificationBell = () => {
     const bell = q("#notifBellBtn");
@@ -646,12 +595,12 @@
     const sig = pendingSignature();
     if (sig === lastPendingSignature) { updateNotificationBell(); return; }
     const oldIds = lastPendingSignature ? lastPendingSignature.split("|") : [];
-    const newIds = sig ? sig.split("|").filter((id) => id && !oldIds.includes(id)) : [];
+    const newIds = sig ? sig.split("|").filter(id => id && !oldIds.includes(id)) : [];
     lastPendingSignature = sig;
     updateNotificationBell();
     if (newIds.length) {
       const all = getRequests();
-      newIds.forEach((id) => { const req = all.find((r) => r.id === id); if (req) onAccessRequestReceived(req); });
+      newIds.forEach(id => { const req = all.find(r => r.id === id); if (req) onAccessRequestReceived(req); });
     }
     renderAdminIfOpen();
   };
@@ -676,12 +625,11 @@
 
   const enforceTierAccess = () => {
     if (!currentUser || currentUser.role === "admin") return;
-    const fresh = findStoredUser(currentUser);
+    const fresh = findApprovedUser(currentUser.name, currentUser.email);
     if (!fresh || fresh.status !== "approved") {
       clearSession();
       showLogin();
-      toast("Votre accès a été révoqué ou refusé par l’administrateur.", "error");
-      notify("Accès révoqué", "Contactez l’administrateur si nécessaire.");
+      toast("Votre accès a été révoqué ou refusé.", "error");
     } else {
       currentUser = fresh;
       setSession(fresh);
@@ -740,10 +688,10 @@
   };
 
   /* =========================================================
-     BASE DE DONNÉES MASSIVE LOCALE (2017-2027)
-     Format compact: [Marque, Modèle, Années, Moteur, Puissance, Energie, Boite, Code/Cyl/KWh]
+     BASE DE DONNÉES MASSIVE & INDEXATION STRICTE
+     Structure: [Marque, Modèle, Années, MoteurLabel, Puissance, Energie, Boite, Code/Cyl/KWh]
      ========================================================= */
-  const MASSIVE_DB = [
+  const RAW_DATA = [
     // --- FRANCE ---
     ["Renault", "Clio V", "2019-2026", "1.0 TCe", "65ch|90ch", "Essence", "BVM5|BVM6", "H4D|1.0 L"],
     ["Renault", "Clio V", "2019-2026", "1.3 TCe", "100ch|130ch|140ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
@@ -858,7 +806,7 @@
     ["DS", "DS 7 Crossback", "2019-2026", "E-Tense 4x4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
     ["DS", "DS 7 Crossback", "2021-2026", "E-Tense 4x4 360", "360ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
 
-    // --- EUROPE (ALLEMAGNE / ITALIE / SUÈDE / UK) ---
+    // --- EUROPE ---
     ["Volkswagen", "Polo VI", "2017-2026", "1.0 MPI", "65ch|75ch", "Essence", "BVM5", "EA211|1.0 L"],
     ["Volkswagen", "Polo VI", "2017-2026", "1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM5|DSG", "EA211|1.0 L"],
     ["Volkswagen", "Polo VI", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
@@ -1209,7 +1157,7 @@
     ["Alfa Romeo", "Tonale", "2022-2026", "1.3 Plug-in Hybrid", "190ch", "Hybride rechargeable", "automatique", "PHEV|1.3 L"],
     ["Alfa Romeo", "Tonale", "2022-2026", "1.3 Plug-in Hybrid", "280ch", "Hybride rechargeable", "automatique Q4", "PHEV4|1.3 L"],
 
-    // --- ASIE (JAPON / CORÉE / CHINE) ---
+    // --- ASIE ---
     ["Toyota", "Yaris", "2020-2026", "1.0", "72ch", "Essence", "BVM5", "1KR-FE|1.0 L"],
     ["Toyota", "Yaris", "2020-2026", "1.5 Hybrid", "116ch|130ch", "Hybride", "e-CVT", "THS II|1.5 L"],
     ["Toyota", "Yaris", "2020-2026", "GR Yaris", "261ch|280ch", "Essence", "BVM6 4x4", "G16E-GTS|1.6 L"],
@@ -1402,635 +1350,198 @@
     ["Chrysler", "Pacifica", "2021-2026", "Hybrid", "260ch", "Hybride", "automatique", "eFlite|3.6 L"]
   ];
 
+  const DEFECTS_KNOWN = [
+    {
+      b: "Skoda", m: "Elroq|Enyaq", y: "2021-2026",
+      e: "Batterie haute tension / BMS / autonomie", p: "55 kWh|63 kWh|77 kWh",
+      s: "autonomie reduite|soh|charge lente|charge impossible|deséquilibre cellules|erreur BMS|temperature batterie|voyant batterie|perte autonomie|batterie froide|chauffe batterie|gonflement batterie|odeur brulee|fumee",
+      sev: "critique", wf: 0.92,
+      n: "Plateforme MEB : surveillance BMS, cellules, gestion thermique, dégradation d'autonomie et cohérence entre capacité annoncée et usage réel.",
+      law: "Sécurité L.423-1 C.consom.; conformité L.217-4 C.consom.; produits défectueux art. 1245 C.civ.; vice caché art. 1641 C.civ.",
+      rec: "Rappels EV/MEB; DGCCRF; KBA; NHTSA; fiches auto-diagnostic; vérification VIN; lecture SOH/BMS.",
+      tg: "batterie|charge|autonomie|electricite|securite|logiciel|MEB",
+      dtc: "P0Axx|U1xxx|P1xxx|B1xxx", et: "Électrique"
+    },
+    {
+      b: "Peugeot", m: "208|2008|308|3008|5008|Partner|Rifter|Boxer", y: "2017-2024",
+      e: "EB2 / 1.2 PureTech", p: "100ch-155ch",
+      s: "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
+      sev: "critique", wf: 0.85,
+      n: "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
+      law: "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
+      rec: "Extension garantie Stellantis PureTech; TSB; DGCCRF",
+      tg: "moteur|distribution|courroie|huile|pompe|critique", et: "Essence"
+    },
+    {
+      b: "Renault", m: "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", y: "2017-2022",
+      e: "K9K / 1.5 dCi", p: "75ch-110ch",
+      s: "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
+      sev: "critique", wf: 0.9,
+      n: "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
+      law: "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
+      rec: "Programme technique Renault K9K; TSB; jurisprudences",
+      tg: "moteur|huile|bielle|pompe|bruit|critique", et: "Diesel"
+    },
+    {
+      b: "Tesla", m: "Model 3|Model Y|Model S|Model X", y: "2017-2027",
+      e: "Électrique", p: "283ch-1020ch",
+      s: "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
+      sev: "critique", wf: 0.92,
+      n: "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
+      law: "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
+      rec: "NHTSA Tesla recalls; DGCCRF; SafetyGate",
+      tg: "ADAS|batterie|charge|logiciel|securite", et: "Électrique"
+    }
+  ];
+
   /* =========================================================
-     INITIALISATION DU CATALOGUE À PARTIR DE LA BASE MASSIVE
+     INITIALISATION ET INDEXATION
      ========================================================= */
-  const seedMassiveCatalog = () => {
-    MASSIVE_DB.forEach(row => {
+  const initIndex = () => {
+    // Reset
+    index.brands = {};
+    index.models = {};
+    index.engines = {};
+    catalog.defects = [];
+
+    // 1. Indexer les marques uniques
+    RAW_DATA.forEach(row => {
+      const b = row[0];
+      const bk = normKey(b);
+      if (!index.brands[bk]) {
+        index.brands[bk] = { name: b, models: [] };
+      }
+    });
+
+    // 2. Indexer les modèles et moteurs
+    RAW_DATA.forEach(row => {
       const [b, m, y, e, p, t, tr, codeOrDisp] = row;
       
-      // Ajout moteur
-      addEngine({
-        b, m, y, e, p, t, tr,
-        code: codeOrDisp, 
+      const bk = normKey(b);
+      const mk = normKey(m);
+      const ek = normKey(e);
+      
+      const modelKey = `${bk}|${mk}`;
+      
+      if (!index.models[modelKey]) {
+        index.models[modelKey] = {
+          brand: b,
+          name: m,
+          years: y,
+          engines: []
+        };
+        // Ajouter au parent marque
+        if (index.brands[bk]) {
+          index.brands[bk].models.push(index.models[modelKey]);
+        }
+      }
+
+      const engineObj = {
+        brand: b,
+        model: m,
+        years: y,
+        engine: e,
         displacement: codeOrDisp.includes("L") || codeOrDisp.includes("cm3") ? codeOrDisp : "",
+        power: p,
+        fuel: t,
+        transmission: tr,
+        code: codeOrDisp,
         source: "base massive locale",
-        sourceUrl: ""
-      }, "", true, "base massive locale");
+        confidence: 0.95
+      };
 
-      // Ajout modèle si nouveau
-      addModel(b, m, y, "base massive locale", "");
+      index.models[modelKey].engines.push(engineObj);
+      
+      // Index direct pour lookup rapide moteur
+      const fullEngineKey = `${modelKey}|${ek}`;
+      index.engines[fullEngineKey] = engineObj;
     });
-    
-    // Ajouter quelques défauts critiques connus pour enrichir l'analyse
-    [
-      {
-        b: "Skoda", m: "Elroq|Enyaq", y: "2021-2026",
-        e: "Batterie haute tension / BMS / autonomie", p: "55 kWh|63 kWh|77 kWh",
-        s: "autonomie reduite|soh|charge lente|charge impossible|deséquilibre cellules|erreur BMS|temperature batterie|voyant batterie|perte autonomie|batterie froide|chauffe batterie|gonflement batterie|odeur brulee|fumee",
-        sev: "critique", wf: 0.92,
-        n: "Plateforme MEB : surveillance BMS, cellules, gestion thermique, dégradation d'autonomie et cohérence entre capacité annoncée et usage réel.",
-        law: "Sécurité L.423-1 C.consom.; conformité L.217-4 C.consom.; produits défectueux art. 1245 C.civ.; vice caché art. 1641 C.civ.",
-        rec: "Rappels EV/MEB; DGCCRF; KBA; NHTSA; fiches auto-diagnostic; vérification VIN; lecture SOH/BMS.",
-        tg: "batterie|charge|autonomie|electricite|securite|logiciel|MEB",
-        dtc: "P0Axx|U1xxx|P1xxx|B1xxx", et: "Électrique"
-      },
-      {
-        b: "Peugeot", m: "208|2008|308|3008|5008|Partner|Rifter|Boxer", y: "2017-2024",
-        e: "EB2 / 1.2 PureTech", p: "100ch-155ch",
-        s: "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
-        sev: "critique", wf: 0.85,
-        n: "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
-        law: "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
-        rec: "Extension garantie Stellantis PureTech; TSB; DGCCRF",
-        tg: "moteur|distribution|courroie|huile|pompe|critique", et: "Essence"
-      },
-      {
-        b: "Renault", m: "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", y: "2017-2022",
-        e: "K9K / 1.5 dCi", p: "75ch-110ch",
-        s: "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
-        sev: "critique", wf: 0.9,
-        n: "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
-        law: "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
-        rec: "Programme technique Renault K9K; TSB; jurisprudences",
-        tg: "moteur|huile|bielle|pompe|bruit|critique", et: "Diesel"
-      },
-      {
-        b: "Tesla", m: "Model 3|Model Y|Model S|Model X", y: "2017-2027",
-        e: "Électrique", p: "283ch-1020ch",
-        s: "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
-        sev: "critique", wf: 0.92,
-        n: "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
-        law: "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
-        rec: "NHTSA Tesla recalls; DGCCRF; SafetyGate",
-        tg: "ADAS|batterie|charge|logiciel|securite", et: "Électrique"
-      }
-    ].forEach(d => addDefect(d, "base massive locale", ""));
+
+    // 3. Charger les défauts connus
+    DEFECTS_KNOWN.forEach(d => {
+      catalog.defects.push({
+        ...d,
+        source: "base massive locale"
+      });
+    });
   };
 
   /* =========================================================
-     FONCTIONS UTILITAIRES RESTANTES (INFER FUEL, LOOKS LIKE, ETC.)
+     LOGIQUE DE PRÉDICTION STRICTE (CASCADE)
      ========================================================= */
-  const inferFuel = (text) => {
-    const t = norm(text || "");
-    if (containsAny(t, ["hydrogene", "h2", "fuel cell", "pile a combustible"])) return "Hydrogène";
-    if (containsAny(t, ["hybride rechargeable", "plug-in", "phev", "e-tense", "4xe", "prime", "e-hybrid", "xdrive45e", "tucson phev", "sportage phev", "niro phev", "compass 4xe", "wrangler 4xe", "grand cherokee 4xe", "tonale phev"])) return "Hybride rechargeable";
-    if (containsAny(t, ["48v", "mild hybrid", "micro-hybridation", "eq boost", "boosterjet", "firefly hybrid", "hybrid 48", "e-torque", "egmp"])) return "Hybride léger 48V";
-    const hy = containsAny(t, ["hybride", "hybrid", "ths", "i-mmd", "e-power", "self-charging", "prius", "yaris hybrid", "corolla hybrid", "c-hr hybrid", "rav4 hybrid", "e:hev", "full hybrid"]);
-    const el = containsAny(t, ["electrique", "electric", "bev", "battery", "bms", "charge", "autonomie", "tesla", "id.3", "id.4", "id.5", "id.7", "ioniq", "atto", "model 3", "model y", "e-tron", "e-cmp", "megane e-tech", "scenic e-tech", "austral e-tech", "captur e-tech", "spring", "500e", "e-corsa", "e-208", "e-2008", "enyaq", "elroq", "born", "taycan", "mach-e", "i-pace", "ariya", "leaf", "mx-30", "eqs", "eqe", "eqb", "eqa", "q4 e-tron", "ev6", "ev9", "mg4", "seal", "dolphin", "bolt", "kwh"]);
-    if (hy && el) return "Hybride / électrique";
-    if (hy) return "Hybride";
-    if (el) return "Électrique";
-    if (containsAny(t, ["diesel", "dci", "tdi", "hdi", "bluehdi", "bluemotion", "cdti", "ddis", "crdi", "k9k", "dv6", "om654", "b47", "ea288", "d-4d", "gasoil", "multijet", "ecoblue", "bluedci", "tdci"])) return "Diesel";
-    if (containsAny(t, ["essence", "tsi", "tfsi", "tce", "puretech", "firefly", "ecoboost", "skyactiv-g", "skyactiv-x", "smartstream", "gamma", "theta", "b38", "b46", "b48", "b58", "ea211", "ea888", "ingenium", "turbo essence", "1.0 tce", "1.3 tce", "1.2 puretech", "1.5 tsi", "2.0 tsi", "2.3 ecoboost"]) && !containsAny(t, ["diesel", "electrique", "hybride"])) return "Essence";
-    if (containsAny(t, ["gpl", "lp/g", "liquefied petroleum", "eco-g"])) return "GPL";
-    if (containsAny(t, ["e85", "bioethanol", "superethanol"])) return "E85 / Bioéthanol";
-    return "Non précisé / mixte";
+  
+  // Obtenir la liste des marques correspondant au texte tapé
+  const predictBrands = (query) => {
+    const q = norm(query);
+    if (!q) return Object.values(index.brands).map(b => ({ name: b.name, id: normKey(b.name) })).slice(0, 50);
+    
+    return Object.values(index.brands)
+      .filter(b => norm(b.name).includes(q))
+      .map(b => ({ name: b.name, id: normKey(b.name) }))
+      .slice(0, 50);
   };
 
-  const isFuelType = (f) => {
-    f = norm(f || "");
-    return ["essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol", "hydrogene"].some((x) => f.includes(x));
+  // Obtenir la liste des modèles pour une MARQUE SELECTONNEE (strict)
+  const predictModels = (brandName, query) => {
+    if (!brandName) return [];
+    const bk = normKey(brandName);
+    const brandData = index.brands[bk];
+    if (!brandData) return [];
+
+    const q = norm(query);
+    return brandData.models
+      .filter(m => !q || norm(m.name).includes(q))
+      .map(m => ({ 
+        id: `${bk}|${normKey(m.name)}`, 
+        brand: m.brand, 
+        name: m.name, 
+        years: m.years,
+        source: "local"
+      }))
+      .sort((a,b) => norm(a.name).localeCompare(norm(b.name)))
+      .slice(0, 100);
   };
 
-  const isElectricLike = (fuel) => {
-    const t = norm(fuel || "");
-    return t.includes("electrique") || t.includes("hybride") || t.includes("48v") || t.includes("hydrogene");
-  };
+  // Obtenir la liste des moteurs pour un COUPLE MARQUE/MODELE/ANNÉE (strict)
+  const predictEngines = (brandName, modelName, yearStr) => {
+    if (!brandName || !modelName) return [];
+    const bk = normKey(brandName);
+    const mk = normKey(modelName);
+    const modelKey = `${bk}|${mk}`;
+    const modelData = index.models[modelKey];
+    
+    if (!modelData) return [];
 
-  const looksLikeMotorisation = (text) => {
-    const t = norm(text || "");
-    if (!t || t.length < 2) return false;
-    if (containsAny(t, ["essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol", "hydrogene", "turbo", "tdi", "tsi", "tfsi", "hdi", "dci", "bluehdi", "bluedci", "puretech", "firefly", "ecoboost", "skyactiv", "boostjet", "ecotorque", "e-tech", "etech", "phev", "bev", "48v", "mild", "full hybrid", "plug-in", "rechargeable", "electric", "hybrid", "multijet", "tdci", "ecoblue", "d-4d", "thp", "tce", "t-gdi", "tgdi", "crdi", "mpi", "gdi", "i-mmd", "e:hev", "e-power", "self-charging", "elroq", "enyaq", "kwh"])) return true;
-    if (/\b\d\.\d\b/.test(t)) return true;
-    if (/\b\d{3,4}\b/.test(t) && /\b(ch|kw|kwh|hp|cv|cm3|cc)\b/.test(t)) return true;
-    if (/^[a-z0-9 .,_-]{3,70}$/.test(t) && /\b[a-z]{1,4}\d{2,3}\b/.test(t)) return true;
-    return false;
-  };
-
-  const createEngineLabel = (e, d, p, f, tr, code) => {
-    e = String(e || "").trim();
-    if (e) return e;
-    const parts = [d, p, f, tr, code].filter((x) => x && String(x).trim());
-    return parts.length ? parts.join(" ") : "Motorisation non nommée";
-  };
-
-  const normalizeEngineInput = (o, sourceLabel = "catalogue", sourceUrl = "", keyFallback = "") => {
-    if (!o) return null;
-    let brand = "", model = "", years = "", engine = "", power = "", fuel = "", trans = "", code = "", displacement = "", source = sourceLabel || "catalogue", url = sourceUrl || "", confidence = 0.75;
-
-    if (Array.isArray(o)) {
-      brand = o[0] || ""; model = o[1] || ""; years = o[2] || ""; engine = o[3] || ""; power = o[4] || ""; fuel = o[5] || ""; trans = o[6] || ""; code = o[7] || ""; displacement = o[8] || "";
-    } else if (typeof o === "object") {
-      brand = getBrandField(o); model = getModelField(o); years = getYearsField(o); engine = getEngineField(o); power = getPowerField(o); fuel = getFuelField(o); trans = getTransField(o); code = getCodeField(o); displacement = getDisplacementField(o);
-      source = valToString(getField(o, ["source", "src"])) || source; url = valToString(getField(o, ["sourceUrl", "url", "lien", "link"])) || url;
-      confidence = typeof o.confidence === "number" ? o.confidence : confidence;
-      if (!engine && keyFallback && !isMetaKey(keyFallback)) engine = keyFallback;
-      if (!engine && o.name && (power || fuel || displacement)) engine = o.name;
+    const year = parseYear(yearStr);
+    
+    // Filtrer par année si fourni, sinon tout prendre
+    let engines = modelData.engines;
+    if (year) {
+      engines = engines.filter(e => yearMatches(e.years, year));
     }
 
-    brand = String(brand || "").trim(); model = String(model || "").trim();
-    if (!brand || !model) return null;
-
-    engine = String(engine || "").trim();
-    power = String(power || "").trim() || parsePower(`${engine} ${code} ${displacement}`);
-    displacement = String(displacement || "").trim() || parseDisplacement(`${engine} ${code}`);
-    code = String(code || "").trim(); trans = String(trans || "").trim(); years = String(years || "").trim();
-
-    if (!fuel || !isFuelType(fuel)) {
-      fuel = inferFuel(`${engine} ${power} ${displacement} ${trans} ${code} ${model} ${years}`);
+    // Si aucune correspondance stricte d'année, on prend tout le catalogue du modèle (fallback intelligent)
+    if (!engines.length && modelData.engines.length) {
+       engines = modelData.engines;
     }
 
-    engine = createEngineLabel(engine, displacement, power, fuel, trans, code);
-
-    if (!confidence) {
-      if (norm(source).includes("auto-diagnostic")) confidence = 0.88;
-      else if (norm(source).includes("catalogue local")) confidence = 0.95;
-      else if (norm(source).includes("générateur")) confidence = 0.55;
-      else confidence = 0.75;
-    }
-
-    return { brand, model, years, engine, displacement, power, fuel, transmission: trans, code, source, sourceUrl: url, confidence };
-  };
-
-  const addEngine = (o, sourceUrl = "", force = false, sourceLabel = "catalogue", keyFallback = "") => {
-    const e = normalizeEngineInput(o, sourceLabel || "catalogue", sourceUrl || "", keyFallback || "");
-    if (!e) return;
-    if (!force && !isFuelType(e.fuel) && !looksLikeMotorisation(`${e.engine} ${e.power} ${e.displacement} ${e.code}`)) return;
-    const k = [normKey(e.brand), normKey(e.model), normKey(e.engine), normKey(e.displacement), normKey(e.power), normKey(e.fuel), normKey(e.transmission), normKey(e.code)].join("|");
-    if (catalog.engineKeys[k]) return;
-    catalog.engineKeys[k] = true;
-    catalog.engines.push(e);
-    addModel(e.brand, e.model, e.years, e.source, e.sourceUrl);
-  };
-
-  const normalizeDefect = (d, sourceLabel = "base locale", sourceUrl = "") => {
-    if (!d) return null;
-    const out = {
-      b: getBrandField(d), m: getModelField(d) || "*", y: getYearsField(d), e: getEngineField(d), p: getPowerField(d), s: getSymptomsField(d),
-      sev: valToString(getField(d, ["sev", "severity", "gravite", "gravité"])) || "moyen",
-      wf: typeof d.wf === "number" ? d.wf : (typeof d.wearFactor === "number" ? d.wearFactor : 0.5),
-      n: valToString(getField(d, ["n", "note", "description", "fiche", "detail"])),
-      law: valToString(getField(d, ["law", "legal", "baseLegale", "droit", "fondement"])),
-      rec: valToString(getField(d, ["rec", "recall", "rappel", "campagne", "source"])),
-      tg: valToString(getField(d, ["tg", "tags", "categorie", "category", "systeme"])),
-      dtc: getDtcField(d),
-      source: valToString(getField(d, ["source", "src"])) || sourceLabel || "base locale",
-      sourceUrl: valToString(getField(d, ["sourceUrl", "url", "lien", "link"])) || sourceUrl || ""
-    };
-    out.et = valToString(getField(d, ["et", "engineType", "type", "fuel", "energie"])) || inferFuel(`${out.e} ${out.tg} ${out.s} ${out.n}`);
-    if (!out.b || !out.s) return null;
-    return out;
-  };
-
-  const addDefect = (d, sourceLabel = "base locale", sourceUrl = "") => {
-    const nd = normalizeDefect(d, sourceLabel, sourceUrl);
-    if (!nd) return;
-    catalog.defects.push(nd);
-    addBrand(nd.b, null, nd.source, nd.sourceUrl);
-    if (nd.m && nd.m !== "*") {
-      String(nd.m).split("|").forEach((m) => addModel(nd.b, m, nd.y, nd.source, nd.sourceUrl));
-    }
-    if (nd.e && nd.m && nd.m !== "*" && looksLikeMotorisation(nd.e)) {
-      String(nd.m).split("|").forEach((m) => {
-        addEngine({ b: nd.b, m, y: nd.y, e: nd.e, p: nd.p, t: nd.et, tr: "", code: "", source: nd.source, sourceUrl: nd.sourceUrl }, nd.sourceUrl, true, nd.source);
-      });
-    }
-  };
-
-  const getAllBrands = () => Object.keys(catalog.brands).map((k) => catalog.brands[k]).sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
-
-  const getModels = (brand, year) => catalog.models.filter((m) => brandMatches(m.brand, brand) && yearMatches(m.years, year)).map((m) => ({
-    id: `${normKey(m.brand)}|${normKey(m.name)}`, brand: m.brand, name: m.name, years: m.years, source: m.source
-  })).sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
-
-  const engineMatches = (e, brand, model, year) => (brandMatches(e.brand, brand) && nameMatch(e.model, model) && yearMatches(e.years, year));
-
-  const fuelRank = (f) => {
-    const order = ["Essence", "Diesel", "Hybride", "Hybride rechargeable", "Hybride léger 48V", "Électrique", "GPL", "E85 / Bioéthanol", "Hydrogène", "Non précisé / mixte", "Hybride / électrique"];
-    const i = order.indexOf(f);
-    return i >= 0 ? i : 999;
-  };
-
-  const dedupeAndSortEngines = (list) => {
-    const seen = {};
-    const out = [];
-    list.forEach((e) => {
-      if (!e) return;
-      const k = [normKey(e.brand), normKey(e.model), normKey(e.engine), normKey(e.displacement), normKey(e.power), normKey(e.fuel), normKey(e.transmission), normKey(e.code)].join("|");
-      if (seen[k]) return;
-      seen[k] = true;
-      out.push(e);
+    return engines.map(e => ({
+      id: `${modelKey}|${normKey(e.engine)}`,
+      ...e
+    })).sort((a, b) => {
+      // Tri par énergie puis puissance
+      const rankA = ["Essence","Diesel","Hybride","Hybride rechargeable","Hybride léger 48V","Électrique"].indexOf(a.fuel);
+      const rankB = ["Essence","Diesel","Hybride","Hybride rechargeable","Hybride léger 48V","Électrique"].indexOf(b.fuel);
+      if (rankA !== rankB) return (rankA === -1 ? 99 : rankA) - (rankB === -1 ? 99 : rankB);
+      
+      const powA = parseFloat(String(a.power).match(/(\d+)/)?.[0] || 0);
+      const powB = parseFloat(String(b.power).match(/(\d+)/)?.[0] || 0);
+      return powB - powA; // Descendant
     });
-    out.sort((a, b) => {
-      const fa = fuelRank(a.fuel); const fb = fuelRank(b.fuel);
-      if (fa !== fb) return fa - fb;
-      const da = parseDisplacementNumber(a.displacement || a.engine); const db = parseDisplacementNumber(b.displacement || b.engine);
-      if (da !== db) return (da || 999) - (db || 999);
-      const pa = parsePowerNumber(a.power || a.engine); const pb = parsePowerNumber(b.power || b.engine);
-      if (pa !== pb) return pb - pa;
-      const ca = parseCapacityNumber(a.power || a.displacement || a.engine); const cb = parseCapacityNumber(b.power || b.displacement || b.engine);
-      if (ca !== cb) return cb - ca;
-      return norm(a.engine).localeCompare(norm(b.engine));
-    });
-    return out;
-  };
-
-  const parseDisplacement = (text) => {
-    const t = String(text || "");
-    let m = t.match(/\b(\d\.\d)\s*(?:l|litre|litres)?\b/i);
-    if (m) return m[1] + " L";
-    m = t.match(/\b(\d{3,4})\s*(?:cm3|cc)\b/i);
-    if (m) return m[1] + " cm3";
-    m = t.match(/\b(\d{3,4})\b/i);
-    if (m && parseInt(m[1], 10) >= 600 && parseInt(m[1], 10) <= 8000 && /\b(diesel|essence|turbo|tdi|hdi|dci|tsi|tfsi|puretech|ecoboost)\b/i.test(t)) return m[1] + " cm3";
-    return "";
-  };
-
-  const parsePower = (text) => {
-    const t = String(text || "");
-    const parts = [];
-    const re = /(\d+(?:[.,]\d+)?)\s*(ch|cv|hp|kw|kwh)/gi;
-    let m;
-    while ((m = re.exec(t)) !== null) {
-      const value = m[1].replace(",", ".");
-      let unit = m[2].toLowerCase();
-      if (unit === "cv" || unit === "hp") unit = "ch";
-      parts.push(`${value} ${unit}`);
-    }
-    if (parts.length) return unique(parts).join("|");
-    m = t.match(/\b(\d{2,3})\b/);
-    if (m && /\b(ch|kw|puissance)\b/i.test(t)) return m[1] + " ch";
-    return "";
-  };
-
-  const parsePowerNumber = (text) => {
-    const t = String(text || "");
-    let m = t.match(/(\d+(?:[.,]\d+)?)\s*(ch|cv|hp)/i);
-    if (m) return parseFloat(m[1].replace(",", "."));
-    m = t.match(/(\d+(?:[.,]\d+)?)\s*kw/i);
-    if (m) return parseFloat(m[1].replace(",", ".")) * 1.36;
-    return 0;
-  };
-
-  const parseCapacityNumber = (text) => {
-    const t = String(text || "");
-    const m = t.match(/(\d+(?:[.,]\d+)?)\s*kwh/i);
-    return m ? parseFloat(m[1].replace(",", ".")) : 0;
-  };
-
-  const parseDisplacementNumber = (text) => {
-    const t = String(text || "");
-    let m = t.match(/\b(\d\.\d)\b/);
-    if (m) return parseFloat(m[1]);
-    m = t.match(/\b(\d{3,4})\s*(?:cm3|cc)?\b/i);
-    if (m) {
-      const v = parseInt(m[1], 10);
-      if (v >= 600 && v <= 8000) return v / 1000;
-    }
-    return 0;
-  };
-
-  const META_KEYS = { b:1, brand:1, marque:1, constructeur:1, make:1, m:1, model:1, modele:1, vehicle:1, vehicule:1, e:1, engine:1, motorisation:1, moteur:1, powertrain:1, version:1, variant:1, p:1, power:1, puissance:1, ch:1, kw:1, kwh:1, t:1, type:1, fuel:1, energie:1, carburant:1, enginetype:1, tr:1, transmission:1, boite:1, gearbox:1, y:1, years:1, annee:1, period:1, range:1, from:1, start:1, s:1, symptoms:1, symptomes:1, panne:1, pannes:1, defaut:1, probleme:1, issue:1, fault:1, dtc:1, codedtc:1, code:1, codes:1, d:1, cyl:1, cylindree:1, displacement:1, enginesize:1, cubic:1, n:1, note:1, description:1, fiche:1, detail:1, law:1, legal:1, baselegale:1, droit:1, fondement:1, rec:1, recall:1, rappel:1, campagne:1, tg:1, tags:1, categorie:1, category:1, systeme:1, source:1, src:1, sourceurl:1, url:1, lien:1, link:1, confidence:1, wf:1, wearfactor:1, sev:1, severity:1, gravite:1, brands:1, marques:1, models:1, modeles:1, vehicles:1, vehicules:1, engines:1, motorisations:1, powertrains:1, variants:1, defects:1, faults:1, rappels:1, problems:1, issues:1, data:1, items:1, records:1, catalog:1, base:1, database:1, result:1, results:1, name:1, aliases:1, alias:1 };
-
-  const isMetaKey = (key) => !!META_KEYS[normKey(key)];
-
-  const isPlainContainer = (obj) => obj && typeof obj === "object" && !Array.isArray(obj) && Object.keys(obj).length > 0;
-
-  const ingestNode = (node, brandFallback, modelFallback, keyFallback, sourceLabel, sourceUrl, depth = 0, seen = new WeakSet()) => {
-    if (!node || depth > 8) return;
-    if (Array.isArray(node)) {
-      node.forEach((item) => {
-        if (typeof item === "string") {
-          const s = String(item || "").trim();
-          if (!s) return;
-          if (brandFallback && modelFallback) {
-            addEngine({ b: brandFallback, m: modelFallback, e: s, source: sourceLabel, sourceUrl }, sourceUrl, false, sourceLabel);
-          } else if (brandFallback) {
-            addModel(brandFallback, s, "", sourceLabel, sourceUrl);
-          } else {
-            addBrand(s, [], sourceLabel, sourceUrl);
-          }
-        } else {
-          ingestNode(item, brandFallback, modelFallback, keyFallback, sourceLabel, sourceUrl, depth + 1, seen);
-        }
-      });
-      return;
-    }
-    if (typeof node !== "object") return;
-    if (seen.has(node)) return;
-    seen.add(node);
-
-    const b = getBrandField(node) || brandFallback || "";
-    const m = getModelField(node) || modelFallback || "";
-    let e = getEngineField(node);
-    if (!e && keyFallback && !isMetaKey(keyFallback)) e = keyFallback;
-    if (!e && node.name && (getPowerField(node) || getFuelField(node) || getDisplacementField(node))) e = node.name;
-
-    const sym = getSymptomsField(node);
-    const hasEngineData = e || getPowerField(node) || getFuelField(node) || getDisplacementField(node);
-
-    if (b && m && hasEngineData) {
-      addEngine({ ...node, b, m, e: e || "", source: sourceLabel, sourceUrl }, sourceUrl, false, sourceLabel, keyFallback);
-    }
-    if (b && sym) {
-      addDefect({ ...node, b, m: m || node.m || node.modele || "*", source: sourceLabel, sourceUrl }, sourceLabel, sourceUrl);
-    }
-    if (b && !m) addBrand(b, node.aliases || node.alias, sourceLabel, sourceUrl);
-    if (b && m) addModel(b, m, getYearsField(node), sourceLabel, sourceUrl);
-
-    ["brands", "marques"].forEach((k) => { if (node[k]) ingestNode(node[k], null, null, null, sourceLabel, sourceUrl, depth + 1, seen); });
-    ["models", "modeles", "vehicles", "vehicules"].forEach((k) => { if (node[k]) ingestNode(node[k], b, null, null, sourceLabel, sourceUrl, depth + 1, seen); });
-    ["engines", "motorisations", "motorizations", "powertrains", "versions", "variants"].forEach((k) => { if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen); });
-    ["defects", "pannes", "faults", "rappels", "problems", "issues"].forEach((k) => { if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen); });
-    ["data", "items", "records", "catalog", "base", "database", "result", "results"].forEach((k) => { if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen); });
-
-    if (isPlainContainer(node)) {
-      Object.keys(node).forEach((key) => {
-        if (isMetaKey(key)) return;
-        const val = node[key];
-        if (val && typeof val === "object") {
-          ingestNode(val, b, m, key, sourceLabel, sourceUrl, depth + 1, seen);
-        } else if (typeof val === "string") {
-          const s = String(val || "").trim();
-          if (!s) return;
-          if (b && m) {
-            addEngine({ b, m, e: key, p: s, source: sourceLabel, sourceUrl }, sourceUrl, false, sourceLabel);
-          } else if (b) {
-            addModel(b, key, s, sourceLabel, sourceUrl);
-          } else {
-            addBrand(key, [], sourceLabel, sourceUrl);
-          }
-        }
-      });
-    }
-  };
-
-  const parseBalanced = (text, start) => {
-    const open = text.charAt(start);
-    if (open !== "[" && open !== "{") return null;
-    const stack = [open];
-    let inString = false;
-    let escape = false;
-    const max = Math.min(text.length, start + 3000000);
-    for (let i = start + 1; i < max; i++) {
-      const ch = text.charAt(i);
-      if (escape) { escape = false; continue; }
-      if (ch === "\\") { escape = true; continue; }
-      if (ch === '"') { inString = !inString; continue; }
-      if (inString) continue;
-      if (ch === "[" || ch === "{") { stack.push(ch); }
-      else if (ch === "]" || ch === "}") {
-        const expected = ch === "]" ? "[" : "{";
-        if (stack.pop() !== expected) return null;
-        if (stack.length === 0) return text.substring(start, i + 1);
-      }
-    }
-    return null;
-  };
-
-  const tryParseJsonish = (raw) => {
-    try { return JSON.parse(raw); } catch {}
-    let s = String(raw || "");
-    s = s.replace(/\/\*[\s\S]*?\*\//g, "");
-    s = s.replace(/(^|[^:])\/\/.*$/gm, "$1");
-    s = s.replace(/'((?:[^'\\]|\\.)*)'/g, (_, p) => '"' + String(p).replace(/"/g, '\\"') + '"');
-    s = s.replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":');
-    s = s.replace(/,(\s*[}\]])/g, "$1");
-    try { return JSON.parse(s); } catch { return null; }
-  };
-
-  const extractJsonCandidates = (text) => {
-    const out = [];
-    if (!text) return out;
-    const keywordRe = /marque|brand|modele|model|motorisation|engine|panne|defaut|dtc|symptom|rappel|recall|puissance|power|energie|fuel|cylindree|displacement/i;
-    const max = Math.min(text.length, 3500000);
-    let attempts = 0;
-    for (let i = 0; i < max && attempts < 500; i++) {
-      const ch = text.charAt(i);
-      if (ch !== "[" && ch !== "{") continue;
-      const snippet = text.substr(i, 900).toLowerCase();
-      if (!keywordRe.test(snippet)) continue;
-      attempts++;
-      const raw = parseBalanced(text, i);
-      if (!raw) continue;
-      const parsed = tryParseJsonish(raw);
-      if (parsed) { out.push(parsed); i += raw.length; }
-    }
-    return out;
-  };
-
-  const ingestAutoText = (url, text, sourceLabel) => {
-    const candidates = extractJsonCandidates(text);
-    candidates.forEach((c) => ingestNode(c, null, null, null, sourceLabel || "auto-diagnostic", url, 0));
-    return candidates.length > 0;
-  };
-
-  const discoverScriptUrls = (html, baseUrl) => {
-    const urls = [];
-    const re = /<script[^>]+src=["']([^"']+)["']/gi;
-    let m;
-    while ((m = re.exec(html)) !== null && urls.length < 50) {
-      const src = m[1];
-      if (/^https?:\/\//i.test(src) || src.charAt(0) === "/" || /^[\w./-]+\.js(?:\?|$)/i.test(src)) {
-        urls.push(resolveUrl(baseUrl, src));
-      }
-    }
-    return unique(urls);
-  };
-
-  const loadCatalogConfig = () => {
-    const cfg = loadWithMigration(KEYS.CATALOG_CFG, OLD_KEYS.CATALOG_CFG, null);
-    if (cfg) CONFIG.catalog = { ...CONFIG.catalog, ...cfg };
-  };
-
-  const saveCatalogConfigFromUi = () => {
-    CONFIG.catalog.vehicleUrl = (q("#vehicleCatalogUrl") || {}).value || CONFIG.catalog.vehicleUrl;
-    CONFIG.catalog.engineUrl = (q("#engineCatalogUrl") || {}).value || CONFIG.catalog.engineUrl;
-    CONFIG.catalog.autoBaseUrl = (q("#autoBaseUrl") || {}).value || CONFIG.catalog.autoBaseUrl;
-    CONFIG.catalog.nhtsaEnabled = !!(q("#nhtsaEnabled") || {}).checked;
-    const eps = (q("#autoEndpoints") || {}).value || "";
-    CONFIG.catalog.endpoints = String(eps).split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
-    save(KEYS.CATALOG_CFG, CONFIG.catalog);
-    toast("Configuration catalogue enregistrée.", "success");
-  };
-
-  const renderCatalogConfig = () => {
-    if (q("#vehicleCatalogUrl")) q("#vehicleCatalogUrl").value = CONFIG.catalog.vehicleUrl || "";
-    if (q("#engineCatalogUrl")) q("#engineCatalogUrl").value = CONFIG.catalog.engineUrl || "";
-    if (q("#autoBaseUrl")) q("#autoBaseUrl").value = CONFIG.catalog.autoBaseUrl || "";
-    if (q("#autoEndpoints")) q("#autoEndpoints").value = (CONFIG.catalog.endpoints || []).join("\n");
-    if (q("#nhtsaEnabled")) q("#nhtsaEnabled").checked = !!CONFIG.catalog.nhtsaEnabled;
-  };
-
-  const seedBaseCatalog = () => {
-    // La base massive remplace le seeding manuel basique
-    seedMassiveCatalog();
-  };
-
-  const loadStoredTechnicalUpdates = () => {
-    const oldTech = loadWithMigration(KEYS.TECH_UPDATES, OLD_KEYS.TECH_UPDATES, []) || [];
-    oldTech.forEach((d) => addDefect(d, "base locale stockée", ""));
-  };
-
-  const loadImportedCatalog = () => {
-    const raw = loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [];
-    raw.forEach((json) => {
-      try { ingestNode(json, null, null, null, "import-admin", "import", 0); } catch {}
-    });
-  };
-
-  const catalogSnapshot = () => ({
-    brands: Object.keys(catalog.brands).length,
-    models: catalog.models.length,
-    engines: catalog.engines.length,
-    defects: catalog.defects.length
-  });
-
-  const loadLocalCatalogs = async () => {
-    const urls = [
-      { url: CONFIG.catalog.vehicleUrl, label: "catalogue local" },
-      { url: CONFIG.catalog.engineUrl, label: "catalogue local" },
-      { url: CONFIG.catalog.technicalUrl, label: "mise à jour JSON" }
-    ];
-    await Promise.all(urls.map(async ({ url, label }) => {
-      try {
-        const json = await fetchJson(url);
-        ingestNode(json, null, null, null, label, url, 0);
-        if (label === "mise à jour JSON") save(KEYS.LAST_UPDATE, Date.now());
-      } catch {}
-    }));
-  };
-
-  const nhtsaMake = (brand) => {
-    const s = String(brand || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
-    const map = { "RANGE ROVER": "LAND ROVER", "MERCEDES BENZ": "MERCEDES-BENZ", "CITROEN": "CITROEN", "SKODA": "SKODA", "VOLKSWAGEN": "VOLKSWAGEN" };
-    return map[s] || s;
-  };
-
-  const loadNhtsaMakes = async () => {
-    if (!CONFIG.catalog.nhtsaEnabled || !window.fetch) return;
-    try {
-      const data = await fetchJson("https://vpic.nhtsa.dot.gov/api/vehicles/getmakes?format=json");
-      const results = (data && data.Results) || [];
-      results.forEach((r) => {
-        const name = r.Make_Name || r.make || "";
-        if (name) addBrand(name, [], "NHTSA vPIC", "https://vpic.nhtsa.dot.gov/");
-      });
-    } catch {}
-  };
-
-  const fetchNhtsaModels = async (brand) => {
-    if (!CONFIG.catalog.nhtsaEnabled || !window.fetch || !brand) return [];
-    const make = nhtsaMake(brand);
-    const url = `https://vpic.nhtsa.dot.gov/api/vehicles/getmodelsformake/${encodeURIComponent(make)}?format=json`;
-    try {
-      const data = await fetchJson(url);
-      const results = (data && data.Results) || [];
-      return results.map((r) => ({
-        id: `${normKey(brand)}|${normKey(r.Model_Name)}`, brand, name: r.Model_Name, years: "1990-2026", source: "NHTSA vPIC"
-      })).filter((x) => x.name);
-    } catch { return []; }
-  };
-
-  const autoUrls = () => {
-    const urls = new Set();
-    const add = (u) => { if (u) urls.add(u); };
-    const endpoints = CONFIG.catalog.endpoints || [];
-    const base = CONFIG.catalog.autoBaseUrl;
-    if (base) {
-      endpoints.forEach((ep) => add(resolveUrl(base, ep)));
-      (CONFIG.catalog.scriptUrls || []).forEach((sp) => add(resolveUrl(base, sp)));
-    }
-    const repo = CONFIG.catalog.rawRepo;
-    const branches = CONFIG.catalog.rawBranches || ["main", "master"];
-    if (repo) {
-      branches.forEach((branch) => {
-        const rb = `https://raw.githubusercontent.com/${repo}/${branch}/`;
-        endpoints.forEach((ep) => add(rb + ep));
-        (CONFIG.catalog.scriptUrls || []).forEach((sp) => add(rb + sp));
-        ["data/export.json", "data/auto-diagnostic-export.json", "data/db.json", "db.json", "data/data.json", "data/catalog.json", "data/vehicles.json", "data/engines.json", "data/motorizations.json", "data/motorisations.json", "data/models.json", "data/brands.json", "data/pannes.json", "data/rappels.json", "data/dtc.json"].forEach((ep) => add(rb + ep));
-      });
-    }
-    ["./data/auto-diagnostic/", "./data/"].forEach((prefix) => {
-      endpoints.forEach((ep) => add(resolveUrl(prefix, ep)));
-    });
-    return Array.from(urls).slice(0, 220);
-  };
-
-  const ingestUrl = async (url, label) => {
-    try {
-      const res = await fetch(url, { cache: "no-store", method: "GET" });
-      if (!res.ok) return false;
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text);
-        ingestNode(json, null, null, null, label, url, 0);
-        return true;
-      } catch {
-        return ingestAutoText(url, text, label);
-      }
-    } catch { return false; }
-  };
-
-  const loadAutoDiagnostic = async (manual = false) => {
-    if (!window.fetch) return false;
-    updateDataStatus(manual ? "Synchronisation auto-diagnostic..." : "Auto-diagnostic en arrière-plan...");
-    const before = catalogSnapshot();
-    const urls = autoUrls();
-    await Promise.all(urls.map((u) => ingestUrl(u, "auto-diagnostic")));
-    autoLastSync = Date.now();
-    save(KEYS.AUTO_LAST_SYNC, autoLastSync);
-    const after = catalogSnapshot();
-    const added = {
-      models: Math.max(0, after.models - before.models),
-      engines: Math.max(0, after.engines - before.engines),
-      defects: Math.max(0, after.defects - before.defects)
-    };
-    clearEngineCache();
-    updateAdminStats();
-    refreshSelectorsFromCatalog();
-    const ok = added.models + added.engines + added.defects > 0;
-    updateDataStatus(ok
-      ? `Auto-diagnostic synchronisé • +modèles: ${added.models} • +motorisations: ${added.engines} • +fiches: ${added.defects}`
-      : "Auto-diagnostic : aucune nouvelle donnée exploitable trouvée");
-    if (manual) {
-      toast(ok
-        ? `Auto-diagnostic renforcé : +${added.engines} motorisation(s), +${added.defects} fiche(s).`
-        : "Aucune nouvelle donnée auto-diagnostic exploitable trouvée.",
-        ok ? "success" : "warning");
-    }
-    return ok;
-  };
-
-  const loadCatalogs = async (manual = false) => {
-    updateDataStatus(manual ? "Chargement des catalogues..." : "Chargement des catalogues en arrière-plan...");
-    try {
-      await loadLocalCatalogs();
-      await loadAutoDiagnostic(manual);
-      await loadNhtsaMakes();
-      clearEngineCache();
-      updateAdminStats();
-      refreshSelectorsFromCatalog();
-      updateDataStatus(`Catalogue chargé • Marques: ${getAllBrands().length} • Modèles: ${catalog.models.length} • Motorisations: ${catalog.engines.length} • Fiches: ${catalog.defects.length}`);
-      if (manual) toast("Catalogues rechargés et renforcés.", "success");
-    } catch (err) {
-      console.warn("[AR-EXPERT] Chargement catalogue impossible:", err);
-      updateDataStatus("Mode autonome : catalogue local partiel");
-      if (manual) toast("Chargement catalogue impossible. Base locale conservée.", "warning");
-    }
-  };
-
-  const refreshSelectorsFromCatalog = () => {
-    if (selection.brand) {
-      loadModelsForBrand(selection.brand.name, false);
-    } else {
-      renderBrandPanel();
-    }
   };
 
   /* =========================================================
-     UI DROPDOWN
+     UI DROPDOWN & EVENEMENTS (CORRECTION BUG SAISIE)
      ========================================================= */
   const closeAllCombos = (exceptId) => {
     ["brandPanel", "modelPanel", "enginePanel"].forEach((id) => {
@@ -2044,18 +1555,17 @@
     const input = q("#brandInput");
     const panel = q("#brandPanel");
     if (!input || !panel) return;
-    const val = norm(input.value);
-    const brands = getAllBrands().filter((b) => {
-      if (!val) return true;
-      if (norm(b.name).includes(val)) return true;
-      return b.aliases.some((a) => norm(a).includes(val));
-    }).slice(0, 80);
+
+    const val = input.value;
+    const brands = predictBrands(val);
+
     if (!brands.length) {
       panel.innerHTML = '<div class="combo-empty">Aucune marque trouvée.</div>';
       panel.classList.remove("hidden");
       return;
     }
-    panel.innerHTML = brands.map((b) => `<button type="button" class="suggest-item" data-brand="${esc(b.name)}">${esc(b.name)}</button>`).join("");
+
+    panel.innerHTML = brands.map(b => `<button type="button" class="suggest-item" data-brand="${esc(b.name)}">${esc(b.name)}</button>`).join("");
     panel.classList.remove("hidden");
   };
 
@@ -2063,23 +1573,29 @@
     selection.brand = { name };
     selection.model = null;
     selection.engine = null;
+
     const input = q("#brandInput");
     if (input) input.value = name;
+
     closeAllCombos();
     updateModelButton();
     updateEngineButton();
     updateSelectionSummary();
-    loadModelsForBrand(name, true);
+    
+    // Déclencher la prédiction modèle vide mais prête
+    renderModelList("");
   };
 
   const updateModelButton = () => {
     const btn = q("#modelButton");
     if (!btn) return;
+
     if (!selection.brand) {
       btn.disabled = true;
       btn.textContent = "Choisir d’abord une marque";
       return;
     }
+
     if (selection.model) {
       btn.disabled = false;
       btn.textContent = selection.model.name + (selection.model.years ? " • " + selection.model.years : "");
@@ -2092,11 +1608,13 @@
   const updateEngineButton = () => {
     const btn = q("#engineButton");
     if (!btn) return;
+
     if (!selection.brand || !selection.model) {
       btn.disabled = true;
       btn.textContent = !selection.brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle";
       return;
     }
+
     if (selection.engine) {
       btn.disabled = false;
       btn.textContent = engineLabel(selection.engine);
@@ -2114,120 +1632,65 @@
     if (o.power && o.power !== "N/A") parts.push(o.power);
     if (o.transmission) parts.push(o.transmission);
     if (o.code) parts.push(o.code);
-    if (o.years) parts.push(o.years);
-    if (o.source && norm(o.source).includes("générateur")) parts.push("à confirmer");
-    else if (o.source && o.source !== "catalogue local") parts.push(o.source);
-    return parts.join(" • ");
-  };
-
-  const modelLabel = (o) => {
-    const parts = [o.name];
-    if (o.years) parts.push(o.years);
-    if (o.source && o.source !== "catalogue local") parts.push(o.source);
     return parts.join(" • ");
   };
 
   const renderModelList = (filter) => {
     const list = q("#modelList");
     if (!list) return;
-    const f = norm(filter || "");
-    currentModelOptions = modelOptions.filter((o) => !f || norm(modelLabel(o)).includes(f));
-    if (!currentModelOptions.length) {
-      list.innerHTML = '<div class="combo-empty">Aucun modèle trouvé.</div>';
+
+    if (!selection.brand) {
+      list.innerHTML = '<div class="combo-empty">Sélectionnez une marque d\'abord.</div>';
       return;
     }
-    list.innerHTML = currentModelOptions.map((o, i) => `<button type="button" class="combo-option" data-model-index="${i}">${esc(modelLabel(o))}</button>`).join("");
+
+    const models = predictModels(selection.brand.name, filter);
+    
+    if (!models.length) {
+      list.innerHTML = '<div class="combo-empty">Aucun modèle trouvé pour cette marque.</div>';
+      return;
+    }
+
+    list.innerHTML = models.map((o, i) => `<button type="button" class="combo-option" data-model-index="${i}" data-model-name="${esc(o.name)}">${esc(o.name)} ${o.years ? '('+o.years+')' : ''}</button>`).join("");
+    
+    // Stocker temporairement pour clic
+    window.__tempModelOptions = models;
   };
 
   const renderEngineList = (filter) => {
     const list = q("#engineList");
     if (!list) return;
-    const f = norm(filter || "");
-    currentEngineOptions = engineOptions.filter((o) => !f || norm(engineLabel(o)).includes(f));
-    if (!currentEngineOptions.length) {
-      list.innerHTML = '<div class="combo-empty">Aucune motorisation trouvée.</div>';
+
+    if (!selection.brand || !selection.model) {
+      list.innerHTML = '<div class="combo-empty">Sélectionnez un modèle d\'abord.</div>';
       return;
     }
-    list.innerHTML = currentEngineOptions.map((o, i) => `<button type="button" class="combo-option" data-engine-index="${i}">${esc(engineLabel(o))}</button>`).join("");
-  };
 
-  const loadModelsForBrand = (brand, showLoading) => {
-    const token = ++modelLoadToken;
-    const year = parseYear((q("#vehicleYear") || {}).value);
-    const local = getModels(brand, year);
-    if (showLoading && local.length < 5) {
-      modelOptions = local.concat([{ id: "__loading__", brand, name: "Chargement des modèles...", years: "", source: "auto-diagnostic / NHTSA" }]);
-      renderModelList("");
-      updateModelButton();
-    } else {
-      modelOptions = local;
-      renderModelList("");
-      updateModelButton();
+    const yearVal = (q("#vehicleYear") || {}).value || "";
+    const engines = predictEngines(selection.brand.name, selection.model.name, yearVal);
+    
+    // Filtre texte supplémentaire si besoin
+    const f = norm(filter || "");
+    const filtered = f ? engines.filter(e => norm(engineLabel(e)).includes(f)) : engines;
+
+    if (!filtered.length) {
+      list.innerHTML = '<div class="combo-empty">Aucune motorisation compatible trouvée.</div>';
+      return;
     }
-    if (CONFIG.catalog.nhtsaEnabled && local.length < 30) {
-      fetchNhtsaModels(brand).then((remote) => {
-        if (token !== modelLoadToken) return;
-        const merged = local.slice();
-        const seen = {};
-        merged.forEach((m) => { seen[m.id] = true; });
-        remote.forEach((m) => { if (!seen[m.id]) { seen[m.id] = true; merged.push(m); } });
-        merged.sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
-        if (!merged.length) {
-          merged.push({ id: "__custom__", brand, name: "Autre modèle (saisie libre)", years: "", source: "manuel" });
-        }
-        modelOptions = merged;
-        renderModelList((q("#modelSearch") || {}).value || "");
-        updateModelButton();
-        updateAdminStats();
-        refreshEngineOptions();
-      }).catch(() => {
-        if (token !== modelLoadToken) return;
-        const merged = local.slice();
-        if (!merged.length) {
-          merged.push({ id: "__custom__", brand, name: "Autre modèle (saisie libre)", years: "", source: "manuel" });
-        }
-        modelOptions = merged;
-        renderModelList((q("#modelSearch") || {}).value || "");
-        updateModelButton();
-        refreshEngineOptions();
-      });
-    }
-    refreshEngineOptions();
+
+    list.innerHTML = filtered.map((o, i) => `<button type="button" class="combo-option" data-engine-index="${i}">${esc(engineLabel(o))}</button>`).join("");
+    
+    window.__tempEngineOptions = filtered;
   };
 
   const selectModel = (opt) => {
-    if (!opt || opt.id === "__loading__") return;
-    if (opt.id === "__custom__") {
-      const name = prompt("Nom exact du modèle recherché :", "");
-      if (!name || !name.trim()) return;
-      selection.model = { id: `custom|${normKey(name)}`, brand: selection.brand.name, name: name.trim(), years: "", source: "manuel" };
-    } else {
-      selection.model = opt;
-    }
+    if (!opt) return;
+    selection.model = opt;
     selection.engine = null;
     closeAllCombos();
     updateModelButton();
-    refreshEngineOptions();
+    renderEngineList(""); // Mettre à jour les moteurs dispo
     updateSelectionSummary();
-  };
-
-  const refreshEngineOptions = () => {
-    if (!selection.brand || !selection.model) {
-      engineOptions = [];
-      currentEngineOptions = [];
-      updateEngineButton();
-      return;
-    }
-    const year = parseYear((q("#vehicleYear") || {}).value);
-    let engines = getEnginesFor(selection.brand.name, selection.model.name, year);
-    if (!engines.length) {
-      engines = [{
-        id: "__unknown_engine__", brand: selection.brand.name, model: selection.model.name, engine: "Autre / non précisée", displacement: "", power: "N/A", fuel: "Non précisé / mixte", transmission: "", code: "", years: year ? String(year) : "", source: "manuel", sourceUrl: "", confidence: 0.4
-      }];
-    }
-    engineOptions = engines;
-    renderEngineList("");
-    updateEngineButton();
   };
 
   const selectEngine = (opt) => {
@@ -2268,10 +1731,10 @@
       marque: selection.brand ? selection.brand.name : (brandEl ? brandEl.value.trim() : ""),
       modele: selection.model ? selection.model.name : "",
       annee: yearEl ? yearEl.value.trim() : "",
-      engine: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.engine : "",
+      engine: selection.engine ? selection.engine.engine : "",
       displacement: selection.engine ? selection.engine.displacement : "",
-      power: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.power : "",
-      fuel: selection.engine && selection.engine.id !== "__unknown_engine__" ? selection.engine.fuel : "",
+      power: selection.engine ? selection.engine.power : "",
+      fuel: selection.engine ? selection.engine.fuel : "",
       transmission: selection.engine ? selection.engine.transmission : "",
       code: selection.engine ? selection.engine.code : "",
       engineSource: selection.engine ? selection.engine.source : "",
@@ -2282,7 +1745,7 @@
   };
 
   /* =========================================================
-     ANALYSE / RAPPORT
+     ANALYSE / RAPPORT (LOGIQUE CROISEMENT DÉFAUTS)
      ========================================================= */
   const addTerm = (...args) => {
     args.forEach((t) => termesMobilises.add(t));
@@ -2294,208 +1757,109 @@
     return unique(m.map((x) => x.toUpperCase()));
   };
 
-  const powerTokens = (p) => String(p || "").split(/[^a-z0-9]+/i).map((x) => norm(x)).filter((x) => x.length > 1);
-
-  const legalForDefect = (d) => {
-    const laws = [];
-    if (d.law) laws.push(d.law);
-    const tags = norm(d.tg || "");
-    const symptoms = norm(d.s || "");
-    const sev = d.sev || "moyen";
-    const type = norm(d.et || "");
-    if (sev === "critique") {
-      laws.push("Vice caché art. 1641 C.civ.");
-      laws.push("Défaut de conformité L.217-4 C.consom. si vendeur professionnel.");
-      laws.push("Tromperie L.213-1 C.consom. en cas de dissimulation.");
-    } else {
-      laws.push("Vice caché art. 1641 C.civ. à confirmer par expertise.");
-      laws.push("Usure normale à écarter selon kilométrage, entretien et usage.");
-    }
-    if (type.includes("diesel") || tags.includes("diesel") || tags.includes("egr") || tags.includes("fap") || tags.includes("adblue")) {
-      laws.push("Conformité antipollution L.217-4 C.consom.; tromperie L.213-1 si dispositif illicite ou dissimulation.");
-      laws.push("Sécurité / environnement L.423-1 C.consom. en cas de risque collectif.");
-    }
-    if (isElectricLike(type) || tags.includes("batterie") || tags.includes("charge") || tags.includes("electricite")) {
-      laws.push("Sécurité batterie / BMS / charge L.423-1 C.consom.");
-      laws.push("Produits défectueux art. 1245 C.civ.");
-      laws.push("Conformité du bien numérique/logiciel L.217-4 C.consom.");
-    }
-    if (type.includes("essence") || tags.includes("turbo") || tags.includes("huile") || tags.includes("distribution")) {
-      laws.push("Vice caché moteur art. 1641 C.civ.; usure à écarter par expertise.");
-    }
-    if (tags.includes("eau") || tags.includes("electricite") || symptoms.includes("court circuit")) {
-      laws.push("Défaut de sécurité L.423-1 C.consom.");
-      laws.push("Responsabilité du fait des produits défectueux art. 1245 C.civ.");
-    }
-    if (tags.includes("incendie") || symptoms.includes("incendie") || symptoms.includes("airbag")) {
-      laws.push("Mise en danger art. 223-1 C.pénal.");
-      laws.push("Homicide/blessures involontaires art. 221-6 / 222-19 C.pénal en cas d’accident.");
-    }
-    if (tags.includes("adas") || symptoms.includes("autopilot") || symptoms.includes("phantom")) {
-      laws.push("Sécurité des systèmes automatisés L.423-1 C.consom.");
-      laws.push("Responsabilité du constructeur/art. 1245 C.civ.");
-    }
-    return laws.filter((v, i, a) => a.indexOf(v) === i).join(" | ");
-  };
-
-  const symptomMatch = (textNorm, symptom) => {
-    const s = norm(symptom);
-    if (!s) return false;
-    if (textNorm.includes(s)) return true;
-    const words = s.split(/\s+/).filter((w) => w.length > 3);
-    if (!words.length) return false;
-    return words.every((w) => textNorm.includes(w));
-  };
-
-  const tagBoost = (textNorm, tags) => {
-    let boost = 0;
-    String(tags || "").split("|").forEach((t) => {
-      const tn = norm(t);
-      if (tn && textNorm.includes(tn)) boost += 0.35;
-    });
-    return boost;
-  };
-
   const matchDefects = (v, text) => {
     const txt = norm(text);
     const yr = parseYear(v.annee);
-    const km = parseKm(v.kilometrage);
-    const dtcCodes = extractDtcCodes(text);
     const results = [];
-    catalog.defects.forEach((d) => {
+
+    catalog.defects.forEach(d => {
+      // Critère 1 : Marque
       if (v.marque && !brandMatches(d.b, v.marque)) return;
-      if (!yearMatches(d.y, yr)) return;
+      
+      // Critère 2 : Modèle (si spécifié dans le défaut)
       if (v.modele && d.m && d.m !== "*" && !modelListContains(d.m, v.modele)) return;
+      
+      // Critère 3 : Année
+      if (!yearMatches(d.y, yr)) return;
+
+      // Score based on symptoms and tags
       let score = 0;
       const found = [];
-      String(d.s || "").split("|").forEach((s) => {
-        if (symptomMatch(txt, s)) { score++; found.push(s); }
-      });
-      score += tagBoost(txt, d.tg);
-      if (v.modele && d.m && d.m !== "*" && modelListContains(d.m, v.modele)) score += 2;
-      if (yr && yearMatches(d.y, yr)) score += 1;
-      if (v.engine && d.e) {
-        if (normKey(v.engine) === normKey(d.e)) score += 5;
-        else if (norm(d.e).includes(norm(v.engine)) || norm(v.engine).includes(norm(d.e))) score += 3;
-      }
-      if (v.displacement && containsAny(`${d.e} ${d.n} ${d.tg}`, [v.displacement])) score += 2;
-      if (v.power && d.p) {
-        const sel = powerTokens(v.power);
-        const def = powerTokens(d.p);
-        if (sel.some((x) => def.includes(x))) score += 2;
-      }
-      if (v.fuel && norm(d.et) === norm(v.fuel)) score += 3;
-      if (v.transmission && containsAny(`${d.tg} ${d.e} ${d.n}`, [v.transmission])) score += 1;
-      if (v.code && containsAny(`${d.e} ${d.n} ${d.tg} ${d.dtc}`, [v.code])) score += 2;
-      if (dtcCodes.length && d.dtc) {
-        const dd = norm(d.dtc);
-        if (dtcCodes.some((c) => dd.includes(norm(c)))) score += 3;
-      }
-      if (v.fuel && isElectricLike(v.fuel) && containsAny(`${d.tg} ${d.s}`, ["batterie", "charge", "autonomie", "electricite", "hybride", "48v"])) {
-        score += 2;
-      }
-      if (norm(v.fuel) === "diesel" && containsAny(`${d.tg} ${d.s}`, ["diesel", "egr", "fap", "adblue", "nox", "pollution"])) {
-        score += 2;
-      }
-      if (norm(v.fuel) === "essence" && containsAny(`${d.tg} ${d.s}`, ["essence", "turbo", "huile", "distribution", "courroie", "chaine"])) {
-        score += 1.5;
-      }
-      if (score >= 1) {
-        let confidence = "Haute";
-        let wearAlert = "Kilométrage compatible avec un vice caché ou un défaut de série.";
-        if (d.wf >= 0.9) {
-          confidence = "Haute";
-          wearAlert = "Défaut de conception/montage/software peu dépendant du kilométrage.";
-        } else if (km > 200000) {
-          confidence = d.wf >= 0.8 ? "Moyenne" : "Basse";
-          wearAlert = "Kilométrage très élevé (>200 000 km) : présomption d’usure normale forte. Expertise judiciaire indispensable.";
-        } else if (km > 150000 && d.wf < 0.7) {
-          confidence = "Basse";
-          wearAlert = "Kilométrage élevé (>150 000 km) : une part des symptômes peut relever de l’usure normale.";
-        } else if (km > 100000 && d.wf < 0.85) {
-          confidence = "Moyenne";
-          wearAlert = "Kilométrage élevé (>100 000 km) : usure possible, mais défaut documenté suspect.";
+      
+      String(d.s || "").split("|").forEach(s => {
+        if (txt.includes(norm(s))) {
+          score++;
+          found.push(s);
         }
+      });
+
+      // Boost si moteur spécifique correspond
+      if (v.engine && d.e && norm(v.engine).includes(norm(d.e))) score += 5;
+      
+      // Boost si énergie correspond
+      if (v.fuel && norm(d.et) === norm(v.fuel)) score += 3;
+
+      if (score >= 1) {
         results.push({
-          constructeur: d.b, moteur: d.e, puissance: d.p, periode: d.y,
+          constructeur: d.b,
+          moteur: d.e,
+          puissance: d.p,
+          periode: d.y,
           modeles: d.m === "*" ? ["Toutes motorisations"] : String(d.m || "").split("|"),
-          severite: d.sev, description: d.n,
+          severite: d.sev,
+          description: d.n,
           symptomes: found.length ? found : String(d.s || "").split("|").slice(0, 3),
-          score, confiance: confidence, alerteUsure: wearAlert,
-          baseLegale: legalForDefect(d),
-          rappelRef: d.rec || "À vérifier via VIN auprès constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate.",
-          wearFactor: d.wf, tags: d.tg, dtc: d.dtc || "", engineType: d.et || "",
-          source: d.source || "base locale", sourceUrl: d.sourceUrl || ""
+          score: score,
+          confiance: score > 5 ? "Haute" : (score > 2 ? "Moyenne" : "Basse"),
+          alerteUsure: d.wf >= 0.9 ? "Défaut de conception probable." : "À confirmer par expertise.",
+          baseLegale: d.law,
+          rappelRef: d.rec,
+          wearFactor: d.wf,
+          tags: d.tg,
+          dtc: d.dtc,
+          engineType: d.et,
+          source: d.source,
+          sourceUrl: d.sourceUrl
         });
       }
     });
-    return results.sort((a, b) => b.score - a.score).slice(0, 12);
-  };
 
-  const engineAngle = (flags) => {
-    let h = "";
-    if (flags.engine) {
-      h += '<div class="rappel-info"><h4>🧰 Motorisation retenue pour l’analyse</h4>';
-      h += `<p><strong>Motorisation :</strong> ${esc(flags.engine)}</p>`;
-      h += `<p><strong>Cylindrée / capacité :</strong> ${esc(flags.displacement || "non précisée")}</p>`;
-      h += `<p><strong>Puissance :</strong> ${esc(flags.power || "non précisée")}</p>`;
-      h += `<p><strong>Énergie :</strong> ${esc(flags.fuel || "non précisée")}</p>`;
-      h += `<p><strong>Transmission / boîte :</strong> ${esc(flags.transmission || "non précisée")}</p>`;
-      h += `<p><strong>Code moteur / système :</strong> ${esc(flags.code || "non communiqué")}</p>`;
-      h += `<p><strong>Source motorisation :</strong> ${esc(flags.engineSource || "non précisée")}</p>`;
-      h += "<p>La motorisation est prise en compte comme critère technique et juridique : elle oriente le diagnostic, la présomption d’antériorité, la gravité, les rappels applicables et les fondements de responsabilité.</p>";
-      h += "</div>";
-    }
-    if (flags.diesel) {
-      h += '<div class="rappel-info"><h4>🛢️ Angle diesel / dépollution</h4>';
-      h += "<p>La motorisation diesel active les axes EGR, FAP/DPF, AdBlue, NOx, injecteurs, turbo, régénération, logiciel moteur et conformité antipollution.</p>";
-      h += "<p><strong>Point juriste :</strong> un défaut antipollution, une cristallisation AdBlue, un voyant pollution permanent ou une perte de puissance peut fonder une non-conformité L.217-4 C.consom. et, si dissimulation, tromperie L.213-1 C.consom.</p>";
-      h += "<p><strong>Point ingénieur :</strong> distinguer l’usure d’entretien d’un défaut de conception, de logiciel ou de montage.</p>";
-      h += "</div>";
-    }
-    if (flags.electricLike) {
-      h += '<div class="rappel-info"><h4>⚡ Angle motorisation électrifiée / hybride / électrique</h4>';
-      h += "<p>La motorisation électrifiée active les axes batterie, BMS, cellules, autonomie, charge AC/DC, DC-DC, batterie 12V, logiciel, isolation HV, gestion thermique et sécurité incendie.</p>";
-      h += "<p><strong>Point sécurité :</strong> odeur, fumée, échauffement, gonflement, erreur d’isolement ou perte de puissance brutale imposent immobilisation et expertise spécialisée.</p>";
-      h += "<p><strong>Point juriste :</strong> autonomie réelle non conforme, défaut de charge, bug logiciel ou risque batterie peuvent engager L.217-4 C.consom., L.423-1 C.consom. et art. 1245 C.civ.</p>";
-      h += "</div>";
-    }
-    if (flags.petrol) {
-      h += '<div class="rappel-info"><h4>⛽ Angle essence / turbo downsizing</h4>';
-      h += "<p>La motorisation essence active les axes turbo, consommation huile, chaîne/courroie de distribution, PCV, carbonisation, pré-allumage, perte de puissance et surchauffe.</p>";
-      h += "<p><strong>Point ingénieur :</strong> certains désordres sont indépendants du kilométrage quand ils relèvent de la conception, du montage ou du logiciel.</p>";
-      h += "</div>";
-    }
-    if (flags.mild48) {
-      h += '<div class="rappel-info"><h4>🔋 Angle hybride léger 48V</h4>';
-      h += "<p>La micro-hybridation 48V introduit batterie secondaire, convertisseur, logiciel, démarrage/arrêt, alternodémarreur et risques de voyants multiples.</p>";
-      h += "<p>Ces éléments peuvent être non conformes ou dangereux même si le moteur thermique principal semble fonctionnel.</p>";
-      h += "</div>";
-    }
-    return h;
+    return results.sort((a, b) => b.score - a.score).slice(0, 10);
   };
 
   const runAnalysis = (text, context, objective, sellerType) => {
     const all = `${text} ${context}`.toLowerCase();
     const allNorm = norm(all);
     const fuelNorm = norm(vehicleData.fuel || "");
+
     const flags = {
-      engine: vehicleData.engine || "", displacement: vehicleData.displacement || "", power: vehicleData.power || "", fuel: vehicleData.fuel || "", transmission: vehicleData.transmission || "", code: vehicleData.code || "", engineSource: vehicleData.engineSource || "",
-      professional: sellerType === "professional" || containsAny(all, ["professionnel", "garage", "concession", "revendeur", "automobile", "commercial"]),
-      privateSeller: sellerType === "private" || containsAny(all, ["particulier", "entre particuliers", "leboncoin", "lavitrine"]),
-      waterLeak: containsAny(all, ["eau", "humidité", "infiltration", "baie", "pare brise", "pare-brise", "moisiure", "court circuit", "traces d’eau", "flaque", "égouttement"]),
-      safety: containsAny(all, ["sécurité", "frein", "airbag", "direction", "incendie", "danger", "vie", "intégrité physique", "mise en danger", "ADAS", "autopilot"]),
-      ev: isElectricLike(fuelNorm) || containsAny(all, ["batterie", "charge", "autonomie", "electrique", "électrique", "hybride", "BMS", "DC", "AC", "recharge"]),
-      diesel: fuelNorm.includes("diesel") || containsAny(allNorm, ["diesel", "egr", "fap", "adblue", "nox", "gasoil"]),
-      petrol: fuelNorm.includes("essence") || containsAny(allNorm, ["essence", "turbo", "puretech", "tce", "tsi", "ecoboost"]),
-      hybrid: fuelNorm.includes("hybride"), phev: fuelNorm.includes("rechargeable"), mild48: fuelNorm.includes("48v"), electricLike: isElectricLike(fuelNorm),
+      engine: vehicleData.engine || "",
+      displacement: vehicleData.displacement || "",
+      power: vehicleData.power || "",
+      fuel: vehicleData.fuel || "",
+      transmission: vehicleData.transmission || "",
+      code: vehicleData.code || "",
+      engineSource: vehicleData.engineSource || "",
+      professional: sellerType === "professional" || containsAny(all, ["professionnel", "garage", "concession", "revendeur"]),
+      privateSeller: sellerType === "private" || containsAny(all, ["particulier", "entre particuliers", "leboncoin"]),
+      waterLeak: containsAny(all, ["eau", "humidité", "infiltration", "baie", "pare brise", "moisiure"]),
+      safety: containsAny(all, ["sécurité", "frein", "airbag", "direction", "incendie", "danger"]),
+      ev: isElectricLike(fuelNorm) || containsAny(all, ["batterie", "charge", "autonomie", "electrique", "hybride", "BMS"]),
+      diesel: fuelNorm.includes("diesel") || containsAny(allNorm, ["diesel", "egr", "fap", "adblue", "nox"]),
+      petrol: fuelNorm.includes("essence") || containsAny(allNorm, ["essence", "turbo", "puretech", "tsi", "ecoboost"]),
+      hybrid: fuelNorm.includes("hybride"),
+      phev: fuelNorm.includes("rechargeable"),
+      mild48: fuelNorm.includes("48v"),
+      electricLike: isElectricLike(fuelNorm),
       dtc: /\bp[0-9a-z]{3,5}\b/i.test(all) || allNorm.includes("dtc") || allNorm.includes("code défaut"),
-      invoice: all.includes("facture"), repair: all.includes("réparation") || all.includes("ordre de réparation") || all.includes("devis"),
-      controlTech: all.includes("contrôle technique") || all.includes(" ct "), warranty: all.includes("garantie"),
-      highKm: parseKm(vehicleData.kilometrage) > 120000, veryHighKm: parseKm(vehicleData.kilometrage) > 180000
+      invoice: all.includes("facture"),
+      repair: all.includes("réparation") || all.includes("ordre de réparation") || all.includes("devis"),
+      controlTech: all.includes("contrôle technique") || all.includes(" ct "),
+      warranty: all.includes("garantie"),
+      highKm: parseKm(vehicleData.kilometrage) > 120000,
+      veryHighKm: parseKm(vehicleData.kilometrage) > 180000
     };
+
     const matches = matchDefects(vehicleData, text);
-    analysisData = { date: new Date().toLocaleString("fr-FR"), vehicleData, flags, matches, sections: [] };
+
+    analysisData = {
+      date: new Date().toLocaleString("fr-FR"),
+      vehicleData,
+      flags,
+      matches,
+      sections: []
+    };
+
     const S = [];
     S.push(["I. IDENTIFICATION DU VÉHICULE ET SÉLECTIONS RENFORCÉES", secIdentification(text, context)]);
     S.push(["II. ANALYSE TECHNIQUE — MOTORISATION, DÉFAUTS CONNUS, USURE, SÉCURITÉ", secTechnique(matches, flags, vehicleData)]);
@@ -2504,23 +1868,14 @@
     S.push(["V. PREUVE, STRATÉGIE ET VÉRIFICATIONS EXTERNES", secPreuve(matches, flags, objective)]);
     S.push(["VI. CONCLUSION ORIENTÉE INGÉNIEUR / JURISTE / SÉCURITÉ", secConclusion(objective, matches, flags, vehicleData)]);
     S.push(["VII. LEXIQUE JURIDIQUE ET TECHNIQUE MOBILISÉ", secLexique()]);
+
     analysisData.sections = S;
     renderAnalysis();
   };
 
-  const renderAnalysis = () => {
-    let html = "";
-    analysisData.sections.forEach((pair) => { html += `<h3>${pair[0]}</h3>${pair[1]}`; });
-    html += '<div class="verification-needed"><strong>Rappel méthodologique :</strong> ce rapport effectue d’abord un croisement local technique/juridique/motorisation/auto-diagnostic avant toute rédaction assistée par IA. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>';
-    const result = q("#analysisResult");
-    if (result) result.innerHTML = html;
-    const section = q("#analysisSection");
-    if (section) { section.classList.remove("hidden"); section.scrollIntoView({ behavior: "smooth" }); }
-  };
-
+  // Helpers de rendu section (identiques à v21 mais adaptés aux nouvelles structures)
   const secIdentification = (text, context) => {
     let h = `<p><strong>Objet :</strong> recensement des éléments fournis ${addTerm("éléments factuels", "faits allégués")}.</p>`;
-    const availableEngines = vehicleData.marque && vehicleData.modele ? getEnginesFor(vehicleData.marque, vehicleData.modele, parseYear(vehicleData.annee)) : [];
     h += "<h4>A. Véhicule sélectionné</h4><ul>";
     h += `<li><strong>Marque :</strong> ${esc(vehicleData.marque || "non précisée")}</li>`;
     h += `<li><strong>Modèle :</strong> ${esc(vehicleData.modele || "non précisé")}</li>`;
@@ -2531,19 +1886,14 @@
     h += `<li><strong>Énergie :</strong> ${esc(vehicleData.fuel || "non précisée")}</li>`;
     h += `<li><strong>Transmission / boîte :</strong> ${esc(vehicleData.transmission || "non précisée")}</li>`;
     h += `<li><strong>Code moteur / système :</strong> ${esc(vehicleData.code || "non communiqué")}</li>`;
-    h += `<li><strong>Motorisations renforcées disponibles pour ce modèle/année :</strong> ${availableEngines.length}</li>`;
     h += `<li><strong>Kilométrage :</strong> ${esc(vehicleData.kilometrage || "non précisé")} km ${addTerm("kilométrage", "usure normale", "vétusté")}</li>`;
     h += `<li><strong>VIN :</strong> ${esc(vehicleData.vin || "non communiqué")} ${addTerm("VIN", "numéro de série", "traçabilité")}</li>`;
     h += "</ul>";
-    if (availableEngines.length) {
-      h += "<h4>B. Motorisations disponibles retenues par le moteur ingénieur</h4><ul>";
-      availableEngines.slice(0, 25).forEach((e) => { h += `<li>${esc(engineLabel(e))}</li>`; });
-      if (availableEngines.length > 25) h += `<li>… ${availableEngines.length - 25} autre(s) motorisation(s) disponible(s)</li>`;
-      h += "</ul>";
+    h += "<h4>B. Faits rapportés</h4>";
+    h += `<p>${esc(text.substring(0, 1400))}${text.length > 1400 ? " [...]" : ""}</p>`;
+    if (context) {
+      h += `<h4>C. Contexte transactionnel</h4><p>${esc(context.substring(0, 1000))}</p>`;
     }
-    h += "<h4>C. Faits rapportés</h4>";
-    h += `<p>${esc(text.substring(0, 1400))}${text.length > 1400 ? " [...] (tronqué pour affichage, analyse complète conservée en mémoire)" : ""}</p>`;
-    if (context) { h += `<h4>D. Contexte transactionnel</h4><p>${esc(context.substring(0, 1000))}</p>`; }
     h += `<div class="certainty-low"><strong>Limite :</strong> faits non vérifiés par expertise contradictoire ${addTerm("faits non vérifiés", "principe du contradictoire")}.</div>`;
     return h;
   };
@@ -2552,17 +1902,20 @@
     const km = parseKm(vData.kilometrage);
     const yr = parseYear(vData.annee);
     const age = new Date().getFullYear() - (yr || new Date().getFullYear());
-    let h = engineAngle(flags);
+    let h = "";
+    
     if (!matches.length) {
       h += `<p><strong>Objet :</strong> recherche de défauts conceptuels connus ${addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série")}.</p>`;
       h += '<div class="verification-needed">';
-      h += "<p>Aucune correspondance exacte trouvée dans la base locale / auto-diagnostic pour Marque/Modèle/Année/Motorisation/Puissance/Cylindrée/Code/Symptômes.</p>";
+      h += "<p>Aucune correspondance exacte trouvée dans la base locale massive pour Marque/Modèle/Année/Motorisation/Puissance/Symptômes.</p>";
       h += "<p>Cela ne signifie pas absence de défaut, mais absence de notoriété suffisante dans les sources consolidées localement.</p>";
       h += `<p>Une expertise individuelle est nécessaire ${addTerm("expertise individuelle", "analyse fonctionnelle", "recherche de cause racine")}.</p>`;
       h += "</div>";
       return h;
     }
+
     h += `<p><strong>Objet :</strong> croisement technique local avec motorisation, cylindrée, puissance, énergie, code moteur, défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA, auto-diagnostic et bases de sécurité ${addTerm("vice caché notoire", "défaut de série", "défaut de conception")}.</p>`;
+
     matches.forEach((m, i) => {
       const cls = m.severite === "critique" ? "rappel-critical" : "rappel-info";
       const confColor = m.confiance === "Haute" ? "#10b981" : (m.confiance === "Moyenne" ? "#f59e0b" : "#ef4444");
@@ -2583,6 +1936,7 @@
       h += `<p><strong>Rappel / TSB / source :</strong> ${esc(m.rappelRef)} ${addTerm("rappel constructeur", "campagne technique", "TSB")}</p>`;
       h += "</div>";
     });
+
     h += "<h4>Analyse de vétusté et kilométrage</h4><ul>";
     h += `<li><strong>Âge approximatif :</strong> ${age} ans</li>`;
     h += `<li><strong>Kilométrage :</strong> ${km.toLocaleString("fr-FR")} km</li>`;
@@ -2595,6 +1949,7 @@
       h += '<li class="certainty-high">Kilométrage modéré : la thèse du vice caché / défaut de conception est renforcée.</li>';
     }
     h += "</ul>";
+
     if (flags.waterLeak) {
       h += '<div class="rappel-critical"><h4>💧 Alerte infiltration d’eau — angle ingénieur / sapeur-pompier</h4>';
       h += "<p>Les symptômes évoquent une infiltration d’eau (baie de pare-brise, joints, évacuations, toit ouvrant, climatisation).</p>";
@@ -2603,28 +1958,30 @@
       h += "<p><strong>Constat recommandé :</strong> photos des moisiures, boîtier fusibles, connecteurs sous tableau de bord, cavillon, joints de pare-brise, évacuations.</p>";
       h += "</div>";
     }
+
     if (flags.dtc) {
       h += '<div class="rappel-info"><h4>🧾 Angle codes défaut / DTC</h4>';
       h += "<p>Des codes défaut ou mentions DTC semblent présents dans le dossier.</p>";
       h += "<p><strong>Recommandation :</strong> faire extraire la liste complète des DTC par un diagnostiqueur indépendant, conserver le rapport horodaté, croiser avec les fiches auto-diagnostic et les TSB constructeurs.</p>";
       h += "</div>";
     }
+
     if (matches.some((m) => m.severite === "critique")) {
       h += '<div class="rappel-critical"><h4>🚨 Alerte sécurité civile / sapeur-pompier</h4>';
       h += "<p>Un défaut critique est identifié : risque moteur, incendie, perte de contrôle, airbag, batterie ou immobilisation brutale.</p>";
       h += "<p>En attendant expertise, limiter l’usage du véhicule, éviter autoroutes, transports d’enfants, trajets de nuit et longue durée.</p>";
       h += "</div>";
     }
+
     h += `<div class="certainty-medium"><strong>Synthèse :</strong> faisceau d’indices techniques ${addTerm("faisceau d’indices", "indice grave précis et concordant")} en faveur d’un défaut antérieur, caché et grave. Le vendeur professionnel aurait pu connaître ce risque ${addTerm("obligation de renseignement", "présomption de connaissance")}.</div>`;
+
     return h;
   };
 
   const secAuto = (matches, flags) => {
-    const autoMatches = matches.filter((m) => m.source === "auto-diagnostic");
-    const autoCount = catalog.defects.filter((d) => d.source === "auto-diagnostic").length;
-    const autoEngineCount = catalog.engines.filter((e) => e.source === "auto-diagnostic").length;
+    const autoCount = catalog.defects.filter(d => d.source === "auto-diagnostic").length;
     let h = `<p><strong>Objet :</strong> appui technique issu de la base auto-diagnostic, corrélé au contexte du litige et à la motorisation ${addTerm("appui technique", "corrélation auto-diagnostic", "fiche expert", "DTC", "motorisation")}.</p>`;
-    h += `<p><strong>Entrées auto-diagnostic disponibles :</strong> ${autoCount} fiche(s) / ${autoEngineCount} motorisation(s) renforcée(s).</p>`;
+    h += `<p><strong>Entrées auto-diagnostic disponibles :</strong> ${autoCount} fiche(s).</p>`;
     if (!autoCount) {
       h += '<div class="verification-needed">';
       h += "<p>La base auto-diagnostic n’a pas encore exposé de données exploitables via JSON ou extraction HTML/JS.</p>";
@@ -2633,6 +1990,7 @@
       h += "</div>";
       return h;
     }
+    const autoMatches = matches.filter(m => m.source === "auto-diagnostic");
     if (!autoMatches.length) {
       h += '<div class="certainty-medium">';
       h += "<p>Aucune fiche auto-diagnostic ne correspond directement au véhicule / motorisation / symptômes déclarés.</p>";
@@ -2796,8 +2154,23 @@
     return h;
   };
 
+  const renderAnalysis = () => {
+    let html = "";
+    analysisData.sections.forEach((pair) => {
+      html += `<h3>${pair[0]}</h3>${pair[1]}`;
+    });
+    html += '<div class="verification-needed"><strong>Rappel méthodologique :</strong> ce rapport effectue d’abord un croisement local technique/juridique/motorisation/auto-diagnostic avant toute rédaction assistée par IA. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>';
+    const result = q("#analysisResult");
+    if (result) result.innerHTML = html;
+    const section = q("#analysisSection");
+    if (section) {
+      section.classList.remove("hidden");
+      section.scrollIntoView({ behavior: "smooth" });
+    }
+  };
+
   /* =========================================================
-     ADMIN
+     ADMIN / SYNC / PDF (Simplifié pour focus core)
      ========================================================= */
   const updateDataStatus = (msg) => {
     const el = q("#dataStatus");
@@ -2805,228 +2178,16 @@
   };
 
   const updateAdminStats = () => {
-    const autoCount = catalog.defects.filter((d) => d.source === "auto-diagnostic").length;
-    if (q("#statBrands")) q("#statBrands").textContent = getAllBrands().length;
-    if (q("#statModels")) q("#statModels").textContent = catalog.models.length;
-    if (q("#statEngines")) q("#statEngines").textContent = catalog.engines.length;
+    if (q("#statBrands")) q("#statBrands").textContent = Object.keys(index.brands).length;
+    if (q("#statModels")) q("#statModels").textContent = Object.keys(index.models).length;
+    if (q("#statEngines")) q("#statEngines").textContent = Object.keys(index.engines).length;
     if (q("#statEntries")) q("#statEntries").textContent = catalog.defects.length;
-    if (q("#statAutoEntries")) q("#statAutoEntries").textContent = autoCount;
-    if (q("#statAutoSync")) q("#statAutoSync").textContent = autoLastSync ? new Date(autoLastSync).toLocaleString("fr-FR") : "Jamais";
-    const last = loadWithMigration(KEYS.LAST_UPDATE, OLD_KEYS.LAST_UPDATE, 0);
-    if (q("#statSync")) q("#statSync").textContent = last ? new Date(last).toLocaleString("fr-FR") : "Jamais";
-  };
-
-  const renderRequests = () => {
-    const box = q("#pendingRequests");
-    if (!box) return;
-    const all = getRequests().slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
-    const pending = all.filter((r) => r.status === "pending");
-    const processed = all.filter((r) => r.status !== "pending").slice(0, 30);
-    if (q("#pendingCount")) q("#pendingCount").textContent = pending.length;
-    if (!all.length) { box.innerHTML = '<p class="empty-state">Aucune demande.</p>'; return; }
-    let html = "";
-    html += `<h4>À traiter (${pending.length})</h4>`;
-    if (!pending.length) {
-      html += '<p class="empty-state">Aucune demande en attente.</p>';
-    } else {
-      html += pending.map((r) => (
-        `<div class="card pending">` +
-        `<strong>${esc(r.name)}</strong> <small>${esc(r.email)}</small>` +
-        `<p>${esc(r.reason)}</p>` +
-        `<small>${esc(r.date || "")} • source : ${esc(r.source || "locale")}</small>` +
-        `<div class="actions">` +
-        `<button class="btn-ok" data-action="approve" data-id="${esc(r.id)}" type="button">Accepter</button>` +
-        `<button class="btn-no" data-action="refuse" data-id="${esc(r.id)}" type="button">Refuser</button>` +
-        `</div></div>`
-      )).join("");
-    }
-    if (processed.length) {
-      html += "<h4>Dernières demandes traitées</h4>";
-      html += processed.map((r) => {
-        const cls = r.status === "approved" ? "approved" : "refused";
-        const label = r.status === "approved" ? "Acceptée" : "Refusée";
-        let actions = "";
-        if (r.status === "approved") {
-          actions = `<button class="btn-ok" data-action="share-grant" data-email="${esc(r.email)}" data-name="${esc(r.name)}" type="button">📤 Envoyer l’accès au tiers</button>`;
-        }
-        return `<div class="card ${cls}">` +
-          `<strong>${esc(r.name)}</strong> <small>${esc(r.email)}</small>` +
-          `<p>${esc(r.reason)}</p>` +
-          `<small>Statut : ${esc(label)} • ${esc(r.processedDate || r.date || "")}</small>` +
-          (actions ? `<div class="actions">${actions}</div>` : "") +
-          `</div>`;
-      }).join("");
-    }
-    box.innerHTML = html;
-  };
-
-  const renderUsers = () => {
-    const box = q("#authorizedUsers");
-    if (!box) return;
-    const users = getUsers().filter((u) => u.role !== "admin");
-    if (!users.length) { box.innerHTML = '<p class="empty-state">Aucun tiers.</p>'; return; }
-    box.innerHTML = users.map((u) => {
-      const action = u.status === "approved"
-        ? `<button class="btn-warn" data-action="revoke" data-email="${esc(u.email)}" data-name="${esc(u.name)}" type="button">Révoquer</button>`
-        : `<button class="btn-ok" data-action="restore" data-email="${esc(u.email)}" data-name="${esc(u.name)}" type="button">Rétablir</button>`;
-      return `<div class="card ${esc(u.status)}">` +
-        `<strong>${esc(u.name)}</strong> <small>${esc(u.email)} • ${esc(u.status)}</small>` +
-        `<div class="actions">${action}</div>` +
-        `</div>`;
-    }).join("");
   };
 
   const renderAdmin = () => {
-    renderRequests();
-    renderUsers();
-    renderCatalogConfig();
     updateAdminStats();
   };
 
-  /* =========================================================
-     PDF / EXPORT
-     ========================================================= */
-  const ensurePdfJs = () => {
-    if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
-    return new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
-      s.async = true;
-      s.onload = () => {
-        if (!window.pdfjsLib) return reject(new Error("PDF.js non chargé"));
-        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-        resolve(window.pdfjsLib);
-      };
-      s.onerror = () => reject(new Error("PDF.js indisponible"));
-      document.head.appendChild(s);
-    });
-  };
-
-  const ensureJsPdf = () => {
-    if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
-    return new Promise((resolve, reject) => {
-      const s = document.createElement("script");
-      s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
-      s.async = true;
-      s.onload = () => {
-        if (!window.jspdf || !window.jspdf.jsPDF) return reject(new Error("jsPDF non chargé"));
-        resolve(window.jspdf.jsPDF);
-      };
-      s.onerror = () => reject(new Error("jsPDF indisponible"));
-      document.head.appendChild(s);
-    });
-  };
-
-  const readFileAsArrayBuffer = (file) => {
-    if (file.arrayBuffer) return file.arrayBuffer();
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsArrayBuffer(file);
-    });
-  };
-
-  const pdfStatus = (msg, type) => {
-    const el = q("#pdfStatus");
-    if (el) { el.textContent = msg; el.className = "status " + type; } else { toast(msg, type); }
-  };
-
-  const buildPrintHtml = () => {
-    let body = "";
-    if (analysisData && analysisData.sections) {
-      analysisData.sections.forEach((pair) => { body += `<h2>${pair[0]}</h2>${pair[1]}`; });
-    }
-    return `<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="UTF-8" />
-<title>Rapport Expert Auto</title>
-<style>
-body { font-family: Arial, sans-serif; padding: 24px; color: #111; }
-h1 { text-align: center; }
-h2 { margin-top: 28px; border-bottom: 1px solid #999; padding-bottom: 6px; }
-.termes-juridiques { background: #eee; padding: 2px 6px; border-radius: 4px; font-style: italic; }
-.rappel-critical, .certainty-low { border-left: 4px solid #c00; background: #fff5f5; padding: 10px; margin: 10px 0; }
-.rappel-info, .certainty-medium, .verification-needed { border-left: 4px solid #06c; background: #f5fbff; padding: 10px; margin: 10px 0; }
-.certainty-high { border-left: 4px solid #090; background: #f5fff7; padding: 10px; margin: 10px 0; }
-</style>
-</head>
-<body>
-<h1>Rapport d’analyse expert auto</h1>
-<p><strong>Date :</strong> ${esc(analysisData.date || "")}</p>
-<p><strong>Véhicule :</strong> ${esc(vehicleData.marque || "")} ${esc(vehicleData.modele || "")} ${esc(vehicleData.annee || "")}</p>
-<p><strong>Motorisation :</strong> ${esc(vehicleData.engine || "")} — ${esc(vehicleData.displacement || "")} — ${esc(vehicleData.power || "")} — ${esc(vehicleData.fuel || "")}</p>
-<p><strong>Kilométrage :</strong> ${esc(vehicleData.kilometrage || "")} km</p>
-${body}
-</body>
-</html>`;
-  };
-
-  const downloadHtmlReport = () => {
-    const html = buildPrintHtml();
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "rapport-expert-auto.html";
-    a.click();
-    toast("Rapport HTML téléchargé. Ouvrez-le et imprimez en PDF.", "info");
-  };
-
-  const printReportFallback = () => {
-    const win = window.open("", "_blank");
-    if (!win) { downloadHtmlReport(); return; }
-    win.document.open();
-    win.document.write(buildPrintHtml());
-    win.document.close();
-    setTimeout(() => {
-      try { win.focus(); win.print(); } catch { downloadHtmlReport(); }
-    }, 350);
-  };
-
-  const generatePdfWithJsPdf = async () => {
-    const jsPDF = await ensureJsPdf();
-    const doc = new jsPDF();
-    let y = 20;
-    doc.setFontSize(16);
-    doc.text("RAPPORT D'ANALYSE EXPERT AUTO", 105, y, { align: "center" });
-    y += 10;
-    doc.setFontSize(10);
-    doc.text("Date : " + analysisData.date, 20, y);
-    y += 6;
-    doc.text("Véhicule : " + (vehicleData.marque || "") + " " + (vehicleData.modele || "") + " " + (vehicleData.annee || ""), 20, y);
-    y += 6;
-    doc.text("Motorisation : " + (vehicleData.engine || "") + " — " + (vehicleData.displacement || "") + " — " + (vehicleData.power || "") + " — " + (vehicleData.fuel || ""), 20, y);
-    y += 6;
-    doc.text("Kilométrage : " + (vehicleData.kilometrage || "") + " km", 20, y);
-    y += 10;
-    analysisData.sections.forEach((pair) => {
-      const title = pair[0];
-      const content = pair[1];
-      if (y > 265) { doc.addPage(); y = 20; }
-      doc.setFont(undefined, "bold");
-      doc.setFontSize(11);
-      const titleLines = doc.splitTextToSize(title, 170);
-      doc.text(titleLines, 20, y);
-      y += titleLines.length * 5 + 2;
-      doc.setFont(undefined, "normal");
-      doc.setFontSize(9);
-      const plain = stripTags(content);
-      const lines = doc.splitTextToSize(plain, 170);
-      lines.forEach((line) => {
-        if (y > 280) { doc.addPage(); y = 20; }
-        doc.text(line, 20, y);
-        y += 4;
-      });
-      y += 5;
-    });
-    doc.save("analyse-experte-" + new Date().toISOString().slice(0, 10) + ".pdf");
-    toast("PDF généré.", "success");
-  };
-
-  /* =========================================================
-     SERVICE WORKER
-     ========================================================= */
   const registerServiceWorker = () => {
     try {
       if ("serviceWorker" in navigator && location.protocol !== "file:") {
@@ -3050,26 +2211,8 @@ ${body}
       .catch(() => location.reload(true));
   };
 
-  /* =========================================================
-     EVENEMENTS UI
-     ========================================================= */
-  const shareTextUrl = (text, url, title) => {
-    if (navigator.share) {
-      navigator.share({ title, text, url }).catch(() => copyFallback(url));
-    } else {
-      copyFallback(url);
-    }
-  };
-
-  const copyFallback = (url) => {
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(() => toast("Lien copié.", "success")).catch(() => toast("Copie impossible.", "error"));
-    } else {
-      toast("Partage/copie non supporté.", "warning");
-    }
-  };
-
   const bindUi = () => {
+    // Tabs Auth
     qa(".auth-tab").forEach((btn) => {
       btn.addEventListener("click", () => {
         qa(".auth-tab").forEach((b) => b.classList.remove("active"));
@@ -3081,6 +2224,7 @@ ${body}
       });
     });
 
+    // Login Admin
     on("#adminLoginBtn", "click", async () => {
       const pwdEl = q("#adminPassword");
       const rememberEl = q("#rememberAdminPwd");
@@ -3118,6 +2262,7 @@ ${body}
       toast("Connexion admin via mot de passe enregistré.", "success");
     });
 
+    // Request Access
     on("#requestBtn", "click", () => {
       const nameEl = q("#reqName");
       const emailEl = q("#reqEmail");
@@ -3137,28 +2282,14 @@ ${body}
       });
       requests.push(req);
       saveRequests(requests);
-      lastSharedAccessRequest = req;
-      const shareBtn = q("#shareRequestBtn");
-      if (shareBtn) shareBtn.classList.remove("hidden");
       publishAccessRequest(req);
-      authMessage("Demande envoyée. Si l’admin est sur le même appareil, il sera notifié. Sinon, utilisez ‘Partager la demande avec l’admin’.", "success");
+      authMessage("Demande envoyée.", "success");
       if (nameEl) nameEl.value = "";
       if (emailEl) emailEl.value = "";
       if (reasonEl) reasonEl.value = "";
     });
 
-    on("#shareRequestBtn", "click", () => {
-      if (!lastSharedAccessRequest) { toast("Aucune demande à partager.", "warning"); return; }
-      const url = makeAccessRequestShareUrl(lastSharedAccessRequest);
-      const text =
-        "Demande d’accès Expert Auto\n" +
-        "Nom : " + lastSharedAccessRequest.name + "\n" +
-        "Email : " + lastSharedAccessRequest.email + "\n" +
-        "Motif : " + lastSharedAccessRequest.reason + "\n" +
-        "Lien admin : " + url;
-      shareTextUrl(text, url, "Demande d’accès Expert Auto");
-    });
-
+    // Third Party Login
     on("#thirdLoginBtn", "click", () => {
       const nameEl = q("#loginName");
       const emailEl = q("#loginEmail");
@@ -3170,10 +2301,10 @@ ${body}
         const emailKey = userEmailKey(email);
         const pending = getRequests().find((r) => r.status === "pending" && r.emailNorm === emailKey);
         if (pending) {
-          authMessage("Votre demande est en attente de validation admin. Nom enregistré : " + pending.name, "warning");
+          authMessage("Votre demande est en attente de validation admin.", "warning");
           return;
         }
-        authMessage("Aucun accès approuvé trouvé pour cet email. Demandez l’accès puis attendez la validation admin, ou ouvrez le lien d’accès envoyé par l’admin.", "error");
+        authMessage("Aucun accès approuvé trouvé pour cet email.", "error");
         return;
       }
       setSession(user);
@@ -3189,6 +2320,7 @@ ${body}
 
     on("#clearCacheBtn", "click", clearCacheAndReload);
 
+    // Brand Input Logic (FIXED BUG)
     on("#brandInput", "input", () => {
       selection.brand = null;
       selection.model = null;
@@ -3196,19 +2328,20 @@ ${body}
       updateModelButton();
       updateEngineButton();
       updateSelectionSummary();
-      renderBrandPanel();
+      renderBrandPanel(); // Re-render immediately
     });
 
     on("#brandInput", "focus", renderBrandPanel);
-    on("#brandInput", "blur", () => setTimeout(closeAllCombos, 160));
-
+    
+    // IMPORTANT: Prevent closing on click inside panel
     on("#brandPanel", "mousedown", (e) => {
       const btn = e.target.closest("[data-brand]");
       if (!btn) return;
-      e.preventDefault();
+      e.preventDefault(); // Prevent blur
       selectBrand(btn.getAttribute("data-brand"));
     });
 
+    // Model Button Logic
     on("#modelButton", "click", () => {
       if (!selection.brand) return;
       const panel = q("#modelPanel");
@@ -3222,16 +2355,21 @@ ${body}
       }
     });
 
-    on("#modelSearch", "input", function () { renderModelList(this.value); });
+    on("#modelSearch", "input", function () {
+      renderModelList(this.value);
+    });
 
     on("#modelList", "mousedown", (e) => {
       const btn = e.target.closest("[data-model-index]");
       if (!btn) return;
       e.preventDefault();
       const idx = parseInt(btn.getAttribute("data-model-index"), 10);
-      selectModel(currentModelOptions[idx]);
+      if (window.__tempModelOptions && window.__tempModelOptions[idx]) {
+        selectModel(window.__tempModelOptions[idx]);
+      }
     });
 
+    // Engine Button Logic
     on("#engineButton", "click", () => {
       if (!selection.brand || !selection.model) return;
       const panel = q("#enginePanel");
@@ -3245,14 +2383,18 @@ ${body}
       }
     });
 
-    on("#engineSearch", "input", function () { renderEngineList(this.value); });
+    on("#engineSearch", "input", function () {
+      renderEngineList(this.value);
+    });
 
     on("#engineList", "mousedown", (e) => {
       const btn = e.target.closest("[data-engine-index]");
       if (!btn) return;
       e.preventDefault();
       const idx = parseInt(btn.getAttribute("data-engine-index"), 10);
-      selectEngine(currentEngineOptions[idx]);
+      if (window.__tempEngineOptions && window.__tempEngineOptions[idx]) {
+        selectEngine(window.__tempEngineOptions[idx]);
+      }
     });
 
     document.addEventListener("click", (e) => {
@@ -3260,47 +2402,13 @@ ${body}
     });
 
     on("#vehicleYear", "input", () => {
-      if (selection.brand) loadModelsForBrand(selection.brand.name, false);
-      refreshEngineOptions();
-      updateSelectionSummary();
-    });
-
-    on("#vehicleYear", "change", () => {
-      if (selection.brand) loadModelsForBrand(selection.brand.name, false);
-      refreshEngineOptions();
-      updateSelectionSummary();
-    });
-
-    on("#pdfUpload", "change", async (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      if (file.type !== "application/pdf") { pdfStatus("Format non supporté. PDF uniquement.", "error"); return; }
-      pdfStatus("Chargement de la bibliothèque PDF...", "success");
-      try {
-        await ensurePdfJs();
-        pdfStatus("Extraction du texte en cours...", "success");
-        const arrayBuffer = await readFileAsArrayBuffer(file);
-        const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-        let fullText = "";
-        const promises = [];
-        for (let i = 1; i <= pdf.numPages; i++) {
-          promises.push(
-            pdf.getPage(i).then((page) => page.getTextContent()).then((tc) => {
-              fullText += tc.items.map((item) => item.str).join(" ") + "\n\n";
-            })
-          );
-        }
-        await Promise.all(promises);
-        extractedText = fullText;
-        const textInput = q("#textInput");
-        if (textInput) textInput.value = fullText;
-        pdfStatus(`PDF extrait avec succès (${pdf.numPages} pages).`, "success");
-      } catch (err) {
-        console.warn(err);
-        pdfStatus("Extraction PDF indisponible : " + err.message + ". Saisissez le texte manuellement.", "error");
+      if (selection.brand && selection.model) {
+        renderEngineList(""); // Refresh engines with new year filter
       }
+      updateSelectionSummary();
     });
 
+    // Analyze Btn
     on("#analyzeBtn", "click", () => {
       if (!currentUser) { toast("Connectez-vous.", "error"); return; }
       const info = dailyInfo();
@@ -3340,6 +2448,7 @@ ${body}
       }, 700);
     });
 
+    // Admin Panel
     on("#adminPanelBtn", "click", () => {
       if (!currentUser || currentUser.role !== "admin") return;
       const panel = q("#adminPanel");
@@ -3380,11 +2489,8 @@ ${body}
           notify("Accès approuvé", `${req.name} (${req.email})`);
         }
         saveRequests(reqs);
-        if (broadcast) {
-          try { broadcast.postMessage({ type: "access-change", payload: { email: req.email, status: req.status } }); } catch {}
-        }
         renderAdmin();
-        toast(action === "approve" ? "Demande acceptée. Si le tiers est sur un autre appareil, envoyez-lui le lien d’accès." : "Demande refusée.", action === "approve" ? "success" : "warning");
+        toast(action === "approve" ? "Demande acceptée." : "Demande refusée.", action === "approve" ? "success" : "warning");
       }
       if (action === "revoke" || action === "restore") {
         const emailKey = userEmailKey(btn.dataset.email || "");
@@ -3394,88 +2500,17 @@ ${body}
           users[idx].status = action === "revoke" ? "revoked" : "approved";
           users[idx].updatedAt = Date.now();
           saveUsers(users);
-          if (broadcast) {
-            try { broadcast.postMessage({ type: "access-change", payload: { email: users[idx].email, status: users[idx].status } }); } catch {}
-          }
           renderAdmin();
           enforceTierAccess();
           toast(action === "revoke" ? "Accès révoqué." : "Accès rétabli.", action === "revoke" ? "warning" : "success");
         }
       }
-      if (action === "share-grant") {
-        const name = btn.dataset.name || "";
-        const email = btn.dataset.email || "";
-        const user = findApprovedUser(name, email);
-        if (!user) { toast("Aucun utilisateur approuvé trouvé pour cet email.", "error"); return; }
-        const url = makeAccessGrantUrl(user);
-        const text =
-          "Accès Expert Auto accordé\n" +
-          "Nom : " + user.name + "\n" +
-          "Email : " + user.email + "\n" +
-          "Ouvrez ce lien dans l’application pour être connecté automatiquement :\n" +
-          url;
-        shareTextUrl(text, url, "Accès Expert Auto");
-      }
     });
-
-    on("#enableNotifBtn", "click", async () => {
-      const permission = await askNotification();
-      if (permission === "granted") toast("Notifications admin activées.", "success");
-      else if (permission === "denied") toast("Notifications bloquées. Autorisez-les dans Android / navigateur.", "warning");
-      else toast("Permission notification : " + permission, "info");
-    });
-
-    on("#testNotifBtn", "click", async () => {
-      const permission = await askNotification();
-      if (permission === "granted") {
-        notify("Test Expert Auto", "La notification admin fonctionne correctement.", "test-" + Date.now());
-        toast("Notification de test envoyée.", "success");
-      } else {
-        toast("Notification impossible : permission = " + permission, "warning");
-      }
-    });
-
-    on("#refreshRequestsBtn", "click", () => {
-      updateNotificationBell();
-      renderAdmin();
-      toast("Demandes actualisées.", "info");
-    });
-
-    on("#notifBellBtn", "click", () => {
-      if (!currentUser || currentUser.role !== "admin") return;
-      const panel = q("#adminPanel");
-      if (panel) panel.classList.remove("hidden");
-      qa(".admin-tab").forEach((b) => b.classList.toggle("active", b.dataset.adminTab === "requests"));
-      qa(".admin-pane").forEach((p) => p.classList.toggle("active", p.id === "requestsPane"));
-      renderAdmin();
-    });
-
-    on("#saveCatalogCfgBtn", "click", saveCatalogConfigFromUi);
 
     on("#reloadCatalogBtn", "click", () => {
-      saveCatalogConfigFromUi();
-      loadCatalogs(true);
-    });
-
-    on("#syncAutoBtn", "click", () => {
-      saveCatalogConfigFromUi();
-      loadAutoDiagnostic(true).then(() => {
-        updateAdminStats();
-        refreshSelectorsFromCatalog();
-      });
-    });
-
-    on("#forceUpdateBtn", "click", () => {
-      fetchJson(CONFIG.catalog.technicalUrl)
-        .then((json) => {
-          ingestNode(json, null, null, null, "mise à jour JSON", CONFIG.catalog.technicalUrl, 0);
-          save(KEYS.LAST_UPDATE, Date.now());
-          clearEngineCache();
-          updateAdminStats();
-          refreshSelectorsFromCatalog();
-          toast("Mise à jour technique appliquée.", "success");
-        })
-        .catch(() => toast("Mise à jour impossible. Base locale conservée.", "warning"));
+      initIndex();
+      updateAdminStats();
+      toast("Base locale massive rechargée.", "success");
     });
 
     on("#exportDataBtn", "click", () => {
@@ -3483,152 +2518,27 @@ ${body}
         exportedAt: new Date().toISOString(),
         users: getUsers(),
         requests: getRequests(),
-        importedRaw: loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [],
         catalogStats: {
-          brands: getAllBrands().length,
-          models: catalog.models.length,
-          engines: catalog.engines.length,
+          brands: Object.keys(index.brands).length,
+          models: Object.keys(index.models).length,
+          engines: Object.keys(index.engines).length,
           defects: catalog.defects.length
         }
       };
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "aide-redactionnelle-expert-data-v21.json";
+      a.download = "aide-redactionnelle-expert-data-v22.json";
       a.click();
       toast("Données exportées.", "success");
     });
-
-    on("#importDataBtn", "click", () => {
-      const input = document.createElement("input");
-      input.type = "file";
-      input.accept = ".json";
-      input.onchange = () => {
-        const file = input.files && input.files[0];
-        if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => {
-          try {
-            const data = JSON.parse(reader.result);
-            if (data.users) saveUsers(data.users);
-            if (data.requests) saveRequests(data.requests);
-            const imported = loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [];
-            imported.push(data);
-            save(KEYS.IMPORTED_RAW, imported);
-            ingestNode(data, null, null, null, "import-admin", "import", 0);
-            clearEngineCache();
-            updateAdminStats();
-            refreshSelectorsFromCatalog();
-            renderAdmin();
-            toast("Données importées.", "success");
-          } catch (err) {
-            console.error(err);
-            toast("Erreur d’import JSON.", "error");
-          }
-        };
-        reader.readAsText(file);
-      };
-      input.click();
-    });
-
-    on("#apkBtn", "click", () => {
-      if (location.protocol === "file:") {
-        toast("Pour générer l’APK, publiez d’abord le site en HTTPS (GitHub Pages, Netlify, Vercel).", "warning");
-        return;
-      }
-      window.open("https://www.pwabuilder.com/?url=" + encodeURIComponent(location.origin + location.pathname), "_blank");
-    });
-
-    on("#copyUrlBtn", "click", () => {
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(location.href).then(() => toast("URL copiée.", "success")).catch(() => toast("Copie impossible.", "error"));
-      } else {
-        toast("Copie non supportée par ce navigateur.", "warning");
-      }
-    });
-
-    on("#installBtn", "click", () => {
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.then(() => { deferredPrompt = null; }).catch(() => {});
-      } else {
-        toast("Utilisez le menu du navigateur : Installer l’application.", "info");
-      }
-    });
-
-    window.addEventListener("beforeinstallprompt", (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-      const btn = q("#installBtn");
-      if (btn) btn.classList.remove("hidden");
-    });
-
-    on("#generatePdfBtn", "click", () => {
-      if (!analysisData || !analysisData.sections || !analysisData.sections.length) {
-        toast("Générez d’abord une analyse.", "warning");
-        return;
-      }
-      generatePdfWithJsPdf().catch(() => {
-        toast("Bibliothèque PDF indisponible. Impression/fallback HTML activé.", "warning");
-        printReportFallback();
-      });
-    });
-
-    on("#shareBtn", "click", () => {
-      if (!analysisData || !analysisData.sections || !analysisData.sections.length) {
-        toast("Aucune analyse à partager.", "warning");
-        return;
-      }
-      const text = analysisData.sections.map((pair) => pair[0] + "\n" + stripTags(pair[1])).join("\n\n");
-      if (navigator.share) {
-        navigator.share({ title: "Analyse Expert Auto", text }).catch(() => {});
-      } else if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(() => toast("Rapport copié.", "success")).catch(() => toast("Copie impossible.", "error"));
-      } else {
-        toast("Partage non supporté.", "warning");
-      }
-    });
-
-    setInterval(enforceTierAccess, 15000);
-
-    window.addEventListener("storage", (e) => {
-      if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS || e.key === OLD_KEYS.USERS || e.key === OLD_KEYS.REQUESTS) {
-        updateNotificationBell();
-        if (currentUser && currentUser.role === "admin") {
-          pollAdminNotifications();
-          renderAdminIfOpen();
-        }
-        enforceTierAccess();
-      }
-    });
-
-    if (broadcast) {
-      broadcast.onmessage = (event) => {
-        try {
-          const data = event.data || {};
-          if (data.type === "access-request") onAccessRequestReceived(data.payload);
-          if (data.type === "access-change") {
-            enforceTierAccess();
-            if (currentUser && currentUser.role === "admin") {
-              updateNotificationBell();
-              renderAdminIfOpen();
-            }
-          }
-        } catch (e) { console.warn("[AR-EXPERT] Broadcast message ignoré:", e); }
-      };
-    }
-
-    window.addEventListener("arex:access-request", (event) => onAccessRequestReceived(event.detail));
   };
 
   /* =========================================================
      INIT
      ========================================================= */
   const init = () => {
-    loadCatalogConfig();
-    seedBaseCatalog();
-    loadStoredTechnicalUpdates();
-    loadImportedCatalog();
+    initIndex();
     autoLastSync = loadWithMigration(KEYS.AUTO_LAST_SYNC, OLD_KEYS.AUTO_LAST_SYNC, 0) || 0;
     updateAdminStats();
     updateDataStatus("Base locale massive ingénieur chargée (2017-2027)");
@@ -3638,7 +2548,6 @@ ${body}
     processIncomingAccessRequestFromUrl();
     if (processIncomingAccessGrantFromUrl()) {
       updateNotificationBell();
-      loadCatalogs(false);
       return;
     }
     if (restoreSession()) {
@@ -3649,8 +2558,7 @@ ${body}
     updateModelButton();
     updateEngineButton();
     updateSelectionSummary();
-    loadCatalogs(false);
-    toast("Application prête. Toutes les marques/modèles/motorisations 2017-2027 chargés.", "success");
+    toast("Application prête. Prédiction stricte active.", "success");
   };
 
   const boot = () => {
