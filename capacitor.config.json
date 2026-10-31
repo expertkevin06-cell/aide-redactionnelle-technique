@@ -1,0 +1,12 @@
+{
+  "appId": "com.kevin.expertauto",
+  "appName": "Expert Auto",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}
