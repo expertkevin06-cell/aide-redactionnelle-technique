@@ -1,0 +1,20 @@
+{
+  "name": "expert-auto-pwa-apk",
+  "version": "30.0.0",
+  "private": true,
+  "description": "Expert Auto - PWA / APK wrapper with dynamic Auto-Diagnostic integration",
+  "scripts": {
+    "build:web": "node -e \"const fs=require('fs'); const path=require('path'); const src=['index.html','styles.css','app.js','sw.js','manifest.json','icon.svg']; fs.mkdirSync('www',{recursive:true}); src.forEach(f=>fs.copyFileSync(f, path.join('www', f))); console.log('Web files copied to www/');\"",
+    "cap:add:android": "npx cap add android",
+    "cap:sync": "npx cap sync",
+    "cap:open:android": "npx cap open android",
+    "apk:prepare": "npm run build:web && npm run cap:add:android && npm run cap:sync"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.0.0",
+    "@capacitor/core": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.0.0"
+  }
+}
