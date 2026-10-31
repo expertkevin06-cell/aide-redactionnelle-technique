@@ -235,6 +235,18 @@
   };
 
   const KEYS = {
+    SESSION: "arex_session_v29",
+    USERS: "arex_users_v29",
+    REQUESTS: "arex_requests_v29",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v29",
+    TECH_UPDATES: "arex_tech_updates_v29",
+    LAST_UPDATE: "arex_last_update_v29",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v29",
+    CATALOG_CFG: "arex_catalog_cfg_v29",
+    IMPORTED_RAW: "arex_imported_raw_v29"
+  };
+
+  const OLD_KEYS = {
     SESSION: "arex_session_v28",
     USERS: "arex_users_v28",
     REQUESTS: "arex_requests_v28",
@@ -244,18 +256,6 @@
     AUTO_LAST_SYNC: "arex_auto_last_sync_v28",
     CATALOG_CFG: "arex_catalog_cfg_v28",
     IMPORTED_RAW: "arex_imported_raw_v28"
-  };
-
-  const OLD_KEYS = {
-    SESSION: "arex_session_v27",
-    USERS: "arex_users_v27",
-    REQUESTS: "arex_requests_v27",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v27",
-    TECH_UPDATES: "arex_tech_updates_v27",
-    LAST_UPDATE: "arex_last_update_v27",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v27",
-    CATALOG_CFG: "arex_catalog_cfg_v27",
-    IMPORTED_RAW: "arex_imported_raw_v27"
   };
 
   /* =========================================================
@@ -290,7 +290,7 @@
   } catch { broadcast = null; }
 
   /* =========================================================
-     NOTIFICATIONS & AUTH (Identiques V27)
+     NOTIFICATIONS & AUTH (Identiques V28/V29)
      ========================================================= */
   const notificationPermissionState = () => {
     if (!("Notification" in window)) return "unsupported";
@@ -612,9 +612,9 @@
   };
 
   /* =========================================================
-     BASE DE DONNÉES ULTRA-CONSOLIDÉE (2010-2026)
-     Pas de filtre année. Tout est regroupé par Modèle.
+     BASE DE DONNÉES ULTRA-CONSOLIDÉE (NO YEAR FILTER)
      Format: [Marque, Modèle, MoteurLabel, Puissance, Energie, Boite, Code/Cyl/KWh]
+     NOTE CRUCIALE : Pas de colonne Année. Tout est regroupé par Modèle.
      ========================================================= */
   const EMBEDDED_MASTER_DB = [
     // --- PEUGEOT ---
@@ -853,7 +853,7 @@
     ["Tesla", "Model X", "Long Range", "670ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
     ["Tesla", "Model X", "Plaid", "1020ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
 
-    // --- AUTRES MARQUES MAJEURES (Extraits clés) ---
+    // --- AUTRES MARQUES MAJEURES ---
     ["Ford", "Focus", "1.0 EcoBoost", "100ch|125ch|155ch", "Essence", "BVM5|BVM6|PowerShift", "EcoBoost|1.0 L"],
     ["Ford", "Focus", "1.5 EcoBoost", "150ch|182ch", "Essence", "BVM6|PowerShift", "EcoBoost|1.5 L"],
     ["Ford", "Focus", "1.5 TDCi", "95ch|120ch", "Diesel", "BVM5|BVM6", "TDCi|1.5 L"],
@@ -2093,7 +2093,7 @@
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "aide-redactionnelle-expert-data-v28.json";
+      a.download = "aide-redactionnelle-expert-data-v29.json";
       a.click();
       toast("Données exportées.", "success");
     });
