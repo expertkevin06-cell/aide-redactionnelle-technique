@@ -101,7 +101,7 @@
     if (!na || !nb) return false;
     if (na === nb) return true;
     
-    // Alias étendus pour couverture maximale
+    // Alias étendus
     const aliases = {
       volkswagen: ["vw"], mercedesbenz: ["mercedes", "mb"], citroen: ["citroen"],
       landrover: ["land rover"], rangerover: ["range rover"], alfaromeo: ["alfa"],
@@ -260,7 +260,7 @@
     adminPassword: "Kevin83600",
     maxDailyAnalyses: 10,
     pollAdminMs: 5000,
-    syncIntervalDays: 30, // Mise à jour auto tous les 30 jours
+    syncIntervalDays: 30,
     catalog: {
       autoBaseUrl: "https://expertkevin06-cell.github.io/auto-diagnostic/",
       vehiclesJsonUrl: "https://expertkevin06-cell.github.io/auto-diagnostic/data/vehicles.json",
@@ -270,6 +270,18 @@
   };
 
   const KEYS = {
+    SESSION: "arex_session_v25",
+    USERS: "arex_users_v25",
+    REQUESTS: "arex_requests_v25",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v25",
+    TECH_UPDATES: "arex_tech_updates_v25",
+    LAST_UPDATE: "arex_last_update_v25",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v25",
+    CATALOG_CFG: "arex_catalog_cfg_v25",
+    IMPORTED_RAW: "arex_imported_raw_v25"
+  };
+
+  const OLD_KEYS = {
     SESSION: "arex_session_v24",
     USERS: "arex_users_v24",
     REQUESTS: "arex_requests_v24",
@@ -279,18 +291,6 @@
     AUTO_LAST_SYNC: "arex_auto_last_sync_v24",
     CATALOG_CFG: "arex_catalog_cfg_v24",
     IMPORTED_RAW: "arex_imported_raw_v24"
-  };
-
-  const OLD_KEYS = {
-    SESSION: "arex_session_v23",
-    USERS: "arex_users_v23",
-    REQUESTS: "arex_requests_v23",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v23",
-    TECH_UPDATES: "arex_tech_updates_v23",
-    LAST_UPDATE: "arex_last_update_v23",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v23",
-    CATALOG_CFG: "arex_catalog_cfg_v23",
-    IMPORTED_RAW: "arex_imported_raw_v23"
   };
 
   /* =========================================================
@@ -653,7 +653,7 @@
 
   /* =========================================================
      BASE DE DONNÉES MASSIVE EMBARQUÉE (OFFLINE FIRST)
-     Couvre France, Europe, Asie, USA, Chine. 2017-2027.
+     Inclut Skoda Elroq 2025, Tesla, BYD, etc.
      Format: [Marque, Modèle, Années, MoteurLabel, Puissance, Energie, Boite, Code/Cyl/KWh]
      ========================================================= */
   const EMBEDDED_MASTER_DB = [
@@ -771,7 +771,7 @@
     ["DS", "DS 7 Crossback", "2019-2026", "E-Tense 4x4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
     ["DS", "DS 7 Crossback", "2021-2026", "E-Tense 4x4 360", "360ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
 
-    // --- EUROPE (ALLEMAGNE / ITALIE / SUÈDE / UK) ---
+    // --- EUROPE ---
     ["Volkswagen", "Polo VI", "2017-2026", "1.0 MPI", "65ch|75ch", "Essence", "BVM5", "EA211|1.0 L"],
     ["Volkswagen", "Polo VI", "2017-2026", "1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM5|DSG", "EA211|1.0 L"],
     ["Volkswagen", "Polo VI", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
@@ -1122,7 +1122,7 @@
     ["Alfa Romeo", "Tonale", "2022-2026", "1.3 Plug-in Hybrid", "190ch", "Hybride rechargeable", "automatique", "PHEV|1.3 L"],
     ["Alfa Romeo", "Tonale", "2022-2026", "1.3 Plug-in Hybrid", "280ch", "Hybride rechargeable", "automatique Q4", "PHEV4|1.3 L"],
 
-    // --- ASIE (JAPON / CORÉE / CHINE) ---
+    // --- ASIE ---
     ["Toyota", "Yaris", "2020-2026", "1.0", "72ch", "Essence", "BVM5", "1KR-FE|1.0 L"],
     ["Toyota", "Yaris", "2020-2026", "1.5 Hybrid", "116ch|130ch", "Hybride", "e-CVT", "THS II|1.5 L"],
     ["Toyota", "Yaris", "2020-2026", "GR Yaris", "261ch|280ch", "Essence", "BVM6 4x4", "G16E-GTS|1.6 L"],
@@ -1456,7 +1456,6 @@
      SYNCHRONISATION PASSIVE (EN ARRIÈRE-PLAN)
      ========================================================= */
   const syncRemoteCatalogPassive = async () => {
-    // Vérifier si la dernière synchro date de moins de 30 jours
     const lastSync = loadWithMigration(KEYS.AUTO_LAST_SYNC, OLD_KEYS.AUTO_LAST_SYNC, 0);
     const now = Date.now();
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
@@ -1470,12 +1469,9 @@
     updateDataStatus("Tentative de synchronisation distante...");
     
     try {
-      // Essayer de récupérer les véhicules
       const vehiclesRes = await fetchJson(CONFIG.catalog.vehiclesJsonUrl);
-      // Essayer de récupérer les motorisations
       const motorsRes = await fetchJson(CONFIG.catalog.motorisationsJsonUrl);
       
-      // Fusionner dans l'index existant (ajoute seulement ce qui manque ou met à jour)
       mergeRemoteData(vehiclesRes, motorsRes);
       
       autoLastSync = Date.now();
@@ -1483,7 +1479,6 @@
       updateDataStatus(`Auto-Diagnostic synchronisé (${new Date().toLocaleTimeString()})`);
       toast("Données Auto-Diagnostic mises à jour en arrière-plan.", "success");
       
-      // Rafraîchir l'UI si une marque est déjà sélectionnée
       if (selection.brand) {
         loadModelsForBrand(selection.brand.name, false);
       }
@@ -1491,16 +1486,13 @@
     } catch (err) {
       console.warn("Échec synchro distante silencieux :", err);
       updateDataStatus("Mode Secours Local Actif (Pas de connexion GitHub récente)");
-      // Sauvegarder quand même la date pour éviter de spammer la requête pendant 30 jours
       save(KEYS.AUTO_LAST_SYNC, Date.now()); 
     }
   };
 
   const mergeRemoteData = (vehicles, motors) => {
-    // Réinitialiser l'index pour éviter doublons
     initIndexOfflineFirst(); 
     
-    // Ajouter les données distantes
     if (Array.isArray(vehicles)) {
       vehicles.forEach(v => {
         const b = v.b || v.marque || v.brand;
@@ -1597,7 +1589,7 @@
   };
 
   /* =========================================================
-     UI DROPDOWN & EVENEMENTS
+     UI DROPDOWN & EVENEMENTS (CORRECTION MAJEURE BOUTON GRISÉ)
      ========================================================= */
   const closeAllCombos = (exceptId) => {
     ["brandPanel", "modelPanel", "enginePanel"].forEach((id) => {
@@ -1635,7 +1627,7 @@
 
     closeAllCombos();
     updateModelButton();
-    updateEngineButton();
+    updateEngineButton(); // Appel crucial
     updateSelectionSummary();
     
     renderModelList("");
@@ -1664,6 +1656,8 @@
     const btn = q("#engineButton");
     if (!btn) return;
 
+    // CORRECTION MAJEURE : Si Marque ET Modèle sont présents, le bouton EST ACTIF
+    // Peu importe si l'index est prêt ou non, on permet le clic pour afficher le menu
     if (!selection.brand || !selection.model) {
       btn.disabled = true;
       btn.textContent = !selection.brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle";
@@ -1727,7 +1721,7 @@
     const filtered = f ? engines.filter(e => norm(engineLabel(e)).includes(f)) : engines;
 
     if (!filtered.length) {
-      list.innerHTML = '<div class="combo-empty">Aucune motorisation compatible trouvée.</div>';
+      list.innerHTML = '<div class="combo-empty">Aucune motorisation compatible trouvée pour cette année/modèle.</div>';
       return;
     }
 
@@ -1742,7 +1736,11 @@
     selection.engine = null;
     closeAllCombos();
     updateModelButton();
-    renderEngineList("");
+    
+    // PRÉPARATION IMMÉDIATE DES MOTEURS POUR DÉVERROUILLER LE BOUTON
+    renderEngineList(""); 
+    
+    updateEngineButton(); // Met à jour l'état visuel (devient actif)
     updateSelectionSummary();
   };
 
@@ -1798,7 +1796,7 @@
   };
 
   /* =========================================================
-     ANALYSE / RAPPORT
+     ANALYSE / RAPPORT (IDENTIQUE À V24 MAIS ROBUSTE)
      ========================================================= */
   const addTerm = (...args) => {
     args.forEach((t) => termesMobilises.add(t));
@@ -1917,7 +1915,7 @@
     renderAnalysis();
   };
 
-  // Helpers de rendu section (identiques à v22/v23 mais adaptés aux nouvelles structures)
+  // Helpers de rendu section (identiques à v24)
   const secIdentification = (text, context) => {
     let h = `<p><strong>Objet :</strong> recensement des éléments fournis ${addTerm("éléments factuels", "faits allégués")}.</p>`;
     h += "<h4>A. Véhicule sélectionné</h4><ul>";
@@ -2214,7 +2212,7 @@
   };
 
   /* =========================================================
-     ADMIN / SYNC / PDF (Simplifié pour focus core)
+     ADMIN / SYNC / PDF (SIMPLIFIÉ)
      ========================================================= */
   const updateDataStatus = (msg) => {
     const el = q("#dataStatus");
@@ -2551,7 +2549,6 @@
     });
 
     on("#reloadCatalogBtn", "click", () => {
-      // Forcer une re-synchro distante
       del(KEYS.AUTO_LAST_SYNC);
       syncRemoteCatalogPassive().then(() => {
         updateAdminStats();
@@ -2574,7 +2571,7 @@
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "aide-redactionnelle-expert-data-v24.json";
+      a.download = "aide-redactionnelle-expert-data-v25.json";
       a.click();
       toast("Données exportées.", "success");
     });
@@ -2584,24 +2581,20 @@
      INIT
      ========================================================= */
   const init = async () => {
-    // 1. Initialiser IMMÉDIATEMENT avec la base locale massive (pas d'attente réseau)
     initIndexOfflineFirst();
     
-    // 2. Mettre à jour l'interface immédiatement
     updateAdminStats();
     updateDataStatus("Base locale massive chargée (Off-line First)");
     updateNotificationState();
     registerServiceWorker();
     refreshSavedPasswordButton();
     
-    // 3. Traiter les liens entrants
     processIncomingAccessRequestFromUrl();
     if (processIncomingAccessGrantFromUrl()) {
       updateNotificationBell();
       return;
     }
     
-    // 4. Restaurer session ou afficher login
     if (restoreSession()) {
       showApp();
     } else {
@@ -2612,8 +2605,6 @@
     updateEngineButton();
     updateSelectionSummary();
     
-    // 5. Lancer la synchronisation distante EN ARRIÈRE PLAN (Non bloquant)
-    // Cela ajoutera les données manquantes si le serveur GitHub est joignable
     syncRemoteCatalogPassive();
     
     toast("Application prête. Toutes les marques/modèles 2017-2027 disponibles.", "success");
