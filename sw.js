@@ -1,14 +1,11 @@
-const CACHE_NAME = "arex-expert-v27-no-year-filter";
+const CACHE_NAME = "arex-expert-v29-clean-slate";
 
 const CORE_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./manifest.json",
-  "./data/vehicle-catalog.json",
-  "./data/engine-catalog.json",
-  "./data/technical-updates.json"
+  "./manifest.json"
 ];
 
 self.addEventListener("install", (event) => {
