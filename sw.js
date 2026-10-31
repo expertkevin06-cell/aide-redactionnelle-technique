@@ -1,4 +1,4 @@
-const CACHE_NAME = "arex-expert-v25-robust";
+const CACHE_NAME = "arex-expert-v26-historical";
 
 const CORE_ASSETS = [
   "./",
