@@ -1,0 +1,22 @@
+[
+  { "brand": "Peugeot", "model": "208" },
+  { "brand": "Peugeot", "model": "2008" },
+  { "brand": "Peugeot", "model": "308" },
+  { "brand": "Peugeot", "model": "3008" },
+  { "brand": "Peugeot", "model": "5008" },
+
+  { "brand": "Citroen", "model": "C3" },
+  { "brand": "Citroen", "model": "C4" },
+  { "brand": "Citroen", "model": "C5 Aircross" },
+
+  { "brand": "Renault", "model": "Clio" },
+  { "brand": "Renault", "model": "Captur" },
+  { "brand": "Renault", "model": "Megane" },
+
+  { "brand": "Volkswagen", "model": "Golf" },
+  { "brand": "Volkswagen", "model": "Polo" },
+  { "brand": "Volkswagen", "model": "Tiguan" },
+
+  { "brand": "Tesla", "model": "Model 3" },
+  { "brand": "Tesla", "model": "Model Y" }
+]
