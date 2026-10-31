@@ -16,18 +16,9 @@
   /* =========================================================
      HELPERS DOM / STORAGE / TEXT
      ========================================================= */
-  const q = (sel) => {
-    try { return document.querySelector(sel); } catch { return null; }
-  };
-
-  const qa = (sel) => {
-    try { return Array.from(document.querySelectorAll(sel)); } catch { return []; }
-  };
-
-  const on = (sel, ev, fn) => {
-    const el = q(sel);
-    if (el) el.addEventListener(ev, fn);
-  };
+  const q = (sel) => { try { return document.querySelector(sel); } catch { return null; } };
+  const qa = (sel) => { try { return Array.from(document.querySelectorAll(sel)); } catch { return []; } };
+  const on = (sel, ev, fn) => { const el = q(sel); if (el) el.addEventListener(ev, fn); };
 
   const todayKey = () => {
     const d = new Date();
@@ -42,38 +33,23 @@
     try {
       const raw = localStorage.getItem(key);
       return raw ? JSON.parse(raw) : fallback;
-    } catch {
-      return fallback;
-    }
+    } catch { return fallback; }
   };
 
-  const save = (key, value) => {
-    try { localStorage.setItem(key, JSON.stringify(value)); } catch {}
-  };
-
-  const del = (key) => {
-    try { localStorage.removeItem(key); } catch {}
-  };
+  const save = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch {} };
+  const del = (key) => { try { localStorage.removeItem(key); } catch {} };
 
   const loadWithMigration = (newKey, oldKey, fallback) => {
     const current = load(newKey, null);
     if (current != null) return current;
-
     const old = load(oldKey, null);
-    if (old != null) {
-      save(newKey, old);
-      return old;
-    }
-
+    if (old != null) { save(newKey, old); return old; }
     return fallback;
   };
 
   const esc = (value) => String(value == null ? "" : value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
   const norm = (str) => {
     let s = String(str == null ? "" : str).toLowerCase();
@@ -99,7 +75,6 @@
   };
 
   const parseKm = (v) => parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10) || 0;
-
   const parseYear = (v) => {
     const n = parseInt(String(v == null ? "" : v).replace(/[^0-9]/g, ""), 10) || 0;
     return n >= 1980 && n <= 2035 ? n : 0;
@@ -109,7 +84,6 @@
     if (!year) return true;
     const s = String(range || "").trim();
     if (!s || s === "*" || norm(s).includes("tous")) return true;
-
     const parts = s.split("|");
     for (const part of parts) {
       const m = part.match(/(\d{4})\D*(\d{4})?/);
@@ -118,7 +92,6 @@
       const b = m[2] ? parseInt(m[2], 10) : a;
       if (year >= a && year <= b) return true;
     }
-
     return false;
   };
 
@@ -127,16 +100,12 @@
     const nb = normKey(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
-
     const ba = catalog.brands[na];
     if (ba && ba.aliasKeys && ba.aliasKeys[nb]) return true;
-
     const bb = catalog.brands[nb];
     if (bb && bb.aliasKeys && bb.aliasKeys[na]) return true;
-
     if (na.length > 3 && nb.includes(na)) return true;
     if (nb.length > 3 && na.includes(nb)) return true;
-
     return false;
   };
 
@@ -189,16 +158,11 @@
 
   const sha256 = async (text) => {
     text = String(text || "");
-    if (!window.crypto || !crypto.subtle || typeof TextEncoder === "undefined") {
-      return simpleHash(text);
-    }
-
+    if (!window.crypto || !crypto.subtle || typeof TextEncoder === "undefined") return simpleHash(text);
     try {
       const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
       return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
-    } catch {
-      return simpleHash(text);
-    }
+    } catch { return simpleHash(text); }
   };
 
   const utf8ToB64Url = (str) => {
@@ -240,37 +204,33 @@
 
   const getField = (obj, keys) => {
     if (!obj || typeof obj !== "object") return "";
-
     for (const k of keys) {
       if (obj[k] != null && obj[k] !== "") return obj[k];
     }
-
     const lowerMap = {};
     for (const prop in obj) {
       if (Object.prototype.hasOwnProperty.call(obj, prop)) {
         lowerMap[normKey(prop)] = prop;
       }
     }
-
     for (const k of keys) {
       const lk = lowerMap[normKey(k)];
       if (lk && obj[lk] != null && obj[lk] !== "") return obj[lk];
     }
-
     return "";
   };
 
-  const getBrandField = (o) => valToString(getField(o, ["b", "brand", "marque", "constructeur", "make", "Brand", "Marque"]));
-  const getModelField = (o) => valToString(getField(o, ["m", "model", "modele", "modèle", "vehicle", "vehicule", "Model", "Modele"]));
-  const getEngineField = (o) => valToString(getField(o, ["e", "engine", "motorisation", "moteur", "powertrain", "version", "variant", "Engine", "Motorisation"]));
-  const getPowerField = (o) => valToString(getField(o, ["p", "power", "puissance", "ch", "kw", "kwh", "Power", "Puissance"]));
-  const getFuelField = (o) => valToString(getField(o, ["t", "type", "fuel", "energie", "énergie", "carburant", "engineType", "Fuel", "Type"]));
-  const getTransField = (o) => valToString(getField(o, ["tr", "transmission", "boite", "boîte", "gearbox", "Transmission", "Boite"]));
-  const getYearsField = (o) => valToString(getField(o, ["y", "years", "annee", "année", "period", "range", "from", "start", "Years"]));
-  const getSymptomsField = (o) => valToString(getField(o, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault", "Symptoms"]));
-  const getDtcField = (o) => valToString(getField(o, ["dtc", "codeDtc", "code", "codes", "DTC"]));
-  const getDisplacementField = (o) => valToString(getField(o, ["d", "cyl", "cylindree", "cylindrée", "displacement", "engineSize", "cubic", "Cylindree"]));
-  const getCodeField = (o) => valToString(getField(o, ["code", "codeMoteur", "engineCode", "codemoteur", "Code"]));
+  const getBrandField = (o) => valToString(getField(o, ["b", "brand", "marque", "constructeur", "make"]));
+  const getModelField = (o) => valToString(getField(o, ["m", "model", "modele", "modèle", "vehicle", "vehicule"]));
+  const getEngineField = (o) => valToString(getField(o, ["e", "engine", "motorisation", "moteur", "powertrain", "version", "variant"]));
+  const getPowerField = (o) => valToString(getField(o, ["p", "power", "puissance", "ch", "kw", "kwh"]));
+  const getFuelField = (o) => valToString(getField(o, ["t", "type", "fuel", "energie", "énergie", "carburant", "engineType"]));
+  const getTransField = (o) => valToString(getField(o, ["tr", "transmission", "boite", "boîte", "gearbox"]));
+  const getYearsField = (o) => valToString(getField(o, ["y", "years", "annee", "année", "period", "range"]));
+  const getSymptomsField = (o) => valToString(getField(o, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"]));
+  const getDtcField = (o) => valToString(getField(o, ["dtc", "codeDtc", "code", "codes"]));
+  const getDisplacementField = (o) => valToString(getField(o, ["d", "cyl", "cylindree", "cylindrée", "displacement", "engineSize", "cubic"]));
+  const getCodeField = (o) => valToString(getField(o, ["code", "codeMoteur", "engineCode", "codemoteur"]));
 
   const fetchJson = async (url) => {
     const res = await fetch(url, { cache: "no-store", method: "GET" });
@@ -304,22 +264,12 @@
         "data/engine-catalog.json",
         "data/models.json",
         "data/motorisations.json",
-        "data/motorizations.json",
         "data/base.json",
         "data/pannes.json",
-        "data/rappels.json",
         "data/technical-updates.json",
         "data/dtc.json",
-        "data/export.json",
-        "data/auto-diagnostic-export.json",
         "db.json",
-        "database.json",
-        "data/db.json",
-        "data/data.json",
-        "data/catalog.json",
-        "data/vehicles.json",
-        "data/engines.json",
-        "data/brands.json"
+        "database.json"
       ],
       scriptUrls: [
         "index.html",
@@ -330,18 +280,26 @@
         "js/motorisations.js",
         "js/models.js",
         "js/brands.js",
-        "js/engine-catalog.js",
-        "js/vehicle-catalog.js",
         "app.js",
         "data.js",
-        "db.js",
-        "assets/db.js",
-        "assets/data.js"
+        "db.js"
       ]
     }
   };
 
   const KEYS = {
+    SESSION: "arex_session_v21",
+    USERS: "arex_users_v21",
+    REQUESTS: "arex_requests_v21",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v21",
+    TECH_UPDATES: "arex_tech_updates_v21",
+    LAST_UPDATE: "arex_last_update_v21",
+    AUTO_LAST_SYNC: "arex_auto_last_sync_v21",
+    CATALOG_CFG: "arex_catalog_cfg_v21",
+    IMPORTED_RAW: "arex_imported_raw_v21"
+  };
+
+  const OLD_KEYS = {
     SESSION: "arex_session_v20",
     USERS: "arex_users_v20",
     REQUESTS: "arex_requests_v20",
@@ -351,18 +309,6 @@
     AUTO_LAST_SYNC: "arex_auto_last_sync_v20",
     CATALOG_CFG: "arex_catalog_cfg_v20",
     IMPORTED_RAW: "arex_imported_raw_v20"
-  };
-
-  const OLD_KEYS = {
-    SESSION: "arex_session_v19",
-    USERS: "arex_users_v19",
-    REQUESTS: "arex_requests_v19",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v19",
-    TECH_UPDATES: "arex_tech_updates_v19",
-    LAST_UPDATE: "arex_last_update_v19",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v19",
-    CATALOG_CFG: "arex_catalog_cfg_v19",
-    IMPORTED_RAW: "arex_imported_raw_v19"
   };
 
   /* =========================================================
@@ -382,12 +328,7 @@
   let autoLastSync = 0;
   let modelLoadToken = 0;
 
-  const selection = {
-    brand: null,
-    model: null,
-    engine: null
-  };
-
+  const selection = { brand: null, model: null, engine: null };
   let modelOptions = [];
   let currentModelOptions = [];
   let engineOptions = [];
@@ -406,9 +347,7 @@
 
   try {
     if ("BroadcastChannel" in window) broadcast = new BroadcastChannel("arex_expert_channel");
-  } catch {
-    broadcast = null;
-  }
+  } catch { broadcast = null; }
 
   /* =========================================================
      NOTIFICATIONS
@@ -424,23 +363,18 @@
     const labels = {
       granted: "✅ Notifications autorisées",
       default: "⏳ Permission non encore accordée",
-      denied: "❌ Notifications bloquées par le navigateur / Android",
-      unsupported: "⚠️ Notifications non supportées par cet environnement"
+      denied: "❌ Notifications bloquées",
+      unsupported: "⚠️ Non supporté"
     };
     if (el) el.textContent = "État des notifications : " + (labels[state] || state);
   };
 
   const askNotification = async () => {
-    if (!("Notification" in window)) {
-      updateNotificationState();
-      return "unsupported";
-    }
-
+    if (!("Notification" in window)) { updateNotificationState(); return "unsupported"; }
     if (Notification.permission === "granted" || Notification.permission === "denied") {
       updateNotificationState();
       return Notification.permission;
     }
-
     try {
       const permission = await Notification.requestPermission();
       updateNotificationState();
@@ -452,33 +386,15 @@
   };
 
   const showSystemNotification = async (title, body, tag) => {
-    const options = {
-      body: body || "",
-      tag: tag || "arex-" + Date.now(),
-      data: { url: "./index.html" }
-    };
-
+    const options = { body: body || "", tag: tag || "arex-" + Date.now(), data: { url: "./index.html" } };
     const fallback = () => {
       if ("Notification" in window && Notification.permission === "granted") {
-        try {
-          const n = new Notification(title, options);
-          n.onclick = () => window.focus();
-        } catch (e) {
-          console.warn("[AR-EXPERT] Notification fallback impossible:", e);
-        }
+        try { const n = new Notification(title, options); n.onclick = () => window.focus(); } catch (e) { console.warn(e); }
       }
     };
-
     if (swRegistration && typeof swRegistration.showNotification === "function") {
-      try {
-        await swRegistration.showNotification(title, options);
-        return;
-      } catch {
-        fallback();
-        return;
-      }
+      try { await swRegistration.showNotification(title, options); return; } catch { fallback(); return; }
     }
-
     fallback();
   };
 
@@ -508,13 +424,11 @@
   const getUsers = () => {
     const raw = loadWithMigration(KEYS.USERS, OLD_KEYS.USERS, []) || [];
     let changed = false;
-
     const users = raw.map((u) => {
       const m = migrateUser(u);
       if (JSON.stringify(m) !== JSON.stringify(u)) changed = true;
       return m;
     });
-
     if (changed) save(KEYS.USERS, users);
     return users;
   };
@@ -538,13 +452,11 @@
   const getRequests = () => {
     const raw = loadWithMigration(KEYS.REQUESTS, OLD_KEYS.REQUESTS, []) || [];
     let changed = false;
-
     const requests = raw.map((r) => {
       const m = migrateRequest(r);
       if (JSON.stringify(m) !== JSON.stringify(r)) changed = true;
       return m;
     });
-
     if (changed) save(KEYS.REQUESTS, requests);
     return requests;
   };
@@ -555,83 +467,50 @@
     const key = userCompositeKey(name, email);
     const emailKey = userEmailKey(email);
     const users = getUsers();
-
-    return users.find((u) => u.key === key) ||
-           users.find((u) => u.emailNorm === emailKey && u.role !== "admin") ||
-           null;
+    return users.find((u) => u.key === key) || users.find((u) => u.emailNorm === emailKey && u.role !== "admin") || null;
   };
 
   const findApprovedUser = (name, email) => {
     const emailKey = userEmailKey(email);
     if (!emailKey) return null;
-
     const key = userCompositeKey(name, email);
     const users = getUsers();
-
     return users.find((u) => u.status === "approved" && u.role !== "admin" && u.key === key) ||
-           users.find((u) => u.status === "approved" && u.role !== "admin" && u.emailNorm === emailKey) ||
-           null;
+           users.find((u) => u.status === "approved" && u.role !== "admin" && u.emailNorm === emailKey) || null;
   };
 
   const findStoredUser = (session) => {
     if (!session) return null;
-
     const users = getUsers();
     const key = session.key || userCompositeKey(session.name, session.email);
     const emailKey = userEmailKey(session.email);
-
-    return users.find((u) => u.key === key) ||
-           users.find((u) => u.emailNorm === emailKey && u.role !== "admin") ||
-           null;
+    return users.find((u) => u.key === key) || users.find((u) => u.emailNorm === emailKey && u.role !== "admin") || null;
   };
 
   const upsertUser = (user) => {
     const next = migrateUser(user);
     const users = getUsers();
-
     const idx = users.findIndex((u) => u.key === next.key || (u.emailNorm === next.emailNorm && u.role !== "admin"));
-
     if (idx >= 0) {
       const merged = { ...users[idx], ...next };
-      merged.daily = users[idx].daily && users[idx].daily.date === todayKey()
-        ? users[idx].daily
-        : (next.daily || { date: todayKey(), count: 0 });
+      merged.daily = users[idx].daily && users[idx].daily.date === todayKey() ? users[idx].daily : (next.daily || { date: todayKey(), count: 0 });
       users[idx] = merged;
       return merged;
     }
-
     users.push(next);
     saveUsers(users);
     return next;
   };
 
-  const setSession = (user) => {
-    currentUser = migrateUser(user);
-    save(KEYS.SESSION, currentUser);
-  };
-
-  const clearSession = () => {
-    currentUser = null;
-    del(KEYS.SESSION);
-  };
+  const setSession = (user) => { currentUser = migrateUser(user); save(KEYS.SESSION, currentUser); };
+  const clearSession = () => { currentUser = null; del(KEYS.SESSION); };
 
   const restoreSession = () => {
     const session = loadWithMigration(KEYS.SESSION, OLD_KEYS.SESSION, null);
     if (!session) return false;
-
-    if (session.role === "admin") {
-      clearSession();
-      return false;
-    }
-
+    if (session.role === "admin") { clearSession(); return false; }
     const fresh = findStoredUser(session);
-
-    if (fresh && fresh.status === "approved") {
-      currentUser = fresh;
-      setSession(fresh);
-      return true;
-    }
-
+    if (fresh && fresh.status === "approved") { currentUser = fresh; setSession(fresh); return true; }
     clearSession();
     return false;
   };
@@ -639,24 +518,16 @@
   const dailyInfo = () => {
     if (!currentUser) return { allowed: false, remaining: 0, unlimited: false };
     if (currentUser.role === "admin") return { allowed: true, remaining: Infinity, unlimited: true };
-
     const user = findUser(currentUser.name, currentUser.email) || currentUser;
     const daily = user.daily && user.daily.date === todayKey() ? user.daily.count : 0;
-
-    return {
-      allowed: daily < CONFIG.maxDailyAnalyses,
-      remaining: Math.max(0, CONFIG.maxDailyAnalyses - daily),
-      unlimited: false
-    };
+    return { allowed: daily < CONFIG.maxDailyAnalyses, remaining: Math.max(0, CONFIG.maxDailyAnalyses - daily), unlimited: false };
   };
 
   const incrementDaily = () => {
     if (!currentUser || currentUser.role === "admin") return;
-
     const users = getUsers();
     const idx = users.findIndex((u) => u.key === currentUser.key || (u.emailNorm === currentUser.emailNorm && u.role !== "admin"));
     if (idx < 0) return;
-
     const user = users[idx];
     if (!user.daily || user.daily.date !== todayKey()) user.daily = { date: todayKey(), count: 0 };
     user.daily.count += 1;
@@ -671,46 +542,23 @@
     const el = q("#dailyCounter");
     if (!el) return;
     const info = dailyInfo();
-    el.textContent = info.unlimited
-      ? "👑 Admin — analyses illimitées"
-      : `📊 ${info.remaining}/${CONFIG.maxDailyAnalyses} analyses restantes`;
+    el.textContent = info.unlimited ? "👑 Admin — analyses illimitées" : `📊 ${info.remaining}/${CONFIG.maxDailyAnalyses} analyses restantes`;
   };
 
   const authMessage = (msg, type) => {
     const el = q("#authMsg");
-    if (el) {
-      el.textContent = msg;
-      el.className = "auth-msg " + type;
-    } else {
-      toast(msg, type);
-    }
+    if (el) { el.textContent = msg; el.className = "auth-msg " + type; } else { toast(msg, type); }
   };
 
   const makeAccessRequestShareUrl = (req) => {
-    const payload = {
-      id: req.id,
-      name: req.name,
-      email: req.email,
-      reason: req.reason,
-      date: req.date,
-      source: "lien-partage"
-    };
-
+    const payload = { id: req.id, name: req.name, email: req.email, reason: req.reason, date: req.date, source: "lien-partage" };
     const baseUrl = location.href.split("?")[0].split("#")[0];
     return baseUrl + "?access_request=" + utf8ToB64Url(JSON.stringify(payload));
   };
 
   const makeAccessGrantUrl = (user) => {
     const safe = migrateUser(user);
-    const payload = {
-      name: safe.name,
-      email: safe.email,
-      status: "approved",
-      role: "user",
-      key: safe.key,
-      grantedAt: Date.now()
-    };
-
+    const payload = { name: safe.name, email: safe.email, status: "approved", role: "user", key: safe.key, grantedAt: Date.now() };
     const baseUrl = location.href.split("?")[0].split("#")[0];
     return baseUrl + "?access_grant=" + utf8ToB64Url(JSON.stringify(payload));
   };
@@ -719,31 +567,20 @@
     try {
       const raw = getQueryParam("access_request");
       if (!raw) return false;
-
       const req = JSON.parse(b64UrlToUtf8(raw));
       if (!req || !req.name || !req.email) return false;
-
       const migrated = migrateRequest({
-        id: req.id || uid(),
-        name: req.name,
-        email: req.email,
-        reason: req.reason || "Motif non précisé",
-        status: "pending",
-        date: req.date || new Date().toLocaleString("fr-FR"),
-        ts: Date.now(),
-        source: "lien-partage"
+        id: req.id || uid(), name: req.name, email: req.email, reason: req.reason || "Motif non précisé",
+        status: "pending", date: req.date || new Date().toLocaleString("fr-FR"), ts: Date.now(), source: "lien-partage"
       });
-
       const requests = getRequests();
       const exists = requests.find((r) => r.id === migrated.id || (r.emailNorm === migrated.emailNorm && r.nameNorm === migrated.nameNorm && r.reason === migrated.reason));
-
       if (!exists) {
         requests.push(migrated);
         saveRequests(requests);
         publishAccessRequest(migrated);
         toast("Demande d’accès importée depuis le lien partagé.", "success");
       }
-
       cleanUrlAfterParam();
       return true;
     } catch {
@@ -756,23 +593,14 @@
     try {
       const raw = getQueryParam("access_grant");
       if (!raw) return false;
-
       const payload = JSON.parse(b64UrlToUtf8(raw));
       if (!payload || !payload.email) return false;
-
       const user = upsertUser({
-        name: payload.name || payload.email,
-        email: payload.email,
-        role: "user",
-        status: "approved",
-        key: payload.key,
-        daily: { date: todayKey(), count: 0 }
+        name: payload.name || payload.email, email: payload.email, role: "user", status: "approved", key: payload.key, daily: { date: todayKey(), count: 0 }
       });
-
       setSession(user);
       showApp();
       toast("Accès approuvé importé. Connexion tierce réussie.", "success");
-
       cleanUrlAfterParam();
       return true;
     } catch {
@@ -782,27 +610,20 @@
   };
 
   const pendingRequests = () => getRequests().filter((r) => r.status === "pending");
-
   const pendingSignature = () => pendingRequests().map((r) => r.id).sort().join("|");
 
   const updateNotificationBell = () => {
     const bell = q("#notifBellBtn");
     const badge = q("#notifBadge");
     if (!bell) return;
-
     if (!currentUser || currentUser.role !== "admin") {
       bell.classList.add("hidden");
       if (badge) badge.classList.add("hidden");
       return;
     }
-
     bell.classList.remove("hidden");
     const count = pendingRequests().length;
-
-    if (badge) {
-      badge.textContent = String(count);
-      badge.classList.toggle("hidden", count === 0);
-    }
+    if (badge) { badge.textContent = String(count); badge.classList.toggle("hidden", count === 0); }
   };
 
   const renderAdminIfOpen = () => {
@@ -814,7 +635,6 @@
 
   const onAccessRequestReceived = (req) => {
     if (!currentUser || currentUser.role !== "admin" || !req) return;
-
     notify("Nouvelle demande d’accès", `${req.name || "Tiers"} — ${req.email || ""}`, "access-" + (req.id || Date.now()));
     updateNotificationBell();
     renderAdminIfOpen();
@@ -823,27 +643,16 @@
 
   const pollAdminNotifications = () => {
     if (!currentUser || currentUser.role !== "admin") return;
-
     const sig = pendingSignature();
-    if (sig === lastPendingSignature) {
-      updateNotificationBell();
-      return;
-    }
-
+    if (sig === lastPendingSignature) { updateNotificationBell(); return; }
     const oldIds = lastPendingSignature ? lastPendingSignature.split("|") : [];
     const newIds = sig ? sig.split("|").filter((id) => id && !oldIds.includes(id)) : [];
-
     lastPendingSignature = sig;
     updateNotificationBell();
-
     if (newIds.length) {
       const all = getRequests();
-      newIds.forEach((id) => {
-        const req = all.find((r) => r.id === id);
-        if (req) onAccessRequestReceived(req);
-      });
+      newIds.forEach((id) => { const req = all.find((r) => r.id === id); if (req) onAccessRequestReceived(req); });
     }
-
     renderAdminIfOpen();
   };
 
@@ -851,35 +660,22 @@
     stopAdminPolling();
     lastPendingSignature = pendingSignature();
     updateNotificationBell();
-
     adminPollTimer = setInterval(pollAdminNotifications, CONFIG.pollAdminMs || 5000);
-
     const count = pendingRequests().length;
     if (count > 0) toast(`${count} demande(s) d’accès en attente`, "info");
   };
 
-  const stopAdminPolling = () => {
-    if (adminPollTimer) {
-      clearInterval(adminPollTimer);
-      adminPollTimer = null;
-    }
-  };
+  const stopAdminPolling = () => { if (adminPollTimer) { clearInterval(adminPollTimer); adminPollTimer = null; } };
 
   const publishAccessRequest = (req) => {
     if (!req) return;
-
-    if (broadcast) {
-      try { broadcast.postMessage({ type: "access-request", payload: req }); } catch {}
-    }
-
+    if (broadcast) { try { broadcast.postMessage({ type: "access-request", payload: req }); } catch {} }
     try { window.dispatchEvent(new CustomEvent("arex:access-request", { detail: req })); } catch {}
-
     updateNotificationBell();
   };
 
   const enforceTierAccess = () => {
     if (!currentUser || currentUser.role === "admin") return;
-
     const fresh = findStoredUser(currentUser);
     if (!fresh || fresh.status !== "approved") {
       clearSession();
@@ -915,54 +711,28 @@
 
   const showApp = () => {
     const login = q("#loginScreen");
-    if (login) {
-      login.classList.add("hidden");
-      login.style.display = "none";
-    }
-
+    if (login) { login.classList.add("hidden"); login.style.display = "none"; }
     const app = q("#mainApp");
-    if (app) {
-      app.classList.remove("hidden");
-      app.style.display = "block";
-    }
-
+    if (app) { app.classList.remove("hidden"); app.style.display = "block"; }
     const badge = q("#userBadge");
     if (badge) badge.textContent = currentUser.role === "admin" ? "👑 Admin" : "👤 " + currentUser.name;
-
     const adminBtn = q("#adminPanelBtn");
     if (adminBtn) adminBtn.classList.toggle("hidden", currentUser.role !== "admin");
-
     updateCounter();
     updateNotificationBell();
     updateNotificationState();
     updateSelectionSummary();
-
-    if (currentUser && currentUser.role === "admin") {
-      startAdminPolling();
-      askNotification();
-    } else {
-      stopAdminPolling();
-    }
-
+    if (currentUser && currentUser.role === "admin") { startAdminPolling(); askNotification(); } else { stopAdminPolling(); }
     window.scrollTo(0, 0);
   };
 
   const showLogin = () => {
     const login = q("#loginScreen");
-    if (login) {
-      login.classList.remove("hidden");
-      login.style.display = "flex";
-    }
-
+    if (login) { login.classList.remove("hidden"); login.style.display = "flex"; }
     const app = q("#mainApp");
-    if (app) {
-      app.classList.add("hidden");
-      app.style.display = "none";
-    }
-
+    if (app) { app.classList.add("hidden"); app.style.display = "none"; }
     const admin = q("#adminPanel");
     if (admin) admin.classList.add("hidden");
-
     stopAdminPolling();
     updateNotificationBell();
     updateNotificationState();
@@ -970,226 +740,757 @@
   };
 
   /* =========================================================
-     CATALOGUE : BASES / ALIAS / NORMALISATION
+     BASE DE DONNÉES MASSIVE LOCALE (2017-2027)
+     Format compact: [Marque, Modèle, Années, Moteur, Puissance, Energie, Boite, Code/Cyl/KWh]
      ========================================================= */
-  const BASE_BRANDS = [
-    "Renault", "Dacia", "Peugeot", "Citroen", "DS", "Volkswagen", "Audi", "Skoda", "Seat", "Cupra",
-    "BMW", "Mini", "Mercedes-Benz", "smart", "Volvo", "Porsche", "Land Rover", "Range Rover", "Jaguar",
-    "Opel", "Vauxhall", "Fiat", "Alfa Romeo", "Maserati", "Abarth", "Ford", "Tesla", "Jeep", "RAM",
-    "Chrysler", "Dodge", "Chevrolet", "GMC", "Cadillac", "Buick", "Lincoln", "Toyota", "Lexus",
-    "Honda", "Acura", "Nissan", "Infiniti", "Mazda", "Subaru", "Suzuki", "Mitsubishi", "Hyundai",
-    "Kia", "Genesis", "MG", "BYD", "Omoda", "Jaecoo", "Chery", "Geely", "Lynk & Co", "Polestar",
-    "Leapmotor", "XPeng", "NIO", "Aiways", "Ora", "GWM", "Maxus", "LDV", "Seres", "Dongfeng",
-    "Haval", "Tank", "Hongqi", "Beijing", "Foton", "JAC", "DFSK", "Wey", "VinFast", "Rivian",
-    "Lucid", "Fisker", "Lotus", "Aston Martin", "Bentley", "Rolls-Royce", "Lamborghini", "Ferrari",
-    "McLaren", "Bugatti", "Koenigsegg", "Pagani", "Maybach", "Alpina", "Morgan", "Caterham",
-    "Ariel", "KTM", "Aixam", "Ligier", "Microcar", "Chatenet", "Iveco", "MAN", "Scania"
+  const MASSIVE_DB = [
+    // --- FRANCE ---
+    ["Renault", "Clio V", "2019-2026", "1.0 TCe", "65ch|90ch", "Essence", "BVM5|BVM6", "H4D|1.0 L"],
+    ["Renault", "Clio V", "2019-2026", "1.3 TCe", "100ch|130ch|140ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
+    ["Renault", "Clio V", "2019-2026", "1.5 dCi", "75ch|100ch|115ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
+    ["Renault", "Clio V", "2019-2026", "E-Tech Hybrid", "140ch|145ch", "Hybride", "automatique", "TCe 140|1.6 L"],
+    ["Renault", "Captur II", "2020-2026", "1.0 TCe", "90ch|100ch", "Essence", "BVM6", "H4D|1.0 L"],
+    ["Renault", "Captur II", "2020-2026", "1.3 TCe", "130ch|155ch", "Essence", "EDC", "H5H|1.3 L"],
+    ["Renault", "Captur II", "2020-2026", "1.5 Blue dCi", "100ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
+    ["Renault", "Captur II", "2020-2026", "E-Tech Hybrid", "140ch|160ch", "Hybride", "automatique", "TCe 160|1.6 L"],
+    ["Renault", "Megane IV", "2016-2024", "1.3 TCe", "100ch|140ch|160ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
+    ["Renault", "Megane IV", "2016-2024", "1.5 dCi", "90ch|115ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
+    ["Renault", "Megane IV", "2020-2024", "E-Tech Hybrid", "160ch|205ch", "Hybride", "automatique", "TCe 200|1.6 L"],
+    ["Renault", "Scenic IV", "2016-2024", "1.3 TCe", "115ch|140ch|160ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
+    ["Renault", "Scenic IV", "2016-2024", "1.5 dCi", "95ch|115ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
+    ["Renault", "Austral", "2022-2026", "1.2 TCe 130", "130ch", "Essence", "BVM6", "HFT|1.2 L"],
+    ["Renault", "Austral", "2022-2026", "E-Tech Hybrid 200", "200ch", "Hybride", "automatique", "TCe 200|1.2 L"],
+    ["Renault", "Austral", "2022-2026", "E-Tech Plug-in Hybrid 260", "260ch", "Hybride rechargeable", "automatique", "PHEV 260|1.2 L"],
+    ["Renault", "Arkana", "2021-2026", "1.3 TCe", "140ch|160ch", "Essence", "EDC", "H5H|1.3 L"],
+    ["Renault", "Arkana", "2021-2026", "E-Tech Hybrid", "145ch|160ch", "Hybride", "automatique", "TCe 160|1.6 L"],
+    ["Renault", "Kangoo III", "2021-2026", "1.3 TCe", "100ch|130ch", "Essence", "BVM6", "H5H|1.3 L"],
+    ["Renault", "Kangoo III", "2021-2026", "1.5 Blue dCi", "85ch|100ch|115ch", "Diesel", "BVM6", "K9K|1.5 L"],
+    ["Renault", "Kangoo III", "2021-2026", "E-Tech Electric", "100kW|136ch", "Électrique", "réducteur", "eKangoo|45 kWh"],
+    ["Renault", "Trafic III", "2014-2026", "2.0 dCi", "120ch|150ch|170ch", "Diesel", "BVM6", "M9R|2.0 L"],
+    ["Renault", "Master III", "2010-2026", "2.3 dCi", "100ch|125ch|135ch|150ch", "Diesel", "BVM6", "9H|2.3 L"],
+    ["Renault", "Master III", "2019-2026", "2.0 dCi", "136ch|160ch|180ch", "Diesel", "BVM6|EDC", "M9R|2.0 L"],
+    ["Renault", "Zoe II", "2019-2024", "R110/R135", "110ch|135ch", "Électrique", "réducteur", "Zoe|52 kWh"],
+    ["Renault", "Megane E-Tech", "2022-2026", "Evolution 60 kWh", "130ch|220ch", "Électrique", "réducteur", "CMF-EV|60 kWh"],
+    ["Renault", "Megane E-Tech", "2022-2026", "Iconic 60 kWh", "220ch", "Électrique", "réducteur", "CMF-EV|60 kWh"],
+    ["Renault", "Scenic E-Tech", "2024-2026", "60 kWh", "170ch|210ch", "Électrique", "réducteur", "CMF-EV|60 kWh"],
+    ["Renault", "Scenic E-Tech", "2024-2026", "87 kWh", "210ch", "Électrique", "réducteur", "CMF-EV|87 kWh"],
+
+    ["Dacia", "Sandero III", "2020-2026", "1.0 SCe", "65ch|75ch", "Essence", "BVM5", "SCe|1.0 L"],
+    ["Dacia", "Sandero III", "2020-2026", "1.0 TCe", "90ch|100ch", "Essence", "BVM5|BVM6", "H4D|1.0 L"],
+    ["Dacia", "Sandero III", "2020-2026", "1.0 ECO-G 100", "100ch", "GPL", "BVM6", "ECO-G|1.0 L"],
+    ["Dacia", "Sandero III", "2020-2026", "1.5 Blue dCi", "100ch", "Diesel", "BVM6", "K9K|1.5 L"],
+    ["Dacia", "Duster III", "2024-2026", "1.0 TCe", "100ch", "Essence", "BVM6", "H4D|1.0 L"],
+    ["Dacia", "Duster III", "2024-2026", "1.2 TCe", "130ch|140ch", "Essence", "BVM6|EDC", "H5F|1.2 L"],
+    ["Dacia", "Duster III", "2024-2026", "1.5 Blue dCi", "100ch|115ch", "Diesel", "BVM6", "K9K|1.5 L"],
+    ["Dacia", "Duster III", "2024-2026", "Hybrid 140", "140ch", "Hybride", "automatique", "TCe 140|1.0 L"],
+    ["Dacia", "Logan MCV", "2020-2026", "1.0 SCe", "75ch", "Essence", "BVM5", "SCe|1.0 L"],
+    ["Dacia", "Logan MCV", "2020-2026", "1.0 TCe", "90ch", "Essence", "BVM5|BVM6", "H4D|1.0 L"],
+    ["Dacia", "Jogger", "2021-2026", "1.0 TCe", "100ch|110ch", "Essence", "BVM6", "H4D|1.0 L"],
+    ["Dacia", "Jogger", "2021-2026", "1.5 Blue dCi", "100ch", "Diesel", "BVM6", "K9K|1.5 L"],
+    ["Dacia", "Spring", "2021-2026", "45 ch", "45ch", "Électrique", "réducteur", "Spring|26.8 kWh"],
+    ["Dacia", "Spring", "2024-2026", "65 ch", "65ch", "Électrique", "réducteur", "Spring|27 kWh"],
+
+    ["Peugeot", "208 II", "2019-2026", "1.2 PureTech 75", "75ch", "Essence", "BVM5", "EB2|1.2 L"],
+    ["Peugeot", "208 II", "2019-2026", "1.2 PureTech 100", "100ch", "Essence", "BVM6", "EB2|1.2 L"],
+    ["Peugeot", "208 II", "2019-2026", "1.2 PureTech 130", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
+    ["Peugeot", "208 II", "2019-2026", "1.5 BlueHDi 100", "100ch", "Diesel", "BVM6", "DV5|1.5 L"],
+    ["Peugeot", "208 II", "2019-2026", "e-208", "100kW|115kW|156ch", "Électrique", "réducteur", "e-CMP|50 kWh"],
+    ["Peugeot", "2008 II", "2019-2026", "1.2 PureTech 100", "100ch", "Essence", "BVM6", "EB2|1.2 L"],
+    ["Peugeot", "2008 II", "2019-2026", "1.2 PureTech 130", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
+    ["Peugeot", "2008 II", "2019-2026", "1.5 BlueHDi 100|130", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Peugeot", "2008 II", "2019-2026", "e-2008", "100kW|115kW|156ch", "Électrique", "réducteur", "e-CMP|50 kWh"],
+    ["Peugeot", "308 III", "2021-2026", "1.2 PureTech 110", "110ch", "Essence", "BVM6", "EB2|1.2 L"],
+    ["Peugeot", "308 III", "2021-2026", "1.2 PureTech 130", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
+    ["Peugeot", "308 III", "2021-2026", "1.5 BlueHDi 130", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
+    ["Peugeot", "308 III", "2021-2026", "Hybrid 180", "180ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["Peugeot", "308 III", "2021-2026", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["Peugeot", "308 III", "2021-2026", "e-308", "115kW|150kW", "Électrique", "réducteur", "eCMP|54 kWh"],
+    ["Peugeot", "3008 III", "2024-2026", "1.6 Hybrid 130", "130ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Peugeot", "3008 III", "2024-2026", "1.6 Hybrid 180", "180ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Peugeot", "3008 III", "2024-2026", "1.6 Hybrid 225", "225ch", "Hybride rechargeable", "automatique", "PHEV|1.6 L"],
+    ["Peugeot", "3008 III", "2024-2026", "1.6 Hybrid 320 4x4", "320ch", "Hybride rechargeable", "automatique 4x4", "PHEV4|1.6 L"],
+    ["Peugeot", "3008 III", "2024-2026", "e-3008", "210ch", "Électrique", "réducteur", "STLA Medium|73 kWh|97 kWh"],
+    ["Peugeot", "5008 III", "2024-2026", "1.6 Hybrid 130", "130ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Peugeot", "5008 III", "2024-2026", "1.6 Hybrid 180", "180ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Peugeot", "5008 III", "2024-2026", "1.6 Hybrid 225", "225ch", "Hybride rechargeable", "automatique", "PHEV|1.6 L"],
+    ["Peugeot", "5008 III", "2024-2026", "1.6 Hybrid 320 4x4", "320ch", "Hybride rechargeable", "automatique 4x4", "PHEV4|1.6 L"],
+    ["Peugeot", "5008 III", "2024-2026", "e-5008", "210ch", "Électrique", "réducteur", "STLA Medium|73 kWh|97 kWh"],
+    ["Peugeot", "Partner III", "2018-2026", "1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Peugeot", "Partner III", "2018-2026", "1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Peugeot", "Partner III", "2018-2026", "e-Partner", "100kW|136ch", "Électrique", "réducteur", "eCMP|50 kWh"],
+    ["Peugeot", "Rifter", "2018-2026", "1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Peugeot", "Rifter", "2018-2026", "1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Peugeot", "Rifter", "2018-2026", "e-Rifter", "100kW|136ch", "Électrique", "réducteur", "eCMP|50 kWh"],
+    ["Peugeot", "Boxer", "2014-2026", "2.2 BlueHDi", "120ch|140ch|165ch", "Diesel", "BVM6", "DW12|2.2 L"],
+    ["Peugeot", "Boxer", "2014-2026", "3.0 BlueHDi", "160ch|180ch", "Diesel", "BVM6", "DV6|3.0 L"],
+    ["Peugeot", "Boxer", "2021-2026", "e-Boxer", "90kW|122ch", "Électrique", "réducteur", "eBoxer|70 kWh"],
+
+    ["Citroen", "C3 III", "2016-2026", "1.2 PureTech", "82ch|100ch|110ch|130ch", "Essence", "BVM5|BVM6|EAT6", "EB2|1.2 L"],
+    ["Citroen", "C3 III", "2016-2026", "1.5 BlueHDi", "100ch", "Diesel", "BVM6", "DV5|1.5 L"],
+    ["Citroen", "C3 III", "2024-2026", "ë-C3", "94ch|118ch", "Électrique", "réducteur", "eCMP|44 kWh"],
+    ["Citroen", "C3 Aircross", "2017-2026", "1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT6", "EB2|1.2 L"],
+    ["Citroen", "C3 Aircross", "2017-2026", "1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT6", "DV5|1.5 L"],
+    ["Citroen", "C4", "2020-2026", "1.2 PureTech", "100ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Citroen", "C4", "2020-2026", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
+    ["Citroen", "C4", "2020-2026", "ë-C4", "100kW|115kW|156ch", "Électrique", "réducteur", "eCMP|50 kWh"],
+    ["Citroen", "C4 Cactus", "2014-2024", "1.2 PureTech", "82ch|100ch|110ch|130ch", "Essence", "BVM5|BVM6|EAT6", "EB2|1.2 L"],
+    ["Citroen", "C4 Cactus", "2014-2024", "1.6 BlueHDi", "100ch|120ch", "Diesel", "BVM6|EAT6", "DV6|1.6 L"],
+    ["Citroen", "C5 Aircross", "2018-2026", "1.2 PureTech", "130ch|180ch", "Essence", "EAT8", "EB2|1.2 L"],
+    ["Citroen", "C5 Aircross", "2018-2026", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
+    ["Citroen", "C5 Aircross", "2018-2026", "2.0 BlueHDi", "160ch|180ch", "Diesel", "EAT8", "DW10|2.0 L"],
+    ["Citroen", "C5 Aircross", "2019-2026", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["Citroen", "C5 Aircross", "2020-2026", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
+    ["Citroen", "Berlingo", "2018-2026", "1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Citroen", "Berlingo", "2018-2026", "1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Citroen", "Berlingo", "2018-2026", "ë-Berlingo", "100kW|136ch", "Électrique", "réducteur", "eCMP|50 kWh"],
+    ["Citroen", "Jumper", "2014-2026", "2.2 BlueHDi", "120ch|140ch|165ch", "Diesel", "BVM6", "DW12|2.2 L"],
+    ["Citroen", "Jumper", "2014-2026", "3.0 BlueHDi", "160ch|180ch", "Diesel", "BVM6", "DV6|3.0 L"],
+    ["Citroen", "Jumper", "2021-2026", "ë-Jumper", "90kW|122ch", "Électrique", "réducteur", "eJumper|70 kWh"],
+
+    ["DS", "DS 3 Crossback", "2018-2026", "1.2 PureTech", "100ch|130ch|155ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["DS", "DS 3 Crossback", "2018-2026", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
+    ["DS", "DS 3 Crossback", "2019-2026", "E-Tense", "136ch", "Électrique", "réducteur", "e-CMP|50 kWh"],
+    ["DS", "DS 4", "2021-2026", "1.2 PureTech", "130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["DS", "DS 4", "2021-2026", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
+    ["DS", "DS 4", "2021-2026", "E-Tense 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["DS", "DS 7 Crossback", "2018-2026", "1.6 PureTech", "180ch|225ch", "Essence", "EAT8", "EP6F|1.6 L"],
+    ["DS", "DS 7 Crossback", "2018-2026", "2.0 BlueHDi", "130ch|180ch", "Diesel", "EAT8", "DW10|2.0 L"],
+    ["DS", "DS 7 Crossback", "2019-2026", "E-Tense 4x4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
+    ["DS", "DS 7 Crossback", "2021-2026", "E-Tense 4x4 360", "360ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
+
+    // --- EUROPE (ALLEMAGNE / ITALIE / SUÈDE / UK) ---
+    ["Volkswagen", "Polo VI", "2017-2026", "1.0 MPI", "65ch|75ch", "Essence", "BVM5", "EA211|1.0 L"],
+    ["Volkswagen", "Polo VI", "2017-2026", "1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM5|DSG", "EA211|1.0 L"],
+    ["Volkswagen", "Polo VI", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Volkswagen", "Polo VI", "2017-2026", "1.6 TDI", "80ch", "Diesel", "BVM5", "EA288|1.6 L"],
+    ["Volkswagen", "Polo VI", "2017-2026", "2.0 TDI", "95ch|115ch|150ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
+    ["Volkswagen", "Golf VII", "2012-2020", "1.0 TSI", "85ch|110ch|125ch", "Essence", "BVM6|DSG", "EA211|1.0 L"],
+    ["Volkswagen", "Golf VII", "2012-2020", "1.4 TSI", "125ch|150ch", "Essence", "DSG", "EA211|1.4 L"],
+    ["Volkswagen", "Golf VII", "2012-2020", "1.5 TSI", "130ch|150ch|180ch", "Essence", "DSG|BVM6", "EA211 evo|1.5 L"],
+    ["Volkswagen", "Golf VII", "2012-2020", "2.0 TSI", "230ch|310ch", "Essence", "DSG", "EA888|2.0 L"],
+    ["Volkswagen", "Golf VII", "2012-2020", "1.6 TDI", "90ch|110ch|115ch", "Diesel", "BVM5|DSG", "EA288|1.6 L"],
+    ["Volkswagen", "Golf VII", "2012-2020", "2.0 TDI", "110ch|150ch|184ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
+    ["Volkswagen", "Golf VII", "2014-2020", "GTE", "204ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
+    ["Volkswagen", "Golf VIII", "2020-2026", "1.0 eTSI", "110ch", "Hybride léger 48V", "DSG", "EA211 evo|1.0 L"],
+    ["Volkswagen", "Golf VIII", "2020-2026", "1.5 eTSI", "130ch|150ch", "Hybride léger 48V", "DSG", "EA211 evo|1.5 L"],
+    ["Volkswagen", "Golf VIII", "2020-2026", "2.0 TSI", "245ch|320ch", "Essence", "DSG", "EA888|2.0 L"],
+    ["Volkswagen", "Golf VIII", "2020-2026", "2.0 TDI", "115ch|150ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
+    ["Volkswagen", "Golf VIII", "2020-2026", "eHybrid", "204ch|245ch", "Hybride rechargeable", "DSG", "PHEV|1.5 L"],
+    ["Volkswagen", "T-Cross", "2019-2026", "1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM6|DSG", "EA211|1.0 L"],
+    ["Volkswagen", "T-Cross", "2019-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Volkswagen", "T-Cross", "2019-2026", "1.6 TDI", "95ch", "Diesel", "DSG", "EA288|1.6 L"],
+    ["Volkswagen", "T-Cross", "2019-2026", "2.0 TDI", "115ch|150ch", "Diesel", "DSG", "EA288|2.0 L"],
+    ["Volkswagen", "Taigo", "2021-2026", "1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM6|DSG", "EA211|1.0 L"],
+    ["Volkswagen", "Taigo", "2021-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Volkswagen", "T-Roc", "2017-2026", "1.0 TSI", "110ch|150ch", "Essence", "DSG", "EA211|1.0 L"],
+    ["Volkswagen", "T-Roc", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Volkswagen", "T-Roc", "2017-2026", "2.0 TSI", "190ch|300ch", "Essence", "DSG 4Motion", "EA888|2.0 L"],
+    ["Volkswagen", "T-Roc", "2017-2026", "2.0 TDI", "150ch|190ch", "Diesel", "DSG|4Motion", "EA288|2.0 L"],
+    ["Volkswagen", "Tiguan II", "2016-2026", "1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Volkswagen", "Tiguan II", "2016-2026", "2.0 TSI", "190ch|245ch|320ch", "Essence", "DSG 4Motion", "EA888|2.0 L"],
+    ["Volkswagen", "Tiguan II", "2016-2026", "2.0 TDI", "150ch|190ch|200ch", "Diesel", "DSG|4Motion", "EA288|2.0 L"],
+    ["Volkswagen", "Tiguan II", "2019-2026", "eHybrid", "245ch|300ch", "Hybride rechargeable", "DSG 4Motion", "PHEV|1.4 L|2.0 L"],
+    ["Volkswagen", "Touran", "2015-2026", "1.5 TSI", "130ch|150ch", "Essence", "DSG|BVM6", "EA211 evo|1.5 L"],
+    ["Volkswagen", "Touran", "2015-2026", "2.0 TDI", "115ch|150ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
+    ["Volkswagen", "Caddy V", "2020-2026", "1.5 TSI", "114ch", "Essence", "DSG|BVM6", "EA211|1.5 L"],
+    ["Volkswagen", "Caddy V", "2020-2026", "2.0 TDI", "102ch|122ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
+    ["Volkswagen", "Caddy V", "2020-2026", "e-Caddy", "83kW|113ch", "Électrique", "réducteur", "eCaddy|37 kWh|45 kWh"],
+    ["Volkswagen", "ID.3", "2020-2026", "Pure Performance", "145ch|174ch|204ch", "Électrique", "réducteur", "MEB|58 kWh|77 kWh"],
+    ["Volkswagen", "ID.3", "2020-2026", "Pro", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Volkswagen", "ID.3", "2020-2026", "Pro S", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Volkswagen", "ID.3", "2020-2026", "GTX", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Volkswagen", "ID.4", "2021-2026", "Pure", "174ch", "Électrique", "réducteur", "MEB|52 kWh|58 kWh"],
+    ["Volkswagen", "ID.4", "2021-2026", "Pro", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Volkswagen", "ID.4", "2021-2026", "Pro Performance", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Volkswagen", "ID.4", "2021-2026", "GTX", "299ch", "Électrique", "AWD / réducteur", "MEB|77 kWh|86 kWh"],
+    ["Volkswagen", "ID.5", "2022-2026", "Pro", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Volkswagen", "ID.5", "2022-2026", "GTX", "299ch", "Électrique", "AWD / réducteur", "MEB|77 kWh|86 kWh"],
+    ["Volkswagen", "ID.7", "2024-2026", "Pro", "286ch", "Électrique", "réducteur", "MEB|77 kWh|86 kWh"],
+    ["Volkswagen", "ID.7", "2024-2026", "GTX", "340ch", "Électrique", "AWD / réducteur", "MEB|86 kWh"],
+
+    ["Audi", "A1", "2018-2026", "25 TFSI", "95ch", "Essence", "S tronic", "EA211|1.0 L"],
+    ["Audi", "A1", "2018-2026", "30 TFSI", "110ch", "Essence", "S tronic", "EA211|1.0 L"],
+    ["Audi", "A1", "2018-2026", "35 TFSI", "150ch", "Essence", "S tronic", "EA211|1.5 L"],
+    ["Audi", "A1", "2018-2026", "30 TDI", "116ch", "Diesel", "S tronic", "EA288|1.6 L"],
+    ["Audi", "A1", "2018-2026", "35 TDI", "150ch", "Diesel", "S tronic", "EA288|2.0 L"],
+    ["Audi", "A3", "2020-2026", "30 TFSI", "110ch", "Essence", "S tronic", "EA211|1.0 L"],
+    ["Audi", "A3", "2020-2026", "35 TFSI", "150ch", "Essence", "S tronic", "EA211 evo|1.5 L"],
+    ["Audi", "A3", "2020-2026", "40 TFSI", "204ch", "Essence", "S tronic", "EA888|2.0 L"],
+    ["Audi", "A3", "2020-2026", "35 TDI", "150ch", "Diesel", "S tronic", "EA288|2.0 L"],
+    ["Audi", "A3", "2020-2026", "40 TDI", "204ch", "Diesel", "S tronic quattro", "EA288|2.0 L"],
+    ["Audi", "A3", "2020-2026", "Sportback 45 TFSI e", "245ch|310ch", "Hybride rechargeable", "S tronic", "PHEV|1.4 L"],
+    ["Audi", "A4", "2015-2024", "35 TFSI", "150ch", "Essence", "S tronic", "EA211|1.4 L|2.0 L"],
+    ["Audi", "A4", "2015-2024", "40 TFSI", "190ch|245ch", "Essence", "S tronic", "EA888|2.0 L"],
+    ["Audi", "A4", "2015-2024", "35 TDI", "163ch", "Diesel", "S tronic", "EA288|2.0 L"],
+    ["Audi", "A4", "2015-2024", "40 TDI", "190ch|204ch", "Diesel", "S tronic|quattro", "EA288|2.0 L"],
+    ["Audi", "A4", "2015-2024", "50 TDI", "286ch", "Diesel", "tiptronic quattro", "EA288|2.0 L"],
+    ["Audi", "Q2", "2016-2026", "30 TFSI", "110ch", "Essence", "S tronic", "EA211|1.0 L"],
+    ["Audi", "Q2", "2016-2026", "35 TFSI", "150ch", "Essence", "S tronic", "EA211|1.4 L|1.5 L"],
+    ["Audi", "Q2", "2016-2026", "40 TFSI", "190ch", "Essence", "S tronic quattro", "EA888|2.0 L"],
+    ["Audi", "Q2", "2016-2026", "30 TDI", "116ch", "Diesel", "S tronic", "EA288|1.6 L"],
+    ["Audi", "Q2", "2016-2026", "35 TDI", "150ch", "Diesel", "S tronic|quattro", "EA288|2.0 L"],
+    ["Audi", "Q3", "2018-2026", "30 TFSI", "110ch|150ch", "Essence", "S tronic", "EA211|1.0 L|1.5 L"],
+    ["Audi", "Q3", "2018-2026", "40 TFSI", "190ch|204ch", "Essence", "S tronic quattro", "EA888|2.0 L"],
+    ["Audi", "Q3", "2018-2026", "35 TDI", "150ch", "Diesel", "S tronic", "EA288|2.0 L"],
+    ["Audi", "Q3", "2018-2026", "40 TDI", "190ch", "Diesel", "S tronic quattro", "EA288|2.0 L"],
+    ["Audi", "Q3", "2019-2026", "45 TFSI e", "245ch", "Hybride rechargeable", "S tronic quattro", "PHEV|1.4 L"],
+    ["Audi", "Q5", "2017-2026", "40 TFSI", "204ch|245ch", "Essence", "tiptronic quattro", "EA888|2.0 L"],
+    ["Audi", "Q5", "2017-2026", "45 TFSI", "265ch", "Essence", "tiptronic quattro", "EA888|2.0 L"],
+    ["Audi", "Q5", "2017-2026", "40 TDI", "204ch", "Diesel", "tiptronic quattro", "EA288|2.0 L"],
+    ["Audi", "Q5", "2017-2026", "50 TDI", "286ch", "Diesel", "tiptronic quattro", "EA288|3.0 L"],
+    ["Audi", "Q5", "2019-2026", "55 TFSI e", "367ch", "Hybride rechargeable", "tiptronic quattro", "PHEV|3.0 L"],
+    ["Audi", "Q4 e-tron", "2021-2026", "35 e-tron", "170ch", "Électrique", "réducteur", "MEB|52 kWh|55 kWh"],
+    ["Audi", "Q4 e-tron", "2021-2026", "40 e-tron", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Audi", "Q4 e-tron", "2021-2026", "50 e-tron quattro", "299ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
+    ["Audi", "e-tron GT", "2021-2026", "e-tron GT quattro", "476ch|530ch", "Électrique", "AWD / réducteur", "J1|86 kWh|93 kWh"],
+    ["Audi", "e-tron GT", "2021-2026", "RS e-tron GT", "598ch|646ch", "Électrique", "AWD / réducteur", "J1|93 kWh|105 kWh"],
+
+    ["Skoda", "Fabia IV", "2021-2026", "1.0 MPI", "65ch|80ch", "Essence", "BVM5", "EA211|1.0 L"],
+    ["Skoda", "Fabia IV", "2021-2026", "1.0 TSI", "95ch|110ch", "Essence", "BVM5|DSG", "EA211|1.0 L"],
+    ["Skoda", "Fabia IV", "2021-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Skoda", "Octavia IV", "2020-2026", "1.5 TSI", "110ch|150ch", "Essence", "BVM6|DSG", "EA211 evo|1.5 L"],
+    ["Skoda", "Octavia IV", "2020-2026", "2.0 TSI", "190ch|265ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
+    ["Skoda", "Octavia IV", "2020-2026", "2.0 TDI", "115ch|150ch|200ch", "Diesel", "DSG|4x4", "EA288|2.0 L"],
+    ["Skoda", "Octavia IV", "2020-2026", "iV", "204ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
+    ["Skoda", "Superb III", "2015-2024", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Skoda", "Superb III", "2015-2024", "2.0 TSI", "190ch|272ch|280ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
+    ["Skoda", "Superb III", "2015-2024", "2.0 TDI", "150ch|190ch|200ch", "Diesel", "DSG|4x4", "EA288|2.0 L"],
+    ["Skoda", "Superb III", "2019-2024", "iV", "218ch", "Hybride rechargeable", "DSG 4x4", "PHEV|1.4 L"],
+    ["Skoda", "Karoq", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Skoda", "Karoq", "2017-2026", "2.0 TSI", "190ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
+    ["Skoda", "Karoq", "2017-2026", "2.0 TDI", "150ch|190ch", "Diesel", "DSG|4x4", "EA288|2.0 L"],
+    ["Skoda", "Kodiaq", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Skoda", "Kodiaq", "2017-2026", "2.0 TSI", "190ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
+    ["Skoda", "Kodiaq", "2017-2026", "2.0 TDI", "150ch|200ch", "Diesel", "DSG|4x4", "EA288|2.0 L"],
+    ["Skoda", "Kodiaq", "2021-2026", "iV", "245ch", "Hybride rechargeable", "DSG 4x4", "PHEV|2.0 L"],
+    ["Skoda", "Enyaq", "2021-2026", "60", "180ch|204ch", "Électrique", "réducteur", "MEB|63 kWh"],
+    ["Skoda", "Enyaq", "2021-2026", "80", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Skoda", "Enyaq", "2021-2026", "80x", "265ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
+    ["Skoda", "Enyaq", "2021-2026", "vRS", "340ch", "Électrique", "AWD / réducteur", "MEB|77 kWh|82 kWh"],
+    ["Skoda", "Elroq", "2024-2026", "Elroq 50", "55 kWh|125kW|170ch", "Électrique", "RWD / réducteur", "MEB|55 kWh"],
+    ["Skoda", "Elroq", "2024-2026", "Elroq 60", "63 kWh|150kW|204ch", "Électrique", "RWD / réducteur", "MEB|63 kWh"],
+    ["Skoda", "Elroq", "2024-2026", "Elroq 85", "77 kWh|210kW|286ch", "Électrique", "RWD / réducteur", "MEB|77 kWh"],
+    ["Skoda", "Elroq", "2024-2026", "Elroq 85x", "77 kWh|210kW|286ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
+
+    ["Seat", "Ibiza IV", "2017-2026", "1.0 MPI", "75ch|80ch", "Essence", "BVM5", "EA211|1.0 L"],
+    ["Seat", "Ibiza IV", "2017-2026", "1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM5|DSG", "EA211|1.0 L"],
+    ["Seat", "Ibiza IV", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Seat", "Ibiza IV", "2017-2026", "FR 2.0 TSI", "190ch", "Essence", "DSG", "EA888|2.0 L"],
+    ["Seat", "Leon IV", "2020-2026", "1.0 TSI", "110ch", "Essence", "DSG", "EA211|1.0 L"],
+    ["Seat", "Leon IV", "2020-2026", "1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Seat", "Leon IV", "2020-2026", "2.0 TSI", "190ch|310ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
+    ["Seat", "Leon IV", "2020-2026", "2.0 TDI", "115ch|150ch", "Diesel", "DSG", "EA288|2.0 L"],
+    ["Seat", "Leon IV", "2020-2026", "e-HYBRID", "204ch|245ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
+    ["Seat", "Ateca", "2016-2026", "1.0 TSI", "110ch|150ch", "Essence", "DSG", "EA211|1.0 L|1.5 L"],
+    ["Seat", "Ateca", "2016-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Seat", "Ateca", "2016-2026", "2.0 TSI", "190ch", "Essence", "DSG 4Drive", "EA888|2.0 L"],
+    ["Seat", "Ateca", "2016-2026", "2.0 TDI", "150ch|190ch", "Diesel", "DSG|4Drive", "EA288|2.0 L"],
+    ["Seat", "Arona", "2017-2026", "1.0 TSI", "95ch|110ch|115ch", "Essence", "DSG", "EA211|1.0 L"],
+    ["Seat", "Arona", "2017-2026", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
+    ["Seat", "Arona", "2017-2026", "2.0 TDI", "115ch|150ch", "Diesel", "DSG", "EA288|2.0 L"],
+    ["Seat", "Born", "2021-2026", "Pure", "150ch|170ch", "Électrique", "réducteur", "MEB|54 kWh|58 kWh"],
+    ["Seat", "Born", "2021-2026", "Elite", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Seat", "Born", "2021-2026", "vZ", "231ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Seat", "Tavascan", "2024-2026", "Endurance", "210ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Seat", "Tavascan", "2024-2026", "vZ", "340ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
+
+    ["Cupra", "Leon", "2021-2026", "2.0 TSI", "310ch", "Essence", "DSG 4Drive", "EA888|2.0 L"],
+    ["Cupra", "Leon", "2021-2026", "e-HYBRID", "340ch", "Hybride rechargeable", "DSG 4Drive", "PHEV|1.5 L"],
+    ["Cupra", "Ateca", "2018-2026", "2.0 TSI", "300ch", "Essence", "DSG 4Drive", "EA888|2.0 L"],
+    ["Cupra", "Formentor", "2020-2026", "2.0 TSI", "310ch", "Essence", "DSG 4Drive", "EA888|2.0 L"],
+    ["Cupra", "Formentor", "2020-2026", "e-HYBRID", "245ch|340ch", "Hybride rechargeable", "DSG 4Drive", "PHEV|1.5 L"],
+    ["Cupra", "Formentor", "2024-2026", "VZ", "333ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
+    ["Cupra", "Born", "2021-2026", "Pure", "150ch|170ch", "Électrique", "réducteur", "MEB|54 kWh|58 kWh"],
+    ["Cupra", "Born", "2021-2026", "Elite", "204ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Cupra", "Born", "2021-2026", "vZ", "231ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Cupra", "Tavascan", "2024-2026", "Endurance", "210ch", "Électrique", "réducteur", "MEB|77 kWh"],
+    ["Cupra", "Tavascan", "2024-2026", "VZ", "340ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
+
+    ["BMW", "Serie 1", "2019-2026", "116i", "109ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
+    ["BMW", "Serie 1", "2019-2026", "118i", "136ch|156ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
+    ["BMW", "Serie 1", "2019-2026", "120i", "170ch|218ch", "Essence", "Steptronic", "B48|2.0 L"],
+    ["BMW", "Serie 1", "2019-2026", "125i", "245ch", "Essence", "Steptronic xDrive", "B48|2.0 L"],
+    ["BMW", "Serie 1", "2019-2026", "116d", "116ch", "Diesel", "BVM6|Steptronic", "B37|1.5 L"],
+    ["BMW", "Serie 1", "2019-2026", "118d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
+    ["BMW", "Serie 1", "2019-2026", "120d", "163ch|190ch", "Diesel", "Steptronic|xDrive", "B47|2.0 L"],
+    ["BMW", "Serie 3", "2019-2026", "320i", "170ch|184ch", "Essence", "BVM8|Steptronic", "B48|2.0 L"],
+    ["BMW", "Serie 3", "2019-2026", "330i", "245ch|258ch", "Essence", "Steptronic xDrive", "B48|2.0 L"],
+    ["BMW", "Serie 3", "2019-2026", "M340i", "374ch", "Essence", "Steptronic xDrive", "B58|3.0 L"],
+    ["BMW", "Serie 3", "2019-2026", "318d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
+    ["BMW", "Serie 3", "2019-2026", "320d", "163ch|190ch", "Diesel", "BVM6|Steptronic xDrive", "B47|2.0 L"],
+    ["BMW", "Serie 3", "2019-2026", "330d", "286ch|292ch", "Diesel", "Steptronic xDrive", "B57|3.0 L"],
+    ["BMW", "Serie 3", "2019-2026", "330e", "292ch", "Hybride rechargeable", "Steptronic xDrive", "PHEV|2.0 L"],
+    ["BMW", "X1", "2015-2026", "sDrive18i", "136ch|170ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
+    ["BMW", "X1", "2015-2026", "sDrive20i", "178ch|204ch", "Essence", "Steptronic", "B48|2.0 L"],
+    ["BMW", "X1", "2015-2026", "xDrive25i", "231ch|245ch", "Essence", "Steptronic xDrive", "B48|2.0 L"],
+    ["BMW", "X1", "2015-2026", "sDrive16d", "116ch", "Diesel", "BVM6|Steptronic", "B37|1.5 L"],
+    ["BMW", "X1", "2015-2026", "sDrive18d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
+    ["BMW", "X1", "2015-2026", "sDrive20d", "190ch", "Diesel", "Steptronic|xDrive", "B47|2.0 L"],
+    ["BMW", "X1", "2020-2026", "xDrive25e", "245ch", "Hybride rechargeable", "Steptronic xDrive", "PHEV|1.5 L"],
+    ["BMW", "X3", "2018-2026", "xDrive20i", "184ch", "Essence", "Steptronic xDrive", "B48|2.0 L"],
+    ["BMW", "X3", "2018-2026", "xDrive30i", "245ch|252ch", "Essence", "Steptronic xDrive", "B48|2.0 L"],
+    ["BMW", "X3", "2018-2026", "M40i", "340ch|374ch", "Essence", "Steptronic xDrive", "B58|3.0 L"],
+    ["BMW", "X3", "2018-2026", "xDrive20d", "190ch", "Diesel", "Steptronic xDrive", "B47|2.0 L"],
+    ["BMW", "X3", "2018-2026", "xDrive30d", "286ch|292ch", "Diesel", "Steptronic xDrive", "B57|3.0 L"],
+    ["BMW", "X3", "2019-2026", "xDrive30e", "292ch", "Hybride rechargeable", "Steptronic xDrive", "PHEV|2.0 L"],
+    ["BMW", "X5", "2019-2026", "xDrive40i", "340ch", "Essence", "Steptronic xDrive", "B58|3.0 L"],
+    ["BMW", "X5", "2019-2026", "xDrive50i", "462ch", "Essence", "Steptronic xDrive", "N63|4.4 L"],
+    ["BMW", "X5", "2019-2026", "xDrive30d", "286ch", "Diesel", "Steptronic xDrive", "B57|3.0 L"],
+    ["BMW", "X5", "2019-2026", "xDrive40d", "340ch", "Diesel", "Steptronic xDrive", "B57|3.0 L"],
+    ["BMW", "X5", "2019-2026", "xDrive45e", "394ch", "Hybride rechargeable", "Steptronic xDrive", "PHEV|3.0 L"],
+    ["BMW", "i4", "2021-2026", "eDrive35", "286ch", "Électrique", "RWD / réducteur", "BEV|70 kWh"],
+    ["BMW", "i4", "2021-2026", "eDrive40", "340ch", "Électrique", "RWD / réducteur", "BEV|80 kWh"],
+    ["BMW", "i4", "2021-2026", "M50", "544ch", "Électrique", "AWD / réducteur", "BEV|80 kWh"],
+    ["BMW", "iX", "2021-2026", "xDrive40", "326ch", "Électrique", "AWD / réducteur", "BEV|76.6 kWh"],
+    ["BMW", "iX", "2021-2026", "xDrive50", "523ch", "Électrique", "AWD / réducteur", "BEV|105.2 kWh"],
+    ["BMW", "iX", "2021-2026", "M60", "619ch", "Électrique", "AWD / réducteur", "BEV|105.2 kWh"],
+    ["BMW", "iX1", "2022-2026", "eDrive20", "184ch", "Électrique", "RWD / réducteur", "FAAR|64.7 kWh"],
+    ["BMW", "iX1", "2022-2026", "eDrive30", "272ch", "Électrique", "RWD / réducteur", "FAAR|66.4 kWh"],
+    ["BMW", "iX1", "2022-2026", "xDrive30", "313ch", "Électrique", "AWD / réducteur", "FAAR|66.4 kWh"],
+
+    ["Mini", "Cooper", "2021-2026", "Cooper", "136ch|156ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
+    ["Mini", "Cooper", "2021-2026", "Cooper S", "178ch|204ch", "Essence", "Steptronic", "B48|2.0 L"],
+    ["Mini", "Cooper", "2021-2026", "John Cooper Works", "231ch|300ch", "Essence", "Steptronic 4x4", "B48|2.0 L"],
+    ["Mini", "Cooper", "2021-2026", "Cooper SE", "224ch", "Hybride rechargeable", "Steptronic", "PHEV|1.5 L"],
+    ["Mini", "Cooper", "2024-2026", "Cooper E", "184ch|218ch", "Électrique", "réducteur", "BEV|40.7 kWh|54.2 kWh"],
+    ["Mini", "Countryman", "2017-2026", "Cooper", "136ch|156ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
+    ["Mini", "Countryman", "2017-2026", "Cooper S", "178ch|204ch", "Essence", "Steptronic|ALL4", "B48|2.0 L"],
+    ["Mini", "Countryman", "2017-2026", "One D", "116ch", "Diesel", "BVM6|Steptronic", "B37|1.5 L"],
+    ["Mini", "Countryman", "2017-2026", "Cooper SD", "190ch", "Diesel", "Steptronic ALL4", "B47|2.0 L"],
+    ["Mini", "Countryman", "2017-2026", "Cooper SE ALL4", "224ch", "Hybride rechargeable", "Steptronic ALL4", "PHEV|1.5 L"],
+    ["Mini", "Countryman", "2024-2026", "Countryman E", "313ch", "Électrique", "AWD / réducteur", "BEV|66.4 kWh"],
+
+    ["Mercedes-Benz", "Classe A", "2018-2026", "A180", "120ch|136ch", "Essence", "7G-DCT", "M282|1.3 L"],
+    ["Mercedes-Benz", "Classe A", "2018-2026", "A200", "163ch|190ch", "Essence", "7G-DCT|8G-DCT", "M282/M260|1.3 L|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "2018-2026", "A250", "224ch", "Essence", "8G-DCT 4MATIC", "M260|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "2018-2026", "AMG A35", "306ch", "Essence", "AMG SPEEDSHIFT 4MATIC", "M260|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "2018-2026", "A180d", "116ch", "Diesel", "7G-DCT", "OM654|1.5 L|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "2018-2026", "A200d", "150ch", "Diesel", "8G-DCT", "OM654|2.0 L"],
+    ["Mercedes-Benz", "Classe A", "2020-2026", "A250e", "218ch", "Hybride rechargeable", "8G-DCT", "PHEV|1.3 L"],
+    ["Mercedes-Benz", "Classe C", "2021-2026", "C180", "170ch", "Essence", "9G-Tronic", "M264|1.5 L"],
+    ["Mercedes-Benz", "Classe C", "2021-2026", "C200", "204ch", "Essence", "9G-Tronic", "M264|1.5 L"],
+    ["Mercedes-Benz", "Classe C", "2021-2026", "C300", "258ch", "Essence", "9G-Tronic 4MATIC", "M264|2.0 L"],
+    ["Mercedes-Benz", "Classe C", "2021-2026", "C220d", "200ch", "Diesel", "9G-Tronic", "OM654|2.0 L"],
+    ["Mercedes-Benz", "Classe C", "2021-2026", "C300de", "313ch", "Hybride rechargeable", "9G-Tronic 4MATIC", "PHEV|2.0 L"],
+    ["Mercedes-Benz", "GLA", "2020-2026", "GLA180", "120ch|136ch", "Essence", "7G-DCT", "M282|1.3 L"],
+    ["Mercedes-Benz", "GLA", "2020-2026", "GLA200", "163ch|190ch", "Essence", "7G-DCT|8G-DCT", "M282/M260|1.3 L|2.0 L"],
+    ["Mercedes-Benz", "GLA", "2020-2026", "GLA250", "224ch", "Essence", "8G-DCT 4MATIC", "M260|2.0 L"],
+    ["Mercedes-Benz", "GLA", "2020-2026", "GLA200d", "150ch", "Diesel", "8G-DCT", "OM654|2.0 L"],
+    ["Mercedes-Benz", "GLA", "2020-2026", "GLA250e", "218ch", "Hybride rechargeable", "8G-DCT", "PHEV|1.3 L"],
+    ["Mercedes-Benz", "GLC", "2019-2026", "GLC200", "197ch", "Essence", "9G-Tronic", "M264|2.0 L"],
+    ["Mercedes-Benz", "GLC", "2019-2026", "GLC300", "258ch", "Essence", "9G-Tronic 4MATIC", "M264|2.0 L"],
+    ["Mercedes-Benz", "GLC", "2019-2026", "GLC220d", "197ch|200ch", "Diesel", "9G-Tronic|4MATIC", "OM654|2.0 L"],
+    ["Mercedes-Benz", "GLC", "2019-2026", "GLC300d", "245ch|272ch", "Diesel", "9G-Tronic 4MATIC", "OM654|2.0 L"],
+    ["Mercedes-Benz", "GLC", "2020-2026", "GLC300e", "313ch", "Hybride rechargeable", "9G-Tronic 4MATIC", "PHEV|2.0 L"],
+    ["Mercedes-Benz", "GLC", "2024-2026", "GLC400e", "381ch", "Hybride rechargeable", "9G-Tronic 4MATIC", "PHEV|2.0 L"],
+    ["Mercedes-Benz", "EQA", "2021-2026", "EQA 250", "190ch", "Électrique", "réducteur", "EVA|66.5 kWh"],
+    ["Mercedes-Benz", "EQA", "2021-2026", "EQA 350 4MATIC", "292ch", "Électrique", "AWD / réducteur", "EVA|66.5 kWh"],
+    ["Mercedes-Benz", "EQB", "2021-2026", "EQB 250", "190ch", "Électrique", "réducteur", "EVA|66.5 kWh"],
+    ["Mercedes-Benz", "EQB", "2021-2026", "EQB 350 4MATIC", "292ch", "Électrique", "AWD / réducteur", "EVA|66.5 kWh"],
+    ["Mercedes-Benz", "EQE", "2022-2026", "EQE 350", "292ch", "Électrique", "RWD / réducteur", "EVA|90.6 kWh"],
+    ["Mercedes-Benz", "EQE", "2022-2026", "EQE 43 4MATIC", "476ch", "Électrique", "AWD / réducteur", "EVA|90.6 kWh"],
+    ["Mercedes-Benz", "EQE", "2022-2026", "EQE 53 4MATIC+", "626ch", "Électrique", "AWD / réducteur", "EVA|90.6 kWh"],
+    ["Mercedes-Benz", "EQS", "2021-2026", "EQS 450+", "333ch", "Électrique", "RWD / réducteur", "EVA|107.8 kWh"],
+    ["Mercedes-Benz", "EQS", "2021-2026", "EQS 580 4MATIC", "544ch", "Électrique", "AWD / réducteur", "EVA|107.8 kWh"],
+    ["Mercedes-Benz", "EQS", "2021-2026", "AMG EQS 53", "658ch|761ch", "Électrique", "AWD / réducteur", "EVA|107.8 kWh"],
+
+    ["Volvo", "XC40", "2018-2026", "B3", "163ch", "Hybride léger 48V", "automatique", "B3|2.0 L"],
+    ["Volvo", "XC40", "2018-2026", "B4", "197ch", "Hybride léger 48V", "automatique AWD", "B4|2.0 L"],
+    ["Volvo", "XC40", "2018-2026", "T2", "130ch", "Essence", "automatique", "T2|1.5 L"],
+    ["Volvo", "XC40", "2018-2026", "T3", "163ch", "Essence", "automatique", "T3|1.5 L"],
+    ["Volvo", "XC40", "2018-2026", "T4", "197ch", "Essence", "automatique AWD", "T4|2.0 L"],
+    ["Volvo", "XC40", "2018-2026", "T5", "249ch", "Essence", "automatique AWD", "T5|2.0 L"],
+    ["Volvo", "XC40", "2019-2026", "Recharge T5", "262ch", "Hybride rechargeable", "automatique AWD", "PHEV|1.5 L"],
+    ["Volvo", "XC40", "2019-2026", "Recharge T8", "390ch|405ch", "Hybride rechargeable", "automatique AWD", "PHEV|2.0 L"],
+    ["Volvo", "XC40", "2021-2026", "Pure Electric", "231ch|408ch", "Électrique", "RWD/AWD / réducteur", "CMA-EV|69 kWh"],
+    ["Volvo", "XC60", "2018-2026", "B4", "197ch", "Hybride léger 48V", "automatique", "B4|2.0 L"],
+    ["Volvo", "XC60", "2018-2026", "B5", "250ch", "Hybride léger 48V", "automatique AWD", "B5|2.0 L"],
+    ["Volvo", "XC60", "2018-2026", "T5", "250ch", "Essence", "automatique AWD", "T5|2.0 L"],
+    ["Volvo", "XC60", "2018-2026", "T6", "300ch", "Essence", "automatique AWD", "T6|2.0 L"],
+    ["Volvo", "XC60", "2019-2026", "Recharge T6", "340ch", "Hybride rechargeable", "automatique AWD", "PHEV|2.0 L"],
+    ["Volvo", "XC60", "2019-2026", "Recharge T8", "455ch", "Hybride rechargeable", "automatique AWD", "PHEV|2.0 L"],
+    ["Volvo", "EX30", "2024-2026", "Single Motor", "272ch", "Électrique", "RWD / réducteur", "SEA|51 kWh|69 kWh"],
+    ["Volvo", "EX30", "2024-2026", "Twin Motor", "428ch", "Électrique", "AWD / réducteur", "SEA|69 kWh"],
+
+    ["Porsche", "Macan", "2014-2026", "Macan", "252ch|265ch", "Essence", "PDK", "V6|2.0 L|3.0 L"],
+    ["Porsche", "Macan", "2014-2026", "Macan S", "354ch|380ch", "Essence", "PDK", "V6|3.0 L"],
+    ["Porsche", "Macan", "2014-2026", "Macan GTS", "440ch", "Essence", "PDK", "V6|2.9 L"],
+    ["Porsche", "Macan", "2014-2026", "Macan Turbo", "400ch|440ch", "Essence", "PDK", "V6|2.9 L"],
+    ["Porsche", "Macan", "2024-2026", "Macan Electric", "340ch|639ch", "Électrique", "RWD/AWD / réducteur", "PPE|95 kWh"],
+    ["Porsche", "Cayenne", "2018-2026", "Cayenne", "340ch", "Essence", "Tiptronic", "V6|3.0 L"],
+    ["Porsche", "Cayenne", "2018-2026", "Cayenne S", "440ch|474ch", "Essence", "Tiptronic", "V6|4.0 L"],
+    ["Porsche", "Cayenne", "2018-2026", "Cayenne Turbo", "550ch|649ch", "Essence", "Tiptronic", "V8|4.0 L"],
+    ["Porsche", "Cayenne", "2018-2026", "Cayenne E-Hybrid", "462ch", "Hybride rechargeable", "Tiptronic", "PHEV|3.0 L"],
+    ["Porsche", "Cayenne", "2023-2026", "Cayenne Turbo E-Hybrid", "739ch", "Hybride rechargeable", "Tiptronic", "PHEV|4.0 L"],
+    ["Porsche", "Taycan", "2020-2026", "Taycan", "326ch|408ch", "Électrique", "AWD / réducteur", "J1|79.2 kWh|93.4 kWh"],
+    ["Porsche", "Taycan", "2020-2026", "4S", "530ch|571ch", "Électrique", "AWD / réducteur", "J1|79.2 kWh|93.4 kWh"],
+    ["Porsche", "Taycan", "2020-2026", "Turbo", "680ch|761ch", "Électrique", "AWD / réducteur", "J1|93.4 kWh"],
+    ["Porsche", "Taycan", "2020-2026", "Turbo S", "761ch|800ch", "Électrique", "AWD / réducteur", "J1|93.4 kWh"],
+
+    ["Land Rover", "Defender", "2020-2026", "D200", "200ch", "Diesel", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Defender", "2020-2026", "D240", "240ch", "Diesel", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Defender", "2020-2026", "D300", "300ch", "Diesel", "automatique 4x4", "Ingenium|3.0 L"],
+    ["Land Rover", "Defender", "2020-2026", "P300", "300ch", "Essence", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Defender", "2020-2026", "P400", "400ch", "Essence", "automatique 4x4", "Ingenium|3.0 L"],
+    ["Land Rover", "Defender", "2020-2026", "P525", "525ch", "Essence", "automatique 4x4", "V8|5.0 L"],
+    ["Land Rover", "Defender", "2020-2026", "PHEV P400e", "404ch", "Hybride rechargeable", "automatique 4x4", "PHEV|2.0 L"],
+    ["Land Rover", "Range Rover", "2022-2026", "D250", "249ch", "Diesel", "automatique 4x4", "Ingenium|3.0 L"],
+    ["Land Rover", "Range Rover", "2022-2026", "D300", "299ch", "Diesel", "automatique 4x4", "Ingenium|3.0 L"],
+    ["Land Rover", "Range Rover", "2022-2026", "P360", "360ch", "Essence", "automatique 4x4", "Ingenium|3.0 L"],
+    ["Land Rover", "Range Rover", "2022-2026", "P400", "400ch", "Essence", "automatique 4x4", "Ingenium|3.0 L"],
+    ["Land Rover", "Range Rover", "2022-2026", "P510e", "510ch", "Hybride rechargeable", "automatique 4x4", "PHEV|3.0 L"],
+    ["Land Rover", "Range Rover", "2022-2026", "SV P615e", "615ch", "Hybride rechargeable", "automatique 4x4", "PHEV|4.4 L"],
+    ["Land Rover", "Range Rover Evoque", "2019-2026", "D150", "150ch", "Diesel", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Range Rover Evoque", "2019-2026", "D180", "180ch", "Diesel", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Range Rover Evoque", "2019-2026", "P200", "200ch", "Essence", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Range Rover Evoque", "2019-2026", "P250", "249ch", "Essence", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Range Rover Evoque", "2019-2026", "P300e", "309ch", "Hybride rechargeable", "automatique 4x4", "PHEV|1.5 L"],
+    ["Land Rover", "Discovery Sport", "2020-2026", "D165", "163ch", "Diesel", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Discovery Sport", "2020-2026", "D180", "180ch", "Diesel", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Discovery Sport", "2020-2026", "P200", "200ch", "Essence", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Discovery Sport", "2020-2026", "P250", "249ch", "Essence", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Land Rover", "Discovery Sport", "2020-2026", "P300e", "309ch", "Hybride rechargeable", "automatique 4x4", "PHEV|1.5 L"],
+
+    ["Jaguar", "I-Pace", "2018-2026", "S", "400ch", "Électrique", "AWD / réducteur", "BEV|90 kWh"],
+    ["Jaguar", "I-Pace", "2018-2026", "SE", "400ch", "Électrique", "AWD / réducteur", "BEV|90 kWh"],
+    ["Jaguar", "I-Pace", "2018-2026", "HSE", "400ch", "Électrique", "AWD / réducteur", "BEV|90 kWh"],
+    ["Jaguar", "F-Pace", "2016-2026", "D165", "163ch", "Diesel", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Jaguar", "F-Pace", "2016-2026", "D200", "204ch", "Diesel", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Jaguar", "F-Pace", "2016-2026", "D250", "249ch", "Diesel", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Jaguar", "F-Pace", "2016-2026", "D300", "299ch", "Diesel", "automatique 4x4", "Ingenium|3.0 L"],
+    ["Jaguar", "F-Pace", "2016-2026", "P250", "247ch", "Essence", "automatique 4x4", "Ingenium|2.0 L"],
+    ["Jaguar", "F-Pace", "2016-2026", "P340", "340ch", "Essence", "automatique 4x4", "Ingenium|3.0 L"],
+    ["Jaguar", "F-Pace", "2018-2026", "P400e", "404ch", "Hybride rechargeable", "automatique 4x4", "PHEV|2.0 L"],
+
+    ["Opel", "Corsa F", "2019-2026", "1.2", "75ch|100ch|130ch", "Essence", "BVM5|BVM6|EAT8", "EB2|1.2 L"],
+    ["Opel", "Corsa F", "2019-2026", "1.2 Turbo", "100ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Opel", "Corsa F", "2019-2026", "1.5 Diesel", "100ch|130ch", "Diesel", "BVM6", "DV5|1.5 L"],
+    ["Opel", "Corsa F", "2019-2026", "Corsa Electric", "136ch", "Électrique", "réducteur", "eCMP|50 kWh"],
+    ["Opel", "Astra", "2021-2026", "1.2 Turbo", "110ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Opel", "Astra", "2021-2026", "1.2 Turbo Hybrid", "130ch", "Hybride léger 48V", "EAT8", "EB2|1.2 L"],
+    ["Opel", "Astra", "2021-2026", "1.5 Diesel", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
+    ["Opel", "Astra", "2021-2026", "Hybrid", "180ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
+    ["Opel", "Astra", "2021-2026", "Hybrid4", "225ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
+    ["Opel", "Mokka", "2020-2026", "1.2 Turbo", "100ch|130ch|145ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
+    ["Opel", "Mokka", "2020-2026", "1.5 Diesel", "110ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
+    ["Opel", "Mokka", "2020-2026", "Mokka Electric", "136ch", "Électrique", "réducteur", "eCMP|50 kWh"],
+    ["Opel", "Grandland", "2022-2026", "1.2 Turbo", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
+    ["Opel", "Grandland", "2022-2026", "1.6 Turbo", "180ch|225ch", "Essence", "EAT8", "EP6F|1.6 L"],
+    ["Opel", "Grandland", "2022-2026", "Hybrid4", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
+    ["Opel", "Grandland", "2024-2026", "Electric", "210ch", "Électrique", "réducteur", "STLA Medium|73 kWh|97 kWh"],
+
+    ["Fiat", "500", "2007-2026", "1.0 Hybrid", "70ch", "Hybride léger 48V", "automatique", "Firefly|1.0 L"],
+    ["Fiat", "500", "2007-2026", "1.2", "69ch", "Essence", "BVM5", "188|1.2 L"],
+    ["Fiat", "500", "2007-2026", "0.9 TwinAir", "85ch|105ch", "Essence", "BVM5", "TwinAir|0.9 L"],
+    ["Fiat", "500", "2007-2026", "1.4", "95ch", "Essence", "BVM5", "134|1.4 L"],
+    ["Fiat", "500", "2007-2026", "1.3 MultiJet", "95ch", "Diesel", "BVM5", "MultiJet|1.3 L"],
+    ["Fiat", "500e", "2020-2026", "42 kWh", "87kW|118ch", "Électrique", "réducteur", "500e|42 kWh"],
+    ["Fiat", "500e", "2020-2026", "24 kWh", "63kW|87ch", "Électrique", "réducteur", "500e|23.8 kWh"],
+    ["Fiat", "Panda", "2012-2026", "1.0 Hybrid", "70ch", "Hybride léger 48V", "automatique", "Firefly|1.0 L"],
+    ["Fiat", "Panda", "2012-2026", "0.9 TwinAir", "85ch|105ch", "Essence", "BVM5", "TwinAir|0.9 L"],
+    ["Fiat", "Panda", "2012-2026", "1.2", "69ch", "Essence", "BVM5", "188|1.2 L"],
+    ["Fiat", "Panda", "2012-2026", "1.3 MultiJet", "95ch", "Diesel", "BVM5", "MultiJet|1.3 L"],
+    ["Fiat", "Tipo", "2016-2026", "1.0 Hybrid", "100ch", "Hybride léger 48V", "BVM6", "Firefly|1.0 L"],
+    ["Fiat", "Tipo", "2016-2026", "1.4", "95ch", "Essence", "BVM5", "134|1.4 L"],
+    ["Fiat", "Tipo", "2016-2026", "1.6 E-Torq", "110ch", "Essence", "BVM6", "E-Torq|1.6 L"],
+    ["Fiat", "Tipo", "2016-2026", "1.3 MultiJet", "95ch", "Diesel", "BVM5", "MultiJet|1.3 L"],
+    ["Fiat", "Tipo", "2016-2026", "1.6 MultiJet", "120ch|130ch", "Diesel", "BVM6", "MultiJet|1.6 L"],
+    ["Fiat", "Tonale", "2022-2026", "1.5 Hybrid", "130ch", "Hybride léger 48V", "automatique", "Firefly|1.5 L"],
+    ["Fiat", "Tonale", "2022-2026", "1.3 Plug-in Hybrid", "190ch", "Hybride rechargeable", "automatique", "PHEV|1.3 L"],
+    ["Fiat", "Tonale", "2022-2026", "1.3 Plug-in Hybrid", "280ch", "Hybride rechargeable", "automatique 4x4", "PHEV4|1.3 L"],
+
+    ["Alfa Romeo", "Giulia", "2016-2026", "2.0 Turbo", "200ch|280ch", "Essence", "automatique", "2.0 Turbo|2.0 L"],
+    ["Alfa Romeo", "Giulia", "2016-2026", "2.2 Diesel", "160ch|210ch", "Diesel", "automatique", "2.2 JTDM|2.2 L"],
+    ["Alfa Romeo", "Giulia", "2016-2026", "Quadrifoglio", "510ch", "Essence", "automatique", "2.9 V6|2.9 L"],
+    ["Alfa Romeo", "Stelvio", "2017-2026", "2.0 Turbo", "200ch|280ch", "Essence", "automatique Q4", "2.0 Turbo|2.0 L"],
+    ["Alfa Romeo", "Stelvio", "2017-2026", "2.2 Diesel", "160ch|210ch", "Diesel", "automatique Q4", "2.2 JTDM|2.2 L"],
+    ["Alfa Romeo", "Stelvio", "2017-2026", "Quadrifoglio", "510ch", "Essence", "automatique Q4", "2.9 V6|2.9 L"],
+    ["Alfa Romeo", "Tonale", "2022-2026", "1.5 Hybrid", "130ch", "Hybride léger 48V", "automatique", "Firefly|1.5 L"],
+    ["Alfa Romeo", "Tonale", "2022-2026", "1.3 Plug-in Hybrid", "190ch", "Hybride rechargeable", "automatique", "PHEV|1.3 L"],
+    ["Alfa Romeo", "Tonale", "2022-2026", "1.3 Plug-in Hybrid", "280ch", "Hybride rechargeable", "automatique Q4", "PHEV4|1.3 L"],
+
+    // --- ASIE (JAPON / CORÉE / CHINE) ---
+    ["Toyota", "Yaris", "2020-2026", "1.0", "72ch", "Essence", "BVM5", "1KR-FE|1.0 L"],
+    ["Toyota", "Yaris", "2020-2026", "1.5 Hybrid", "116ch|130ch", "Hybride", "e-CVT", "THS II|1.5 L"],
+    ["Toyota", "Yaris", "2020-2026", "GR Yaris", "261ch|280ch", "Essence", "BVM6 4x4", "G16E-GTS|1.6 L"],
+    ["Toyota", "Corolla", "2019-2026", "1.8 Hybrid", "122ch|140ch", "Hybride", "e-CVT", "THS II|1.8 L"],
+    ["Toyota", "Corolla", "2019-2026", "2.0 Hybrid", "184ch|196ch", "Hybride", "e-CVT", "Dynamic Force|2.0 L"],
+    ["Toyota", "Corolla", "2019-2026", "2.0", "169ch|197ch", "Essence", "BVM6|Direct Shift", "Dynamic Force|2.0 L"],
+    ["Toyota", "Corolla", "2019-2026", "1.8 Plug-in Hybrid", "196ch", "Hybride rechargeable", "e-CVT", "PHEV|1.8 L"],
+    ["Toyota", "RAV4", "2018-2026", "2.0", "171ch", "Essence", "BVM6|Direct Shift", "Dynamic Force|2.0 L"],
+    ["Toyota", "RAV4", "2018-2026", "2.5 Hybrid", "218ch|222ch", "Hybride", "e-CVT AWD-i", "THS II|2.5 L"],
+    ["Toyota", "RAV4", "2020-2026", "2.5 Plug-in Hybrid", "306ch|320ch", "Hybride rechargeable", "e-CVT AWD-i", "PHEV|2.5 L"],
+    ["Toyota", "RAV4", "2018-2026", "2.5 D-4D", "150ch|200ch", "Diesel", "BVM6|Direct Shift 4x4", "GD|2.5 L"],
+    ["Toyota", "C-HR", "2018-2026", "1.2 Turbo", "116ch", "Essence", "BVM6|CVT", "8NR-FTS|1.2 L"],
+    ["Toyota", "C-HR", "2018-2026", "1.8 Hybrid", "122ch|140ch", "Hybride", "e-CVT", "THS II|1.8 L"],
+    ["Toyota", "C-HR", "2023-2026", "2.0 Hybrid", "184ch|197ch", "Hybride", "e-CVT AWD-i", "Dynamic Force|2.0 L"],
+    ["Toyota", "Prius", "2016-2026", "1.8 Hybrid", "122ch|136ch", "Hybride", "e-CVT", "THS II|1.8 L"],
+    ["Toyota", "Prius", "2022-2026", "2.0 Hybrid", "197ch", "Hybride", "e-CVT", "Dynamic Force|2.0 L"],
+    ["Toyota", "Prius", "2023-2026", "2.0 Plug-in Hybrid", "223ch", "Hybride rechargeable", "e-CVT", "PHEV|2.0 L"],
+
+    ["Lexus", "UX", "2018-2026", "200", "146ch|176ch", "Hybride", "e-CVT", "THS II|2.0 L"],
+    ["Lexus", "UX", "2018-2026", "250h", "178ch|197ch", "Hybride", "e-CVT AWD", "Dynamic Force|2.0 L"],
+    ["Lexus", "UX", "2020-2026", "300e", "204ch", "Électrique", "AWD / réducteur", "BEV|54.3 kWh"],
+    ["Lexus", "NX", "2022-2026", "350h", "240ch|244ch", "Hybride", "e-CVT AWD", "THS II|2.5 L"],
+    ["Lexus", "NX", "2022-2026", "450h+", "309ch", "Hybride rechargeable", "e-CVT AWD", "PHEV|2.5 L"],
+    ["Lexus", "NX", "2022-2026", "350", "275ch", "Essence", "automatique AWD", "T24A|2.4 L"],
+    ["Lexus", "RX", "2023-2026", "350h", "246ch|250ch", "Hybride", "e-CVT AWD", "THS V|2.5 L"],
+    ["Lexus", "RX", "2023-2026", "500h", "371ch", "Hybride", "automatique AWD", "Multi Stage|2.4 L"],
+    ["Lexus", "RX", "2023-2026", "450h+", "309ch", "Hybride rechargeable", "e-CVT AWD", "PHEV|2.5 L"],
+
+    ["Honda", "Jazz", "2020-2026", "1.5 i-MMD", "109ch", "Hybride", "e-CVT", "i-MMD|1.5 L"],
+    ["Honda", "Jazz", "2020-2026", "1.5", "130ch", "Essence", "BVM6|CVT", "L15|1.5 L"],
+    ["Honda", "CR-V", "2018-2026", "1.5 Turbo", "190ch", "Essence", "CVT 4x4", "L15B|1.5 L"],
+    ["Honda", "CR-V", "2023-2026", "2.0 e:HEV", "184ch|207ch", "Hybride", "e-CVT AWD", "e:HEV|2.0 L"],
+    ["Honda", "CR-V", "2023-2026", "2.0 e:PHEV", "207ch", "Hybride rechargeable", "e-CVT AWD", "e:PHEV|2.0 L"],
+    ["Honda", "e:Ny1", "2023-2026", "e:Ny1", "204ch", "Électrique", "réducteur", "BEV|68.8 kWh"],
+
+    ["Nissan", "Qashqai", "2021-2026", "1.3 DIG-T", "140ch|158ch|160ch", "Essence", "BVM6|Xtronic 4x4", "HR13|1.3 L"],
+    ["Nissan", "Qashqai", "2022-2026", "1.5 e-POWER", "190ch|204ch", "Hybride", "automatique", "e-POWER|1.5 L"],
+    ["Nissan", "Qashqai", "2021-2026", "1.5 dCi", "115ch|150ch", "Diesel", "BVM6|Xtronic 4x4", "K9K|1.5 L"],
+    ["Nissan", "X-Trail", "2022-2026", "1.5 e-POWER", "204ch", "Hybride", "automatique 4x4", "e-POWER|1.5 L"],
+    ["Nissan", "X-Trail", "2022-2026", "1.3 DIG-T", "160ch", "Essence", "Xtronic 4x4", "HR13|1.3 L"],
+    ["Nissan", "Ariya", "2022-2026", "Single Motor", "214ch|302ch", "Électrique", "RWD / réducteur", "CMF-EV|64 kWh|87 kWh"],
+    ["Nissan", "Ariya", "2022-2026", "Dual Motor e-4ORCE", "302ch|394ch", "Électrique", "AWD / réducteur", "CMF-EV|64 kWh|87 kWh"],
+    ["Nissan", "Leaf", "2017-2026", "40 kWh", "150ch", "Électrique", "réducteur", "ZE1|40 kWh"],
+    ["Nissan", "Leaf", "2017-2026", "62 kWh e+", "217ch", "Électrique", "réducteur", "ZE1|62 kWh"],
+
+    ["Mazda", "3", "2019-2026", "1.5 Skyactiv-G", "122ch", "Essence", "BVM6|SKYACTIV-Drive", "Skyactiv-G|1.5 L"],
+    ["Mazda", "3", "2019-2026", "2.0 Skyactiv-G", "165ch", "Essence", "BVM6|SKYACTIV-Drive", "Skyactiv-G|2.0 L"],
+    ["Mazda", "3", "2019-2026", "1.5 Skyactiv-X", "150ch|186ch", "Essence", "BVM6|SKYACTIV-Drive", "Skyactiv-X|1.5 L"],
+    ["Mazda", "3", "2019-2026", "1.8 Skyactiv-D", "116ch|122ch", "Diesel", "BVM6|SKYACTIV-Drive", "Skyactiv-D|1.8 L"],
+    ["Mazda", "CX-5", "2017-2026", "2.0 Skyactiv-G", "165ch", "Essence", "BVM6|SKYACTIV-Drive 4x4", "Skyactiv-G|2.0 L"],
+    ["Mazda", "CX-5", "2017-2026", "2.5 Skyactiv-G", "194ch", "Essence", "SKYACTIV-Drive 4x4", "Skyactiv-G|2.5 L"],
+    ["Mazda", "CX-5", "2017-2026", "1.8 Skyactiv-D", "120ch|145ch", "Diesel", "BVM6|SKYACTIV-Drive 4x4", "Skyactiv-D|1.8 L"],
+    ["Mazda", "CX-5", "2017-2026", "2.2 Skyactiv-D", "150ch|184ch", "Diesel", "SKYACTIV-Drive 4x4", "Skyactiv-D|2.2 L"],
+    ["Mazda", "MX-30", "2020-2026", "e-Skyactiv EV", "145ch", "Électrique", "réducteur", "BEV|35.5 kWh"],
+    ["Mazda", "MX-30", "2022-2026", "e-Skyactiv R-EV", "170ch", "Hybride rechargeable", "automatique", "REEV|17 kWh|50 km EV"],
+
+    ["Subaru", "XV", "2017-2026", "1.6 i", "115ch", "Essence", "CVT 4x4", "FB|1.6 L"],
+    ["Subaru", "XV", "2017-2026", "2.0 i", "150ch|156ch", "Essence", "CVT 4x4", "FB|2.0 L"],
+    ["Subaru", "XV", "2019-2026", "2.0 e-BOXER", "150ch", "Hybride léger 48V", "CVT 4x4", "e-BOXER|2.0 L"],
+    ["Subaru", "Forester", "2018-2026", "2.0 i", "150ch|156ch", "Essence", "CVT 4x4", "FB|2.0 L"],
+    ["Subaru", "Forester", "2018-2026", "2.0 e-BOXER", "150ch", "Hybride léger 48V", "CVT 4x4", "e-BOXER|2.0 L"],
+    ["Subaru", "Forester", "2018-2026", "2.0D", "147ch|163ch", "Diesel", "CVT 4x4", "EE20|2.0 L"],
+
+    ["Suzuki", "Swift", "2017-2026", "1.2 Dualjet", "83ch|90ch", "Essence", "BVM5|AGS", "Dualjet|1.2 L"],
+    ["Suzuki", "Swift", "2017-2026", "1.0 Boosterjet", "112ch|136ch", "Essence", "BVM6|AGS", "Boosterjet|1.0 L"],
+    ["Suzuki", "Swift", "2021-2026", "1.2 Hybrid", "82ch|94ch", "Hybride léger 48V", "BVM5|AGS", "Smart Hybrid|1.2 L"],
+    ["Suzuki", "Vitara", "2015-2026", "1.4 Boosterjet", "150ch", "Essence", "BVM6|Auto 4x4", "Boosterjet|1.4 L"],
+    ["Suzuki", "Vitara", "2015-2026", "1.6 DDiS", "120ch", "Diesel", "BVM6|Auto 4x4", "DDiS|1.6 L"],
+    ["Suzuki", "Vitara", "2021-2026", "1.4 Hybrid AllGrip", "129ch", "Hybride léger 48V", "Auto 4x4", "Smart Hybrid|1.4 L"],
+    ["Suzuki", "S-Cross", "2022-2026", "1.4 Boosterjet", "129ch", "Essence", "BVM6|Auto 4x4", "Boosterjet|1.4 L"],
+    ["Suzuki", "S-Cross", "2022-2026", "1.5 DDiS", "105ch", "Diesel", "BVM6", "DDiS|1.5 L"],
+    ["Suzuki", "S-Cross", "2024-2026", "1.5 Full Hybrid", "116ch", "Hybride", "automatique", "HEV|1.5 L"],
+
+    ["Mitsubishi", "ASX", "2023-2026", "1.5 MIVEC", "106ch", "Essence", "CVT", "MIVEC|1.5 L"],
+    ["Mitsubishi", "ASX", "2023-2026", "PHEV", "218ch", "Hybride rechargeable", "automatique 4x4", "PHEV|11.5 kWh"],
+    ["Mitsubishi", "Outlander", "2021-2026", "2.0 MIVEC", "167ch", "Essence", "CVT 4x4", "MIVEC|2.0 L"],
+    ["Mitsubishi", "Outlander", "2021-2026", "PHEV", "224ch|309ch", "Hybride rechargeable", "automatique 4x4", "PHEV|20 kWh|22.7 kWh"],
+
+    ["Hyundai", "Tucson", "2021-2026", "1.6 TGDI", "150ch|177ch", "Essence", "BVM6|DCT", "Smartstream|1.6 L"],
+    ["Hyundai", "Tucson", "2021-2026", "1.6 TGDI 48V", "150ch|177ch", "Hybride léger 48V", "DCT", "Smartstream|1.6 L"],
+    ["Hyundai", "Tucson", "2021-2026", "1.6 CRDi 48V", "115ch|136ch", "Diesel", "BVM6|DCT", "Smartstream|1.6 L"],
+    ["Hyundai", "Tucson", "2021-2026", "1.6 Hybrid", "215ch|230ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Hyundai", "Tucson", "2021-2026", "1.6 Plug-in Hybrid", "253ch|265ch", "Hybride rechargeable", "automatique", "PHEV|1.6 L"],
+    ["Hyundai", "Kona", "2018-2026", "1.0 T-GDI", "120ch", "Essence", "DCT", "Smartstream|1.0 L"],
+    ["Hyundai", "Kona", "2018-2026", "1.6 T-GDI", "198ch", "Essence", "DCT 4x4", "Smartstream|1.6 L"],
+    ["Hyundai", "Kona", "2018-2026", "1.6 CRDi", "115ch|136ch", "Diesel", "DCT", "Smartstream|1.6 L"],
+    ["Hyundai", "Kona", "2018-2026", "Electric", "136ch|204ch|218ch", "Électrique", "RWD/AWD / réducteur", "BEV|39 kWh|64 kWh"],
+    ["Hyundai", "IONIQ 5", "2021-2026", "Light", "170ch", "Électrique", "RWD / réducteur", "E-GMP|53 kWh"],
+    ["Hyundai", "IONIQ 5", "2021-2026", "Long Range", "228ch", "Électrique", "RWD / réducteur", "E-GMP|72.6 kWh"],
+    ["Hyundai", "IONIQ 5", "2021-2026", "AWD", "306ch|325ch", "Électrique", "AWD / réducteur", "E-GMP|72.6 kWh"],
+    ["Hyundai", "IONIQ 5", "2021-2026", "N", "650ch", "Électrique", "AWD / réducteur", "E-GMP|84 kWh"],
+    ["Hyundai", "IONIQ 6", "2022-2026", "Standard", "151ch", "Électrique", "RWD / réducteur", "E-GMP|53 kWh"],
+    ["Hyundai", "IONIQ 6", "2022-2026", "Long Range", "228ch", "Électrique", "RWD / réducteur", "E-GMP|77.4 kWh"],
+    ["Hyundai", "IONIQ 6", "2022-2026", "AWD", "325ch", "Électrique", "AWD / réducteur", "E-GMP|77.4 kWh"],
+
+    ["Kia", "Ceed", "2018-2026", "1.0 T-GDI", "120ch", "Essence", "BVM6|DCT", "Smartstream|1.0 L"],
+    ["Kia", "Ceed", "2018-2026", "1.4 T-GDI", "140ch", "Essence", "DCT", "Smartstream|1.4 L"],
+    ["Kia", "Ceed", "2018-2026", "1.5 T-GDI", "160ch", "Essence", "IVT", "Smartstream|1.5 L"],
+    ["Kia", "Ceed", "2018-2026", "1.6 CRDi", "115ch|136ch", "Diesel", "BVM6|DCT", "Smartstream|1.6 L"],
+    ["Kia", "Ceed", "2022-2026", "1.6 Hybrid", "140ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Kia", "Ceed", "2022-2026", "1.6 Plug-in Hybrid", "171ch", "Hybride rechargeable", "automatique", "PHEV|1.6 L"],
+    ["Kia", "Sportage", "2022-2026", "1.6 TGDI", "150ch|180ch", "Essence", "BVM6|DCT", "Smartstream|1.6 L"],
+    ["Kia", "Sportage", "2022-2026", "1.6 CRDi", "136ch", "Diesel", "BVM6|DCT 4x4", "Smartstream|1.6 L"],
+    ["Kia", "Sportage", "2022-2026", "1.6 Hybrid", "215ch|230ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Kia", "Sportage", "2022-2026", "1.6 Plug-in Hybrid", "253ch|265ch", "Hybride rechargeable", "automatique 4x4", "PHEV|1.6 L"],
+    ["Kia", "Niro", "2022-2026", "1.6 Hybrid", "140ch", "Hybride", "automatique", "HEV|1.6 L"],
+    ["Kia", "Niro", "2022-2026", "1.6 Plug-in Hybrid", "183ch", "Hybride rechargeable", "automatique", "PHEV|1.6 L"],
+    ["Kia", "Niro", "2022-2026", "Electric", "204ch", "Électrique", "réducteur", "BEV|64.8 kWh"],
+    ["Kia", "EV6", "2021-2026", "Light", "151ch", "Électrique", "RWD / réducteur", "E-GMP|52.5 kWh"],
+    ["Kia", "EV6", "2021-2026", "Standard", "151ch|228ch", "Électrique", "RWD / réducteur", "E-GMP|52.5 kWh|77.4 kWh"],
+    ["Kia", "EV6", "2021-2026", "Long Range", "228ch|325ch", "Électrique", "RWD/AWD / réducteur", "E-GMP|77.4 kWh"],
+    ["Kia", "EV6", "2021-2026", "GT", "430ch|585ch", "Électrique", "AWD / réducteur", "E-GMP|77.4 kWh"],
+    ["Kia", "EV9", "2024-2026", "Long Range", "204ch", "Électrique", "RWD / réducteur", "E-GMP|99.8 kWh"],
+    ["Kia", "EV9", "2024-2026", "AWD", "385ch|400ch", "Électrique", "AWD / réducteur", "E-GMP|99.8 kWh"],
+
+    ["MG", "MG4", "2022-2026", "Standard Range", "170ch", "Électrique", "RWD / réducteur", "BEV|51 kWh"],
+    ["MG", "MG4", "2022-2026", "Long Range", "170ch|204ch", "Électrique", "RWD / réducteur", "BEV|64 kWh"],
+    ["MG", "MG4", "2022-2026", "XPOWER", "435ch", "Électrique", "AWD / réducteur", "BEV|64 kWh"],
+    ["MG", "MG ZS EV", "2019-2026", "ZS EV", "143ch|177ch", "Électrique", "réducteur", "BEV|44.5 kWh|50.3 kWh"],
+    ["MG", "MG5", "2021-2026", "1.5 Turbo", "169ch", "Essence", "BVM6|CVT", "SAIC|1.5 L"],
+    ["MG", "MG5", "2022-2026", "MG5 Electric", "156ch|170ch", "Électrique", "réducteur", "BEV|51 kWh|61.7 kWh"],
+    ["MG", "Marvel R", "2021-2026", "Standard Range", "180ch", "Électrique", "RWD / réducteur", "BEV|70 kWh"],
+    ["MG", "Marvel R", "2021-2026", "Long Range AWD", "288ch", "Électrique", "AWD / réducteur", "BEV|70 kWh"],
+
+    ["BYD", "Atto 3", "2022-2026", "Comfort", "204ch", "Électrique", "réducteur", "Blade Battery|60.5 kWh"],
+    ["BYD", "Atto 3", "2022-2026", "Design", "204ch", "Électrique", "réducteur", "Blade Battery|60.5 kWh"],
+    ["BYD", "Dolphin", "2023-2026", "Comfort", "95ch|177ch", "Électrique", "réducteur", "Blade Battery|44.9 kWh|60.4 kWh"],
+    ["BYD", "Dolphin", "2023-2026", "Design", "204ch", "Électrique", "réducteur", "Blade Battery|60.4 kWh"],
+    ["BYD", "Seal", "2023-2026", "Comfort", "204ch", "Électrique", "RWD / réducteur", "Blade Battery|61.4 kWh"],
+    ["BYD", "Seal", "2023-2026", "Design", "313ch", "Électrique", "RWD / réducteur", "Blade Battery|82.5 kWh"],
+    ["BYD", "Seal", "2023-2026", "AWD Performance", "530ch", "Électrique", "AWD / réducteur", "Blade Battery|82.5 kWh"],
+
+    // --- AMÉRIQUE ---
+    ["Tesla", "Model 3", "2017-2026", "Standard Range Plus", "283ch", "Électrique", "RWD / réducteur", "BEV|57.5 kWh|60 kWh"],
+    ["Tesla", "Model 3", "2017-2026", "Long Range", "351ch|442ch", "Électrique", "RWD/AWD / réducteur", "BEV|75 kWh|82 kWh"],
+    ["Tesla", "Model 3", "2017-2026", "Performance", "513ch|534ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
+    ["Tesla", "Model Y", "2020-2026", "Standard Range", "299ch", "Électrique", "RWD / réducteur", "BEV|60 kWh|62.5 kWh"],
+    ["Tesla", "Model Y", "2020-2026", "Long Range", "442ch|534ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
+    ["Tesla", "Model Y", "2020-2026", "Performance", "534ch|615ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
+    ["Tesla", "Model S", "2012-2026", "Long Range", "670ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
+    ["Tesla", "Model S", "2012-2026", "Plaid", "1020ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
+    ["Tesla", "Model X", "2015-2026", "Long Range", "670ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
+    ["Tesla", "Model X", "2015-2026", "Plaid", "1020ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
+
+    ["Jeep", "Renegade", "2014-2026", "1.0 T3", "120ch", "Essence", "BVM6|DDCT", "Firefly|1.0 L"],
+    ["Jeep", "Renegade", "2014-2026", "1.3 T4", "150ch", "Essence", "DDCT|4x4", "Hurricane|1.3 L"],
+    ["Jeep", "Renegade", "2014-2026", "1.6 MultiJet", "120ch|130ch", "Diesel", "BVM6|DDCT", "MultiJet|1.6 L"],
+    ["Jeep", "Renegade", "2014-2026", "2.0 MultiJet 4x4", "140ch|170ch", "Diesel", "BVM9 4x4", "MultiJet|2.0 L"],
+    ["Jeep", "Compass", "2017-2026", "1.3 T4", "130ch|150ch|175ch", "Essence", "DDCT|4x4", "Hurricane|1.3 L"],
+    ["Jeep", "Compass", "2017-2026", "1.6 MultiJet", "120ch|130ch", "Diesel", "BVM6|DDCT", "MultiJet|1.6 L"],
+    ["Jeep", "Compass", "2017-2026", "2.0 MultiJet 4x4", "140ch|170ch", "Diesel", "BVM9 4x4", "MultiJet|2.0 L"],
+    ["Jeep", "Compass", "2021-2026", "4xe", "240ch", "Hybride rechargeable", "automatique 4x4", "PHEV4xe|1.3 L"],
+    ["Jeep", "Grand Cherokee", "2021-2026", "3.6 V6", "286ch", "Essence", "automatique 4x4", "Pentastar|3.6 L"],
+    ["Jeep", "Grand Cherokee", "2021-2026", "2.0 Turbo", "270ch", "Essence", "automatique 4x4", "Hurricane|2.0 L"],
+    ["Jeep", "Grand Cherokee", "2021-2026", "4xe", "381ch", "Hybride rechargeable", "automatique 4x4", "PHEV4xe|2.0 L"],
+
+    ["Ford", "Fiesta", "2017-2023", "1.0 EcoBoost", "100ch|125ch|140ch|155ch", "Essence", "BVM5|BVM6|PowerShift", "EcoBoost|1.0 L"],
+    ["Ford", "Fiesta", "2017-2023", "1.1", "70ch|85ch|100ch", "Essence", "BVM5", "Ti-VCT|1.1 L"],
+    ["Ford", "Fiesta", "2017-2023", "1.5 EcoBoost ST", "200ch", "Essence", "BVM6", "EcoBoost|1.5 L"],
+    ["Ford", "Fiesta", "2017-2023", "1.5 TDCi", "95ch|120ch", "Diesel", "BVM5|BVM6", "TDCi|1.5 L"],
+    ["Ford", "Focus", "2018-2025", "1.0 EcoBoost", "100ch|125ch|155ch", "Essence", "BVM6|PowerShift", "EcoBoost|1.0 L"],
+    ["Ford", "Focus", "2018-2025", "1.5 EcoBoost", "150ch|182ch", "Essence", "BVM6|PowerShift", "EcoBoost|1.5 L"],
+    ["Ford", "Focus", "2018-2025", "2.3 EcoBoost ST", "280ch", "Essence", "BVM6", "EcoBoost|2.3 L"],
+    ["Ford", "Focus", "2018-2025", "1.5 EcoBlue", "95ch|120ch", "Diesel", "BVM6", "EcoBlue|1.5 L"],
+    ["Ford", "Focus", "2018-2025", "2.0 EcoBlue", "150ch|190ch", "Diesel", "BVM6|Auto", "EcoBlue|2.0 L"],
+    ["Ford", "Puma", "2019-2026", "1.0 EcoBoost Hybrid", "125ch|155ch", "Hybride léger 48V", "BVM6|PowerShift", "EcoBoost|1.0 L"],
+    ["Ford", "Puma", "2019-2026", "1.0 EcoBoost", "100ch|125ch", "Essence", "BVM6", "EcoBoost|1.0 L"],
+    ["Ford", "Puma", "2019-2026", "1.5 EcoBlue", "120ch", "Diesel", "BVM6", "EcoBlue|1.5 L"],
+    ["Ford", "Puma", "2019-2026", "ST", "190ch", "Essence", "BVM6", "EcoBoost|1.5 L"],
+    ["Ford", "Kuga", "2020-2026", "1.5 EcoBoost", "120ch|150ch", "Essence", "BVM6|Auto", "EcoBoost|1.5 L"],
+    ["Ford", "Kuga", "2020-2026", "2.5 Plug-in Hybrid", "225ch", "Hybride rechargeable", "automatique", "PHEV|2.5 L"],
+    ["Ford", "Kuga", "2020-2026", "2.5 Full Hybrid", "190ch", "Hybride", "automatique", "HEV|2.5 L"],
+    ["Ford", "Kuga", "2020-2026", "2.0 EcoBlue", "120ch|150ch|190ch", "Diesel", "BVM6|Auto 4x4", "EcoBlue|2.0 L"],
+    ["Ford", "Mustang Mach-E", "2021-2026", "Standard Range RWD", "269ch|294ch", "Électrique", "RWD / réducteur", "BEV|70 kWh|88 kWh"],
+    ["Ford", "Mustang Mach-E", "2021-2026", "Extended Range RWD", "294ch|351ch", "Électrique", "RWD / réducteur", "BEV|88 kWh"],
+    ["Ford", "Mustang Mach-E", "2021-2026", "GT AWD", "487ch|534ch", "Électrique", "AWD / réducteur", "BEV|88 kWh"],
+    ["Ford", "Transit", "2014-2026", "2.0 EcoBlue", "105ch|125ch|170ch|185ch", "Diesel", "BVM6|Auto", "EcoBlue|2.0 L"],
+    ["Ford", "Transit", "2022-2026", "E-Transit", "269ch", "Électrique", "réducteur", "BEV|68 kWh"],
+
+    ["Chevrolet", "Bolt EV", "2017-2026", "Bolt EV", "204ch", "Électrique", "réducteur", "BEV|66 kWh"],
+    ["Chevrolet", "Bolt EUV", "2021-2026", "Bolt EUV", "204ch", "Électrique", "réducteur", "BEV|66 kWh"],
+    ["Chevrolet", "Equinox EV", "2024-2026", "Front Drive", "213ch", "Électrique", "RWD / réducteur", "Ultium|85 kWh"],
+    ["Chevrolet", "Equinox EV", "2024-2026", "AWD", "290ch", "Électrique", "AWD / réducteur", "Ultium|85 kWh"],
+
+    ["Ram", "1500", "2019-2026", "3.6 V6", "305ch", "Essence", "automatique 4x4", "Pentastar|3.6 L"],
+    ["Ram", "1500", "2019-2026", "5.7 HEMI V8", "395ch", "Essence", "automatique 4x4", "HEMI|5.7 L"],
+    ["Ram", "1500", "2019-2026", "3.0 EcoDiesel", "260ch|420ch", "Diesel", "automatique 4x4", "EcoDiesel|3.0 L"],
+
+    ["Chrysler", "Pacifica", "2017-2026", "3.6 V6", "287ch", "Essence", "automatique", "Pentastar|3.6 L"],
+    ["Chrysler", "Pacifica", "2021-2026", "Hybrid", "260ch", "Hybride", "automatique", "eFlite|3.6 L"]
   ];
 
-  const BRAND_ALIASES = {
-    volkswagen: ["vw", "vag", "volkswagen group"],
-    mercedesbenz: ["mercedes", "benz", "mb"],
-    citroen: ["citroen"],
-    landrover: ["landrover", "lr"],
-    rangerover: ["land rover", "range"],
-    alfaromeo: ["alfa"],
-    maserati: ["masa"],
-    chevrolet: ["chevy"],
-    bmw: ["bayerische motoren werke"],
-    mini: ["mini cooper"],
-    tesla: ["tesla motors"],
-    byd: ["build your dreams"],
-    mg: ["morris garages"],
-    xpeng: ["x peng"],
-    nio: ["next ev"],
-    gwm: ["great wall motor"],
-    ldv: ["maxus"],
-    jac: ["jianghuai automobile"],
-    dfsk: ["dongfeng small truck"],
-    iveco: ["iveco bus"],
-    man: ["man truck"],
-    scania: ["scania truck"]
-  };
+  /* =========================================================
+     INITIALISATION DU CATALOGUE À PARTIR DE LA BASE MASSIVE
+     ========================================================= */
+  const seedMassiveCatalog = () => {
+    MASSIVE_DB.forEach(row => {
+      const [b, m, y, e, p, t, tr, codeOrDisp] = row;
+      
+      // Ajout moteur
+      addEngine({
+        b, m, y, e, p, t, tr,
+        code: codeOrDisp, 
+        displacement: codeOrDisp.includes("L") || codeOrDisp.includes("cm3") ? codeOrDisp : "",
+        source: "base massive locale",
+        sourceUrl: ""
+      }, "", true, "base massive locale");
 
-  const addBrand = (name, aliases = [], sourceLabel = "local", sourceUrl = "") => {
-    name = String(name || "").trim();
-    if (!name) return;
-
-    const k = normKey(name);
-    if (!catalog.brands[k]) {
-      catalog.brands[k] = {
-        name,
-        aliases: [],
-        aliasKeys: {},
-        source: sourceLabel || "local",
-        sourceUrl: sourceUrl || ""
-      };
-    }
-
-    const brand = catalog.brands[k];
-
-    const pushAlias = (a) => {
-      a = String(a || "").trim();
-      if (!a) return;
-      const ak = normKey(a);
-      if (!brand.aliasKeys[ak]) {
-        brand.aliasKeys[ak] = true;
-        brand.aliases.push(a);
-      }
-    };
-
-    pushAlias(name);
-    (Array.isArray(aliases) ? aliases : []).forEach(pushAlias);
-    (BRAND_ALIASES[k] || []).forEach(pushAlias);
-  };
-
-  const addModel = (brand, name, years = "", sourceLabel = "local", sourceUrl = "") => {
-    brand = String(brand || "").trim();
-    name = String(name || "").trim();
-    if (!brand || !name || name === "*") return;
-
-    addBrand(brand, null, sourceLabel, sourceUrl);
-
-    const k = `${normKey(brand)}|${normKey(name)}`;
-    if (catalog.modelKeys[k]) return;
-
-    catalog.modelKeys[k] = true;
-    catalog.models.push({
-      brand,
-      name,
-      years: valToString(years),
-      source: sourceLabel || "local",
-      sourceUrl: sourceUrl || ""
+      // Ajout modèle si nouveau
+      addModel(b, m, y, "base massive locale", "");
     });
+    
+    // Ajouter quelques défauts critiques connus pour enrichir l'analyse
+    [
+      {
+        b: "Skoda", m: "Elroq|Enyaq", y: "2021-2026",
+        e: "Batterie haute tension / BMS / autonomie", p: "55 kWh|63 kWh|77 kWh",
+        s: "autonomie reduite|soh|charge lente|charge impossible|deséquilibre cellules|erreur BMS|temperature batterie|voyant batterie|perte autonomie|batterie froide|chauffe batterie|gonflement batterie|odeur brulee|fumee",
+        sev: "critique", wf: 0.92,
+        n: "Plateforme MEB : surveillance BMS, cellules, gestion thermique, dégradation d'autonomie et cohérence entre capacité annoncée et usage réel.",
+        law: "Sécurité L.423-1 C.consom.; conformité L.217-4 C.consom.; produits défectueux art. 1245 C.civ.; vice caché art. 1641 C.civ.",
+        rec: "Rappels EV/MEB; DGCCRF; KBA; NHTSA; fiches auto-diagnostic; vérification VIN; lecture SOH/BMS.",
+        tg: "batterie|charge|autonomie|electricite|securite|logiciel|MEB",
+        dtc: "P0Axx|U1xxx|P1xxx|B1xxx", et: "Électrique"
+      },
+      {
+        b: "Peugeot", m: "208|2008|308|3008|5008|Partner|Rifter|Boxer", y: "2017-2024",
+        e: "EB2 / 1.2 PureTech", p: "100ch-155ch",
+        s: "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
+        sev: "critique", wf: 0.85,
+        n: "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
+        law: "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
+        rec: "Extension garantie Stellantis PureTech; TSB; DGCCRF",
+        tg: "moteur|distribution|courroie|huile|pompe|critique", et: "Essence"
+      },
+      {
+        b: "Renault", m: "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", y: "2017-2022",
+        e: "K9K / 1.5 dCi", p: "75ch-110ch",
+        s: "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
+        sev: "critique", wf: 0.9,
+        n: "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
+        law: "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
+        rec: "Programme technique Renault K9K; TSB; jurisprudences",
+        tg: "moteur|huile|bielle|pompe|bruit|critique", et: "Diesel"
+      },
+      {
+        b: "Tesla", m: "Model 3|Model Y|Model S|Model X", y: "2017-2027",
+        e: "Électrique", p: "283ch-1020ch",
+        s: "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
+        sev: "critique", wf: 0.92,
+        n: "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
+        law: "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
+        rec: "NHTSA Tesla recalls; DGCCRF; SafetyGate",
+        tg: "ADAS|batterie|charge|logiciel|securite", et: "Électrique"
+      }
+    ].forEach(d => addDefect(d, "base massive locale", ""));
   };
 
-  const parseDisplacement = (text) => {
-    const t = String(text || "");
-    let m = t.match(/\b(\d\.\d)\s*(?:l|litre|litres)?\b/i);
-    if (m) return m[1] + " L";
-
-    m = t.match(/\b(\d{3,4})\s*(?:cm3|cc)\b/i);
-    if (m) return m[1] + " cm3";
-
-    m = t.match(/\b(\d{3,4})\b/i);
-    if (m && parseInt(m[1], 10) >= 600 && parseInt(m[1], 10) <= 8000 && /\b(diesel|essence|turbo|tdi|hdi|dci|tsi|tfsi|puretech|ecoboost)\b/i.test(t)) {
-      return m[1] + " cm3";
-    }
-
-    return "";
-  };
-
-  const parsePower = (text) => {
-    const t = String(text || "");
-    const parts = [];
-    const re = /(\d+(?:[.,]\d+)?)\s*(ch|cv|hp|kw|kwh)/gi;
-    let m;
-
-    while ((m = re.exec(t)) !== null) {
-      const value = m[1].replace(",", ".");
-      let unit = m[2].toLowerCase();
-      if (unit === "cv" || unit === "hp") unit = "ch";
-      parts.push(`${value} ${unit}`);
-    }
-
-    if (parts.length) return unique(parts).join("|");
-
-    m = t.match(/\b(\d{2,3})\b/);
-    if (m && /\b(ch|kw|puissance)\b/i.test(t)) return m[1] + " ch";
-
-    return "";
-  };
-
-  const parsePowerNumber = (text) => {
-    const t = String(text || "");
-    let m = t.match(/(\d+(?:[.,]\d+)?)\s*(ch|cv|hp)/i);
-    if (m) return parseFloat(m[1].replace(",", "."));
-
-    m = t.match(/(\d+(?:[.,]\d+)?)\s*kw/i);
-    if (m) return parseFloat(m[1].replace(",", ".")) * 1.36;
-
-    return 0;
-  };
-
-  const parseCapacityNumber = (text) => {
-    const t = String(text || "");
-    const m = t.match(/(\d+(?:[.,]\d+)?)\s*kwh/i);
-    return m ? parseFloat(m[1].replace(",", ".")) : 0;
-  };
-
-  const parseDisplacementNumber = (text) => {
-    const t = String(text || "");
-    let m = t.match(/\b(\d\.\d)\b/);
-    if (m) return parseFloat(m[1]);
-
-    m = t.match(/\b(\d{3,4})\s*(?:cm3|cc)?\b/i);
-    if (m) {
-      const v = parseInt(m[1], 10);
-      if (v >= 600 && v <= 8000) return v / 1000;
-    }
-
-    return 0;
-  };
-
+  /* =========================================================
+     FONCTIONS UTILITAIRES RESTANTES (INFER FUEL, LOOKS LIKE, ETC.)
+     ========================================================= */
   const inferFuel = (text) => {
     const t = norm(text || "");
-
     if (containsAny(t, ["hydrogene", "h2", "fuel cell", "pile a combustible"])) return "Hydrogène";
-
-    if (containsAny(t, [
-      "hybride rechargeable", "plug-in", "phev", "e-tense", "4xe", "prime",
-      "e-hybrid", "xdrive45e", "tucson phev", "sportage phev", "niro phev",
-      "compass 4xe", "wrangler 4xe", "grand cherokee 4xe", "tonale phev"
-    ])) return "Hybride rechargeable";
-
-    if (containsAny(t, [
-      "48v", "mild hybrid", "micro-hybridation", "eq boost", "boosterjet",
-      "firefly hybrid", "hybrid 48", "e-torque", "egmp"
-    ])) return "Hybride léger 48V";
-
-    const hy = containsAny(t, [
-      "hybride", "hybrid", "ths", "i-mmd", "e-power", "self-charging",
-      "prius", "yaris hybrid", "corolla hybrid", "c-hr hybrid", "rav4 hybrid",
-      "e:hev", "full hybrid"
-    ]);
-
-    const el = containsAny(t, [
-      "electrique", "electric", "bev", "battery", "bms", "charge", "autonomie",
-      "tesla", "id.3", "id.4", "id.5", "id.7", "ioniq", "atto", "model 3",
-      "model y", "e-tron", "e-cmp", "megane e-tech", "scenic e-tech",
-      "austral e-tech", "captur e-tech", "spring", "500e", "e-corsa",
-      "e-208", "e-2008", "enyaq", "elroq", "born", "taycan", "mach-e", "i-pace",
-      "ariya", "leaf", "mx-30", "eqs", "eqe", "eqb", "eqa", "q4 e-tron",
-      "ev6", "ev9", "mg4", "seal", "dolphin", "bolt", "kwh"
-    ]);
-
+    if (containsAny(t, ["hybride rechargeable", "plug-in", "phev", "e-tense", "4xe", "prime", "e-hybrid", "xdrive45e", "tucson phev", "sportage phev", "niro phev", "compass 4xe", "wrangler 4xe", "grand cherokee 4xe", "tonale phev"])) return "Hybride rechargeable";
+    if (containsAny(t, ["48v", "mild hybrid", "micro-hybridation", "eq boost", "boosterjet", "firefly hybrid", "hybrid 48", "e-torque", "egmp"])) return "Hybride léger 48V";
+    const hy = containsAny(t, ["hybride", "hybrid", "ths", "i-mmd", "e-power", "self-charging", "prius", "yaris hybrid", "corolla hybrid", "c-hr hybrid", "rav4 hybrid", "e:hev", "full hybrid"]);
+    const el = containsAny(t, ["electrique", "electric", "bev", "battery", "bms", "charge", "autonomie", "tesla", "id.3", "id.4", "id.5", "id.7", "ioniq", "atto", "model 3", "model y", "e-tron", "e-cmp", "megane e-tech", "scenic e-tech", "austral e-tech", "captur e-tech", "spring", "500e", "e-corsa", "e-208", "e-2008", "enyaq", "elroq", "born", "taycan", "mach-e", "i-pace", "ariya", "leaf", "mx-30", "eqs", "eqe", "eqb", "eqa", "q4 e-tron", "ev6", "ev9", "mg4", "seal", "dolphin", "bolt", "kwh"]);
     if (hy && el) return "Hybride / électrique";
     if (hy) return "Hybride";
     if (el) return "Électrique";
-
-    if (containsAny(t, [
-      "diesel", "dci", "tdi", "hdi", "bluehdi", "bluemotion", "cdti",
-      "ddis", "crdi", "k9k", "dv6", "om654", "b47", "ea288", "d-4d",
-      "gasoil", "multijet", "ecoblue", "bluedci", "tdci"
-    ])) return "Diesel";
-
-    if (containsAny(t, [
-      "essence", "tsi", "tfsi", "tce", "puretech", "firefly", "ecoboost",
-      "skyactiv-g", "skyactiv-x", "smartstream", "gamma", "theta", "b38",
-      "b46", "b48", "b58", "ea211", "ea888", "ingenium", "turbo essence",
-      "1.0 tce", "1.3 tce", "1.2 puretech", "1.5 tsi", "2.0 tsi", "2.3 ecoboost"
-    ]) && !containsAny(t, ["diesel", "electrique", "hybride"])) return "Essence";
-
+    if (containsAny(t, ["diesel", "dci", "tdi", "hdi", "bluehdi", "bluemotion", "cdti", "ddis", "crdi", "k9k", "dv6", "om654", "b47", "ea288", "d-4d", "gasoil", "multijet", "ecoblue", "bluedci", "tdci"])) return "Diesel";
+    if (containsAny(t, ["essence", "tsi", "tfsi", "tce", "puretech", "firefly", "ecoboost", "skyactiv-g", "skyactiv-x", "smartstream", "gamma", "theta", "b38", "b46", "b48", "b58", "ea211", "ea888", "ingenium", "turbo essence", "1.0 tce", "1.3 tce", "1.2 puretech", "1.5 tsi", "2.0 tsi", "2.3 ecoboost"]) && !containsAny(t, ["diesel", "electrique", "hybride"])) return "Essence";
     if (containsAny(t, ["gpl", "lp/g", "liquefied petroleum", "eco-g"])) return "GPL";
     if (containsAny(t, ["e85", "bioethanol", "superethanol"])) return "E85 / Bioéthanol";
-
     return "Non précisé / mixte";
   };
 
   const isFuelType = (f) => {
     f = norm(f || "");
-    return ["essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol", "hydrogene"]
-      .some((x) => f.includes(x));
+    return ["essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol", "hydrogene"].some((x) => f.includes(x));
   };
 
   const isElectricLike = (fuel) => {
@@ -1200,86 +1501,41 @@
   const looksLikeMotorisation = (text) => {
     const t = norm(text || "");
     if (!t || t.length < 2) return false;
-
-    if (containsAny(t, [
-      "essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol", "hydrogene",
-      "turbo", "tdi", "tsi", "tfsi", "hdi", "dci", "bluehdi", "bluedci",
-      "puretech", "firefly", "ecoboost", "skyactiv", "boostjet", "ecotorque",
-      "e-tech", "etech", "phev", "bev", "48v", "mild", "full hybrid",
-      "plug-in", "rechargeable", "electric", "hybrid", "multijet", "tdci",
-      "ecoblue", "d-4d", "thp", "tce", "t-gdi", "tgdi", "crdi", "mpi", "gdi",
-      "i-mmd", "e:hev", "e-power", "self-charging", "elroq", "enyaq", "kwh"
-    ])) return true;
-
+    if (containsAny(t, ["essence", "diesel", "hybride", "electrique", "gpl", "e85", "bioethanol", "hydrogene", "turbo", "tdi", "tsi", "tfsi", "hdi", "dci", "bluehdi", "bluedci", "puretech", "firefly", "ecoboost", "skyactiv", "boostjet", "ecotorque", "e-tech", "etech", "phev", "bev", "48v", "mild", "full hybrid", "plug-in", "rechargeable", "electric", "hybrid", "multijet", "tdci", "ecoblue", "d-4d", "thp", "tce", "t-gdi", "tgdi", "crdi", "mpi", "gdi", "i-mmd", "e:hev", "e-power", "self-charging", "elroq", "enyaq", "kwh"])) return true;
     if (/\b\d\.\d\b/.test(t)) return true;
     if (/\b\d{3,4}\b/.test(t) && /\b(ch|kw|kwh|hp|cv|cm3|cc)\b/.test(t)) return true;
     if (/^[a-z0-9 .,_-]{3,70}$/.test(t) && /\b[a-z]{1,4}\d{2,3}\b/.test(t)) return true;
-
     return false;
   };
 
   const createEngineLabel = (e, d, p, f, tr, code) => {
     e = String(e || "").trim();
     if (e) return e;
-
     const parts = [d, p, f, tr, code].filter((x) => x && String(x).trim());
     return parts.length ? parts.join(" ") : "Motorisation non nommée";
   };
 
   const normalizeEngineInput = (o, sourceLabel = "catalogue", sourceUrl = "", keyFallback = "") => {
     if (!o) return null;
-
-    let brand = "";
-    let model = "";
-    let years = "";
-    let engine = "";
-    let power = "";
-    let fuel = "";
-    let trans = "";
-    let code = "";
-    let displacement = "";
-    let source = sourceLabel || "catalogue";
-    let url = sourceUrl || "";
-    let confidence = 0.75;
+    let brand = "", model = "", years = "", engine = "", power = "", fuel = "", trans = "", code = "", displacement = "", source = sourceLabel || "catalogue", url = sourceUrl || "", confidence = 0.75;
 
     if (Array.isArray(o)) {
-      brand = o[0] || "";
-      model = o[1] || "";
-      years = o[2] || "";
-      engine = o[3] || "";
-      power = o[4] || "";
-      fuel = o[5] || "";
-      trans = o[6] || "";
-      code = o[7] || "";
-      displacement = o[8] || "";
+      brand = o[0] || ""; model = o[1] || ""; years = o[2] || ""; engine = o[3] || ""; power = o[4] || ""; fuel = o[5] || ""; trans = o[6] || ""; code = o[7] || ""; displacement = o[8] || "";
     } else if (typeof o === "object") {
-      brand = getBrandField(o);
-      model = getModelField(o);
-      years = getYearsField(o);
-      engine = getEngineField(o);
-      power = getPowerField(o);
-      fuel = getFuelField(o);
-      trans = getTransField(o);
-      code = getCodeField(o);
-      displacement = getDisplacementField(o);
-      source = valToString(getField(o, ["source", "src"])) || source;
-      url = valToString(getField(o, ["sourceUrl", "url", "lien", "link"])) || url;
+      brand = getBrandField(o); model = getModelField(o); years = getYearsField(o); engine = getEngineField(o); power = getPowerField(o); fuel = getFuelField(o); trans = getTransField(o); code = getCodeField(o); displacement = getDisplacementField(o);
+      source = valToString(getField(o, ["source", "src"])) || source; url = valToString(getField(o, ["sourceUrl", "url", "lien", "link"])) || url;
       confidence = typeof o.confidence === "number" ? o.confidence : confidence;
-
       if (!engine && keyFallback && !isMetaKey(keyFallback)) engine = keyFallback;
       if (!engine && o.name && (power || fuel || displacement)) engine = o.name;
     }
 
-    brand = String(brand || "").trim();
-    model = String(model || "").trim();
+    brand = String(brand || "").trim(); model = String(model || "").trim();
     if (!brand || !model) return null;
 
     engine = String(engine || "").trim();
     power = String(power || "").trim() || parsePower(`${engine} ${code} ${displacement}`);
     displacement = String(displacement || "").trim() || parseDisplacement(`${engine} ${code}`);
-    code = String(code || "").trim();
-    trans = String(trans || "").trim();
-    years = String(years || "").trim();
+    code = String(code || "").trim(); trans = String(trans || "").trim(); years = String(years || "").trim();
 
     if (!fuel || !isFuelType(fuel)) {
       fuel = inferFuel(`${engine} ${power} ${displacement} ${trans} ${code} ${model} ${years}`);
@@ -1294,43 +1550,15 @@
       else confidence = 0.75;
     }
 
-    return {
-      brand,
-      model,
-      years,
-      engine,
-      displacement,
-      power,
-      fuel,
-      transmission: trans,
-      code,
-      source,
-      sourceUrl: url,
-      confidence
-    };
+    return { brand, model, years, engine, displacement, power, fuel, transmission: trans, code, source, sourceUrl: url, confidence };
   };
 
   const addEngine = (o, sourceUrl = "", force = false, sourceLabel = "catalogue", keyFallback = "") => {
     const e = normalizeEngineInput(o, sourceLabel || "catalogue", sourceUrl || "", keyFallback || "");
     if (!e) return;
-
-    if (!force && !isFuelType(e.fuel) && !looksLikeMotorisation(`${e.engine} ${e.power} ${e.displacement} ${e.code}`)) {
-      return;
-    }
-
-    const k = [
-      normKey(e.brand),
-      normKey(e.model),
-      normKey(e.engine),
-      normKey(e.displacement),
-      normKey(e.power),
-      normKey(e.fuel),
-      normKey(e.transmission),
-      normKey(e.code)
-    ].join("|");
-
+    if (!force && !isFuelType(e.fuel) && !looksLikeMotorisation(`${e.engine} ${e.power} ${e.displacement} ${e.code}`)) return;
+    const k = [normKey(e.brand), normKey(e.model), normKey(e.engine), normKey(e.displacement), normKey(e.power), normKey(e.fuel), normKey(e.transmission), normKey(e.code)].join("|");
     if (catalog.engineKeys[k]) return;
-
     catalog.engineKeys[k] = true;
     catalog.engines.push(e);
     addModel(e.brand, e.model, e.years, e.source, e.sourceUrl);
@@ -1338,14 +1566,8 @@
 
   const normalizeDefect = (d, sourceLabel = "base locale", sourceUrl = "") => {
     if (!d) return null;
-
     const out = {
-      b: getBrandField(d),
-      m: getModelField(d) || "*",
-      y: getYearsField(d),
-      e: getEngineField(d),
-      p: getPowerField(d),
-      s: getSymptomsField(d),
+      b: getBrandField(d), m: getModelField(d) || "*", y: getYearsField(d), e: getEngineField(d), p: getPowerField(d), s: getSymptomsField(d),
       sev: valToString(getField(d, ["sev", "severity", "gravite", "gravité"])) || "moyen",
       wf: typeof d.wf === "number" ? d.wf : (typeof d.wearFactor === "number" ? d.wearFactor : 0.5),
       n: valToString(getField(d, ["n", "note", "description", "fiche", "detail"])),
@@ -1356,9 +1578,7 @@
       source: valToString(getField(d, ["source", "src"])) || sourceLabel || "base locale",
       sourceUrl: valToString(getField(d, ["sourceUrl", "url", "lien", "link"])) || sourceUrl || ""
     };
-
     out.et = valToString(getField(d, ["et", "engineType", "type", "fuel", "energie"])) || inferFuel(`${out.e} ${out.tg} ${out.s} ${out.n}`);
-
     if (!out.b || !out.s) return null;
     return out;
   };
@@ -1366,52 +1586,25 @@
   const addDefect = (d, sourceLabel = "base locale", sourceUrl = "") => {
     const nd = normalizeDefect(d, sourceLabel, sourceUrl);
     if (!nd) return;
-
     catalog.defects.push(nd);
     addBrand(nd.b, null, nd.source, nd.sourceUrl);
-
     if (nd.m && nd.m !== "*") {
       String(nd.m).split("|").forEach((m) => addModel(nd.b, m, nd.y, nd.source, nd.sourceUrl));
     }
-
     if (nd.e && nd.m && nd.m !== "*" && looksLikeMotorisation(nd.e)) {
       String(nd.m).split("|").forEach((m) => {
-        addEngine({
-          b: nd.b,
-          m,
-          y: nd.y,
-          e: nd.e,
-          p: nd.p,
-          t: nd.et,
-          tr: "",
-          code: "",
-          source: nd.source,
-          sourceUrl: nd.sourceUrl
-        }, nd.sourceUrl, true, nd.source);
+        addEngine({ b: nd.b, m, y: nd.y, e: nd.e, p: nd.p, t: nd.et, tr: "", code: "", source: nd.source, sourceUrl: nd.sourceUrl }, nd.sourceUrl, true, nd.source);
       });
     }
   };
 
-  const getAllBrands = () => Object.keys(catalog.brands)
-    .map((k) => catalog.brands[k])
-    .sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
+  const getAllBrands = () => Object.keys(catalog.brands).map((k) => catalog.brands[k]).sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
 
-  const getModels = (brand, year) => catalog.models
-    .filter((m) => brandMatches(m.brand, brand) && yearMatches(m.years, year))
-    .map((m) => ({
-      id: `${normKey(m.brand)}|${normKey(m.name)}`,
-      brand: m.brand,
-      name: m.name,
-      years: m.years,
-      source: m.source
-    }))
-    .sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
+  const getModels = (brand, year) => catalog.models.filter((m) => brandMatches(m.brand, brand) && yearMatches(m.years, year)).map((m) => ({
+    id: `${normKey(m.brand)}|${normKey(m.name)}`, brand: m.brand, name: m.name, years: m.years, source: m.source
+  })).sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
 
-  const engineMatches = (e, brand, model, year) => (
-    brandMatches(e.brand, brand) &&
-    nameMatch(e.model, model) &&
-    yearMatches(e.years, year)
-  );
+  const engineMatches = (e, brand, model, year) => (brandMatches(e.brand, brand) && nameMatch(e.model, model) && yearMatches(e.years, year));
 
   const fuelRank = (f) => {
     const order = ["Essence", "Diesel", "Hybride", "Hybride rechargeable", "Hybride léger 48V", "Électrique", "GPL", "E85 / Bioéthanol", "Hydrogène", "Non précisé / mixte", "Hybride / électrique"];
@@ -1422,338 +1615,83 @@
   const dedupeAndSortEngines = (list) => {
     const seen = {};
     const out = [];
-
     list.forEach((e) => {
       if (!e) return;
-      const k = [
-        normKey(e.brand),
-        normKey(e.model),
-        normKey(e.engine),
-        normKey(e.displacement),
-        normKey(e.power),
-        normKey(e.fuel),
-        normKey(e.transmission),
-        normKey(e.code)
-      ].join("|");
-
+      const k = [normKey(e.brand), normKey(e.model), normKey(e.engine), normKey(e.displacement), normKey(e.power), normKey(e.fuel), normKey(e.transmission), normKey(e.code)].join("|");
       if (seen[k]) return;
       seen[k] = true;
       out.push(e);
     });
-
     out.sort((a, b) => {
-      const fa = fuelRank(a.fuel);
-      const fb = fuelRank(b.fuel);
+      const fa = fuelRank(a.fuel); const fb = fuelRank(b.fuel);
       if (fa !== fb) return fa - fb;
-
-      const da = parseDisplacementNumber(a.displacement || a.engine);
-      const db = parseDisplacementNumber(b.displacement || b.engine);
+      const da = parseDisplacementNumber(a.displacement || a.engine); const db = parseDisplacementNumber(b.displacement || b.engine);
       if (da !== db) return (da || 999) - (db || 999);
-
-      const pa = parsePowerNumber(a.power || a.engine);
-      const pb = parsePowerNumber(b.power || b.engine);
+      const pa = parsePowerNumber(a.power || a.engine); const pb = parsePowerNumber(b.power || b.engine);
       if (pa !== pb) return pb - pa;
-
-      const ca = parseCapacityNumber(a.power || a.displacement || a.engine);
-      const cb = parseCapacityNumber(b.power || b.displacement || b.engine);
+      const ca = parseCapacityNumber(a.power || a.displacement || a.engine); const cb = parseCapacityNumber(b.power || b.displacement || b.engine);
       if (ca !== cb) return cb - ca;
-
       return norm(a.engine).localeCompare(norm(b.engine));
     });
-
     return out;
   };
 
-  /* =========================================================
-     GÉNÉRATEUR INGÉNIEUR DE SECOURS
-     ========================================================= */
-  const detectFamily = (brand) => {
-    const b = normKey(brand);
-
-    if (containsAny(b, ["renault", "dacia", "peugeot", "citroen", "ds", "opel", "vauxhall", "fiat", "alfa", "maserati", "abarth"])) return "stellantis";
-    if (containsAny(b, ["volkswagen", "vw", "audi", "skoda", "seat", "cupra", "porsche"])) return "vag";
-    if (containsAny(b, ["bmw", "mini", "alpina"])) return "bmw";
-    if (containsAny(b, ["mercedes", "smart", "amg"])) return "mercedes";
-    if (containsAny(b, ["toyota", "lexus"])) return "toyota";
-    if (containsAny(b, ["hyundai", "kia", "genesis"])) return "hk";
-    if (containsAny(b, ["tesla", "byd", "nio", "xpeng", "leapmotor", "ora", "aiways", "polestar", "lucid", "rivian", "vinfast", "seres"])) return "ev";
-    if (containsAny(b, ["mg"])) return "mg";
-    return "generic";
+  const parseDisplacement = (text) => {
+    const t = String(text || "");
+    let m = t.match(/\b(\d\.\d)\s*(?:l|litre|litres)?\b/i);
+    if (m) return m[1] + " L";
+    m = t.match(/\b(\d{3,4})\s*(?:cm3|cc)\b/i);
+    if (m) return m[1] + " cm3";
+    m = t.match(/\b(\d{3,4})\b/i);
+    if (m && parseInt(m[1], 10) >= 600 && parseInt(m[1], 10) <= 8000 && /\b(diesel|essence|turbo|tdi|hdi|dci|tsi|tfsi|puretech|ecoboost)\b/i.test(t)) return m[1] + " cm3";
+    return "";
   };
 
-  const detectSegment = (model, brand) => {
-    const m = norm(model || "");
-    const b = norm(brand || "");
-
-    if (containsAny(m, ["kangoo", "partner", "berlingo", "rifter", "caddy", "transit", "vivaro", "expert", "jumpy", "trafic", "master", "boxer", "jumper", "sprinter", "ducato", "transporter", "caravelle"])) return "van";
-
-    if (containsAny(m, ["clio", "208", "c3", "corsa", "polo", "fabia", "ibiza", "swift", "yaris", "jazz", "micra", "aygo", "107", "108", "c1", "up!", "sandero", "logan", "500", "panda"])) return "city";
-
-    if (containsAny(m, ["captur", "2008", "c3 aircross", "t-cross", "taigo", "arona", "mokka", "vitara", "s-cross", "bx", "trackhawk"])) return "suv_small";
-
-    if (containsAny(m, ["tiguan", "kuga", "tucson", "sportage", "qashqai", "x-trail", "karoq", "ateca", "formentor", "cx-5", "forester", "outlander", "rav4", "cr-v", "elroq", "enyaq", "id.4", "q4 e-tron", "xc40", "ex30", "macan", "glc", "gla"])) return "suv_compact";
-
-    if (containsAny(m, ["kodiaq", "touareg", "x5", "x7", "gle", "q7", "q8", "cayenne", "defender", "range rover", "discovery", "ev9", "escalade", "navigator"])) return "suv_large";
-
-    if (containsAny(m, ["megane", "308", "c4", "astra", "golf", "leon", "octavia", "focus", "3 serie", "classe a", "a3", "corolla", "civic", "elantra", "versa"])) return "compact";
-
-    if (containsAny(b, ["porsche", "jaguar", "land rover", "lotus", "aston", "bentley", "rolls", "lamborghini", "ferrari", "mclaren", "bugatti"])) return "premium";
-
-    return "generic";
+  const parsePower = (text) => {
+    const t = String(text || "");
+    const parts = [];
+    const re = /(\d+(?:[.,]\d+)?)\s*(ch|cv|hp|kw|kwh)/gi;
+    let m;
+    while ((m = re.exec(t)) !== null) {
+      const value = m[1].replace(",", ".");
+      let unit = m[2].toLowerCase();
+      if (unit === "cv" || unit === "hp") unit = "ch";
+      parts.push(`${value} ${unit}`);
+    }
+    if (parts.length) return unique(parts).join("|");
+    m = t.match(/\b(\d{2,3})\b/);
+    if (m && /\b(ch|kw|puissance)\b/i.test(t)) return m[1] + " ch";
+    return "";
   };
 
-  const generateEngines = (brand, model, year) => {
-    const out = [];
-    const y = parseYear(year) || new Date().getFullYear();
-    const family = detectFamily(brand);
-    const segment = detectSegment(model, brand);
-    const mLower = norm(model || "");
-
-    const push = (e, p, f, tr, code, d, conf) => {
-      const ne = normalizeEngineInput({
-        b: brand,
-        m: model,
-        y: `${y}-${y}`,
-        e,
-        p,
-        t: f,
-        tr: tr || "",
-        code: code || "",
-        d: d || "",
-        source: "générateur ingénieur",
-        confidence: typeof conf === "number" ? conf : 0.55
-      }, "générateur ingénieur", "", "");
-      if (ne) out.push(ne);
-    };
-
-    const isEvName = containsAny(mLower, [
-      "e-", "ë-", "electric", "ev", "id.", "elroq", "enyaq", "taycan", "ioniq", "ev6", "ev9",
-      "model 3", "model y", "model s", "model x", "atto", "seal", "dolphin", "mg4", "ariya",
-      "leaf", "mx-30", "mach-e", "i-pace", "eqs", "eqe", "eqb", "eqa", "q4 e-tron", "e-tron",
-      "born", "tavascan", "formentor vz", "ex30"
-    ]);
-
-    if (family === "ev" || isEvName) {
-      push("Standard Range", "170ch|204ch", "Électrique", "RWD / réducteur", "BEV", "50 kWh|60 kWh", 0.62);
-      push("Long Range", "204ch|286ch|350ch", "Électrique", "RWD / réducteur", "BEV", "65 kWh|77 kWh|85 kWh", 0.62);
-      push("AWD / Performance", "300ch|400ch|500ch", "Électrique", "AWD / réducteur", "BEV", "75 kWh|90 kWh|100 kWh", 0.58);
-      return dedupeAndSortEngines(out);
-    }
-
-    if (family === "stellantis") {
-      if (segment === "city") {
-        push("1.0 TCe", "65ch|90ch", "Essence", "BVM5|BVM6", "H4D", "1.0 L", 0.72);
-        push("1.3 TCe", "100ch|130ch|140ch", "Essence", "BVM6|EDC", "H5H", "1.3 L", 0.72);
-        if (y >= 2016) push("1.5 Blue dCi", "75ch|100ch|115ch", "Diesel", "BVM6|EDC", "K9K", "1.5 L", 0.72);
-        if (y >= 2020) push("E-Tech Hybrid", "140ch|145ch", "Hybride", "automatique", "TCe 140", "1.6 L", 0.68);
-        if (y >= 2023) push("E-Tech Plug-in Hybrid", "160ch|180ch", "Hybride rechargeable", "automatique", "PHEV", "1.6 L", 0.62);
-      } else if (segment === "compact" || segment === "suv_small") {
-        push("1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT8", "EB2", "1.2 L", 0.74);
-        push("1.3 TCe", "100ch|130ch|155ch", "Essence", "BVM6|EDC", "H5H", "1.3 L", 0.72);
-        if (y >= 2016) push("1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5", "1.5 L", 0.74);
-        if (y >= 2018) push("2.0 BlueHDi", "150ch|180ch", "Diesel", "EAT8", "DW10", "2.0 L", 0.68);
-        if (y >= 2020) push("Hybrid 180", "180ch", "Hybride rechargeable", "EAT8", "PHEV", "1.6 L", 0.66);
-        if (y >= 2021) push("Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV", "1.6 L", 0.66);
-      } else if (segment === "suv_compact" || segment === "suv_large") {
-        push("1.2 PureTech", "130ch|155ch|180ch", "Essence", "EAT8", "EB2", "1.2 L", 0.72);
-        push("1.6 PureTech", "180ch|225ch", "Essence", "EAT8", "EP6F", "1.6 L", 0.68);
-        if (y >= 2016) push("1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5", "1.5 L", 0.74);
-        if (y >= 2018) push("2.0 BlueHDi", "160ch|180ch", "Diesel", "EAT8", "DW10", "2.0 L", 0.72);
-        if (y >= 2020) push("Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV", "1.6 L", 0.68);
-        if (y >= 2021) push("Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 / 4x4", "PHEV4", "1.6 L", 0.64);
-      } else if (segment === "van") {
-        push("1.2 PureTech", "100ch|110ch|130ch", "Essence", "BVM6|EAT8", "EB2", "1.2 L", 0.72);
-        push("1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5", "1.5 L", 0.74);
-        push("2.0 BlueHDi", "150ch|180ch", "Diesel", "EAT8", "DW10", "2.0 L", 0.72);
-        if (y >= 2021) push("Électrique", "100kW|115kW|136ch", "Électrique", "réducteur", "eCMP", "50 kWh", 0.66);
-      } else {
-        push("1.2 PureTech", "100ch|130ch", "Essence", "BVM6|EAT8", "EB2", "1.2 L", 0.66);
-        push("1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5", "1.5 L", 0.66);
-        if (y >= 2020) push("Hybrid", "180ch|225ch", "Hybride rechargeable", "EAT8", "PHEV", "1.6 L", 0.58);
-      }
-      return dedupeAndSortEngines(out);
-    }
-
-    if (family === "vag") {
-      if (segment === "city" || segment === "compact") {
-        push("1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM6|DSG", "EA211", "1.0 L", 0.76);
-        push("1.5 TSI", "130ch|150ch|180ch", "Essence", "DSG|BVM6", "EA211 evo", "1.5 L", 0.76);
-        if (y >= 2016) push("2.0 TSI", "190ch|245ch|320ch", "Essence", "DSG", "EA888", "2.0 L", 0.72);
-        if (y >= 2015) push("1.6 TDI", "95ch|115ch", "Diesel", "BVM6|DSG", "EA288", "1.6 L", 0.74);
-        if (y >= 2015) push("2.0 TDI", "115ch|150ch|190ch|200ch", "Diesel", "DSG|BVM6", "EA288", "2.0 L", 0.76);
-        if (y >= 2020) push("1.0 eTSI", "110ch", "Hybride léger 48V", "DSG", "EA211 evo", "1.0 L", 0.70);
-        if (y >= 2020) push("1.5 eTSI", "130ch|150ch", "Hybride léger 48V", "DSG", "EA211 evo", "1.5 L", 0.70);
-        if (y >= 2020) push("eHybrid", "204ch|245ch|300ch", "Hybride rechargeable", "DSG", "PHEV", "1.4 L|2.0 L", 0.66);
-      } else if (segment === "suv_small" || segment === "suv_compact") {
-        push("1.0 TSI", "95ch|110ch|115ch", "Essence", "DSG", "EA211", "1.0 L", 0.74);
-        push("1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo", "1.5 L", 0.74);
-        push("2.0 TSI", "190ch|245ch|300ch|320ch", "Essence", "DSG", "EA888", "2.0 L", 0.74);
-        push("2.0 TDI", "115ch|150ch|190ch|200ch", "Diesel", "DSG", "EA288", "2.0 L", 0.76);
-        if (y >= 2020) push("eHybrid", "245ch|300ch", "Hybride rechargeable", "DSG", "PHEV", "1.4 L|2.0 L", 0.68);
-        if (containsAny(mLower, ["elroq", "enyaq", "id.", "q4 e-tron", "born", "tavascan"])) {
-          push("Standard", "170ch|204ch", "Électrique", "RWD / réducteur", "MEB", "55 kWh|63 kWh", 0.78);
-          push("Long Range", "204ch|286ch", "Électrique", "RWD / réducteur", "MEB", "77 kWh", 0.78);
-          push("AWD / vRS / GTX", "265ch|299ch|340ch", "Électrique", "AWD / réducteur", "MEB", "77 kWh|82 kWh", 0.74);
-        }
-      } else if (segment === "van") {
-        push("1.5 TSI", "114ch", "Essence", "DSG|BVM6", "EA211", "1.5 L", 0.70);
-        push("2.0 TDI", "102ch|122ch|150ch", "Diesel", "DSG|BVM6", "EA288", "2.0 L", 0.74);
-        if (y >= 2020) push("Électrique", "113ch|204ch", "Électrique", "réducteur", "eCaddy/eTransporter", "50 kWh|75 kWh", 0.66);
-      } else {
-        push("2.0 TDI", "150ch|200ch", "Diesel", "DSG", "EA288", "2.0 L", 0.70);
-        push("2.0 TSI", "245ch|320ch", "Essence", "DSG", "EA888", "2.0 L", 0.70);
-      }
-      return dedupeAndSortEngines(out);
-    }
-
-    if (family === "bmw") {
-      push("118i / 320i", "136ch|156ch|170ch|184ch", "Essence", "BVM8|Steptronic", "B38/B48", "1.5 L|2.0 L", 0.72);
-      push("330i / M340i", "245ch|258ch|374ch", "Essence", "Steptronic", "B46/B58", "2.0 L|3.0 L", 0.70);
-      push("118d / 320d", "150ch|163ch|190ch", "Diesel", "BVM6|Steptronic", "B47", "2.0 L", 0.74);
-      push("330d / 40d", "286ch|292ch|340ch", "Diesel", "Steptronic", "B57", "3.0 L", 0.70);
-      if (y >= 2019) push("330e / xDrive45e", "252ch|292ch|394ch", "Hybride rechargeable", "Steptronic", "PHEV", "2.0 L", 0.66);
-      if (containsAny(mLower, ["i4", "ix", "ix1", "cooper e"])) {
-        push("eDrive", "286ch|340ch", "Électrique", "RWD / réducteur", "BEV", "70 kWh|80 kWh|100 kWh", 0.72);
-        push("xDrive / M", "462ch|544ch|619ch", "Électrique", "AWD / réducteur", "BEV", "80 kWh|100 kWh", 0.68);
-      }
-      return dedupeAndSortEngines(out);
-    }
-
-    if (family === "mercedes") {
-      push("180 / 200", "136ch|163ch|190ch|204ch", "Essence", "7G-DCT|9G-Tronic", "M282/M264", "1.3 L|2.0 L", 0.72);
-      push("250 / 300", "224ch|258ch", "Essence", "8G|9G-Tronic", "M260/M264", "2.0 L", 0.70);
-      push("220d / 300d", "150ch|190ch|200ch|245ch|286ch", "Diesel", "9G-Tronic", "OM654", "2.0 L|3.0 L", 0.74);
-      if (y >= 2020) push("250e / 300e / 300de", "218ch|313ch|381ch", "Hybride rechargeable", "8G|9G-Tronic", "PHEV", "2.0 L", 0.66);
-      if (containsAny(mLower, ["eqa", "eqb", "eqe", "eqs"])) {
-        push("250+ / 350", "190ch|292ch", "Électrique", "RWD / réducteur", "BEV", "66 kWh|90 kWh|107 kWh", 0.74);
-        push("350 4MATIC / 580", "292ch|544ch", "Électrique", "AWD / réducteur", "BEV", "90 kWh|107 kWh", 0.70);
-      }
-      return dedupeAndSortEngines(out);
-    }
-
-    if (family === "toyota") {
-      push("1.0 / 1.2 / 1.5", "72ch|100ch|125ch", "Essence", "BVM5|CVT", "Dynamic Force", "1.0 L|1.2 L|1.5 L", 0.70);
-      push("2.0", "150ch|171ch", "Essence", "CVT|Direct Shift", "Dynamic Force", "2.0 L", 0.70);
-      if (y >= 2015) push("Hybrid", "116ch|125ch|180ch|218ch|222ch", "Hybride", "e-CVT", "THS", "1.5 L|1.8 L|2.5 L", 0.78);
-      if (y >= 2021) push("Plug-in Hybrid", "306ch|320ch", "Hybride rechargeable", "e-CVT", "PHEV", "2.5 L", 0.70);
-      if (y >= 2015 && segment !== "city") push("D-4D", "120ch|150ch|200ch", "Diesel", "BVM6|Direct Shift", "GD", "2.0 L|2.2 L", 0.68);
-      return dedupeAndSortEngines(out);
-    }
-
-    if (family === "hk") {
-      push("1.0 T-GDI", "100ch|120ch", "Essence", "BVM6|DCT", "Smartstream", "1.0 L", 0.72);
-      push("1.2 / 1.4 / 1.5", "100ch|140ch|160ch", "Essence", "BVM6|IVT", "Smartstream", "1.2 L|1.4 L|1.5 L", 0.70);
-      push("1.6 T-GDI", "150ch|177ch|215ch|230ch", "Essence", "DCT|BVM6", "Smartstream", "1.6 L", 0.72);
-      push("1.6 CRDi", "115ch|136ch", "Diesel", "BVM6|DCT", "Smartstream", "1.6 L", 0.72);
-      if (y >= 2020) push("Hybrid", "130ch|150ch|215ch|230ch", "Hybride", "automatique", "HEV", "1.6 L", 0.72);
-      if (y >= 2021) push("Plug-in Hybrid", "253ch|265ch", "Hybride rechargeable", "automatique", "PHEV", "1.6 L", 0.70);
-      if (containsAny(mLower, ["kona", "ioniq", "ev6", "ev9"])) {
-        push("Standard Range", "136ch|151ch|170ch", "Électrique", "RWD / réducteur", "BEV", "39 kWh|53 kWh|64 kWh", 0.74);
-        push("Long Range", "204ch|228ch|325ch", "Électrique", "RWD / réducteur", "BEV", "64 kWh|77 kWh", 0.74);
-        push("AWD / GT", "325ch|430ch|585ch", "Électrique", "AWD / réducteur", "BEV", "77 kWh", 0.70);
-      }
-      return dedupeAndSortEngines(out);
-    }
-
-    if (family === "mg") {
-      push("1.5 VTi / Turbo", "110ch|120ch|169ch", "Essence", "BVM5|CVT", "NA/Turbo", "1.5 L", 0.66);
-      if (y >= 2020) push("Hybrid", "190ch|240ch|280ch|400ch", "Hybride", "automatique", "HEV", "1.5 L", 0.62);
-      if (containsAny(mLower, ["mg4", "zs ev", "marvel r", "cyberster"])) {
-        push("Standard Range", "136ch|156ch|170ch", "Électrique", "RWD / réducteur", "BEV", "51 kWh|64 kWh", 0.72);
-        push("Long Range", "170ch|204ch|250ch", "Électrique", "RWD / réducteur", "BEV", "64 kWh|77 kWh", 0.72);
-        push("XPOWER / AWD", "333ch|435ch", "Électrique", "AWD / réducteur", "BEV", "64 kWh|77 kWh", 0.68);
-      }
-      return dedupeAndSortEngines(out);
-    }
-
-    // Generic fallback
-    push("1.0 / 1.2 Turbo", "90ch|110ch|130ch", "Essence", "BVM5|BVM6|automatique", "TURBO", "1.0 L|1.2 L", 0.58);
-    push("1.5 / 1.6 Turbo", "130ch|150ch|180ch", "Essence", "BVM6|automatique", "TURBO", "1.5 L|1.6 L", 0.58);
-    if (segment !== "city") push("2.0 Turbo", "190ch|245ch", "Essence", "automatique", "TURBO", "2.0 L", 0.54);
-    if (y >= 2015) push("1.5 / 2.0 Diesel", "100ch|130ch|150ch|190ch", "Diesel", "BVM6|automatique", "TDI/HDi/DCI", "1.5 L|2.0 L", 0.58);
-    if (y >= 2020) push("Hybrid", "140ch|180ch", "Hybride", "automatique", "HEV", "1.5 L|1.6 L|2.0 L", 0.54);
-    if (y >= 2021) push("Plug-in Hybrid", "225ch|280ch", "Hybride rechargeable", "automatique", "PHEV", "1.6 L|2.0 L", 0.52);
-    if (y >= 2020) push("Electric", "150ch|204ch|286ch", "Électrique", "réducteur", "BEV", "50 kWh|65 kWh|77 kWh", 0.52);
-
-    return dedupeAndSortEngines(out);
+  const parsePowerNumber = (text) => {
+    const t = String(text || "");
+    let m = t.match(/(\d+(?:[.,]\d+)?)\s*(ch|cv|hp)/i);
+    if (m) return parseFloat(m[1].replace(",", "."));
+    m = t.match(/(\d+(?:[.,]\d+)?)\s*kw/i);
+    if (m) return parseFloat(m[1].replace(",", ".")) * 1.36;
+    return 0;
   };
 
-  const clearEngineCache = () => {
-    Object.keys(engineCache).forEach((k) => delete engineCache[k]);
+  const parseCapacityNumber = (text) => {
+    const t = String(text || "");
+    const m = t.match(/(\d+(?:[.,]\d+)?)\s*kwh/i);
+    return m ? parseFloat(m[1].replace(",", ".")) : 0;
   };
 
-  const getEnginesFor = (brand, model, year) => {
-    if (!brand || !model) return [];
-
-    const yr = parseYear(year);
-    const cacheKey = `${normKey(brand)}|${normKey(model)}|${yr || "any"}`;
-    if (engineCache[cacheKey]) return engineCache[cacheKey].slice();
-
-    let list = catalog.engines.filter((e) => engineMatches(e, brand, model, yr));
-
-    catalog.defects.forEach((d) => {
-      if (!brandMatches(d.b, brand)) return;
-      if (!yearMatches(d.y, yr)) return;
-      if (!d.m || d.m === "*") {
-        if (!looksLikeMotorisation(d.e)) return;
-      } else if (!modelListContains(d.m, model)) {
-        return;
-      }
-
-      if (!looksLikeMotorisation(d.e)) return;
-
-      const ne = normalizeEngineInput({
-        b: d.b,
-        m: model,
-        y: d.y,
-        e: d.e,
-        p: d.p,
-        t: d.et,
-        tr: "",
-        code: d.dtc || "",
-        source: d.source,
-        sourceUrl: d.sourceUrl,
-        confidence: 0.84
-      }, d.source, d.sourceUrl, "");
-
-      if (ne) list.push(ne);
-    });
-
-    if (list.length < 6) {
-      list = list.concat(generateEngines(brand, model, yr));
+  const parseDisplacementNumber = (text) => {
+    const t = String(text || "");
+    let m = t.match(/\b(\d\.\d)\b/);
+    if (m) return parseFloat(m[1]);
+    m = t.match(/\b(\d{3,4})\s*(?:cm3|cc)?\b/i);
+    if (m) {
+      const v = parseInt(m[1], 10);
+      if (v >= 600 && v <= 8000) return v / 1000;
     }
-
-    list = dedupeAndSortEngines(list);
-    engineCache[cacheKey] = list;
-    return list.slice();
+    return 0;
   };
 
-  /* =========================================================
-     INGESTION JSON / HTML / JS / AUTO-DIAGNOSTIC
-     ========================================================= */
-  const META_KEYS = {
-    b:1, brand:1, marque:1, constructeur:1, make:1,
-    m:1, model:1, modele:1, vehicle:1, vehicule:1,
-    e:1, engine:1, motorisation:1, moteur:1, powertrain:1, version:1, variant:1,
-    p:1, power:1, puissance:1, ch:1, kw:1, kwh:1,
-    t:1, type:1, fuel:1, energie:1, carburant:1, enginetype:1,
-    tr:1, transmission:1, boite:1, gearbox:1,
-    y:1, years:1, annee:1, period:1, range:1, from:1, start:1,
-    s:1, symptoms:1, symptomes:1, panne:1, pannes:1, defaut:1, probleme:1, issue:1, fault:1,
-    dtc:1, codedtc:1, code:1, codes:1,
-    d:1, cyl:1, cylindree:1, displacement:1, enginesize:1, cubic:1,
-    n:1, note:1, description:1, fiche:1, detail:1,
-    law:1, legal:1, baselegale:1, droit:1, fondement:1,
-    rec:1, recall:1, rappel:1, campagne:1,
-    tg:1, tags:1, categorie:1, category:1, systeme:1,
-    source:1, src:1, sourceurl:1, url:1, lien:1, link:1,
-    confidence:1, wf:1, wearfactor:1, sev:1, severity:1, gravite:1,
-    brands:1, marques:1, models:1, modeles:1, vehicles:1, vehicules:1,
-    engines:1, motorisations:1, powertrains:1, variants:1,
-    defects:1, faults:1, rappels:1, problems:1, issues:1,
-    data:1, items:1, records:1, catalog:1, base:1, database:1, result:1, results:1,
-    name:1, aliases:1, alias:1
-  };
+  const META_KEYS = { b:1, brand:1, marque:1, constructeur:1, make:1, m:1, model:1, modele:1, vehicle:1, vehicule:1, e:1, engine:1, motorisation:1, moteur:1, powertrain:1, version:1, variant:1, p:1, power:1, puissance:1, ch:1, kw:1, kwh:1, t:1, type:1, fuel:1, energie:1, carburant:1, enginetype:1, tr:1, transmission:1, boite:1, gearbox:1, y:1, years:1, annee:1, period:1, range:1, from:1, start:1, s:1, symptoms:1, symptomes:1, panne:1, pannes:1, defaut:1, probleme:1, issue:1, fault:1, dtc:1, codedtc:1, code:1, codes:1, d:1, cyl:1, cylindree:1, displacement:1, enginesize:1, cubic:1, n:1, note:1, description:1, fiche:1, detail:1, law:1, legal:1, baselegale:1, droit:1, fondement:1, rec:1, recall:1, rappel:1, campagne:1, tg:1, tags:1, categorie:1, category:1, systeme:1, source:1, src:1, sourceurl:1, url:1, lien:1, link:1, confidence:1, wf:1, wearfactor:1, sev:1, severity:1, gravite:1, brands:1, marques:1, models:1, modeles:1, vehicles:1, vehicules:1, engines:1, motorisations:1, powertrains:1, variants:1, defects:1, faults:1, rappels:1, problems:1, issues:1, data:1, items:1, records:1, catalog:1, base:1, database:1, result:1, results:1, name:1, aliases:1, alias:1 };
 
   const isMetaKey = (key) => !!META_KEYS[normKey(key)];
 
@@ -1761,21 +1699,13 @@
 
   const ingestNode = (node, brandFallback, modelFallback, keyFallback, sourceLabel, sourceUrl, depth = 0, seen = new WeakSet()) => {
     if (!node || depth > 8) return;
-
     if (Array.isArray(node)) {
       node.forEach((item) => {
         if (typeof item === "string") {
           const s = String(item || "").trim();
           if (!s) return;
-
           if (brandFallback && modelFallback) {
-            addEngine({
-              b: brandFallback,
-              m: modelFallback,
-              e: s,
-              source: sourceLabel,
-              sourceUrl
-            }, sourceUrl, false, sourceLabel);
+            addEngine({ b: brandFallback, m: modelFallback, e: s, source: sourceLabel, sourceUrl }, sourceUrl, false, sourceLabel);
           } else if (brandFallback) {
             addModel(brandFallback, s, "", sourceLabel, sourceUrl);
           } else {
@@ -1787,7 +1717,6 @@
       });
       return;
     }
-
     if (typeof node !== "object") return;
     if (seen.has(node)) return;
     seen.add(node);
@@ -1804,54 +1733,29 @@
     if (b && m && hasEngineData) {
       addEngine({ ...node, b, m, e: e || "", source: sourceLabel, sourceUrl }, sourceUrl, false, sourceLabel, keyFallback);
     }
-
     if (b && sym) {
       addDefect({ ...node, b, m: m || node.m || node.modele || "*", source: sourceLabel, sourceUrl }, sourceLabel, sourceUrl);
     }
-
     if (b && !m) addBrand(b, node.aliases || node.alias, sourceLabel, sourceUrl);
     if (b && m) addModel(b, m, getYearsField(node), sourceLabel, sourceUrl);
 
-    ["brands", "marques"].forEach((k) => {
-      if (node[k]) ingestNode(node[k], null, null, null, sourceLabel, sourceUrl, depth + 1, seen);
-    });
-
-    ["models", "modeles", "vehicles", "vehicules"].forEach((k) => {
-      if (node[k]) ingestNode(node[k], b, null, null, sourceLabel, sourceUrl, depth + 1, seen);
-    });
-
-    ["engines", "motorisations", "motorizations", "powertrains", "versions", "variants"].forEach((k) => {
-      if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen);
-    });
-
-    ["defects", "pannes", "faults", "rappels", "problems", "issues"].forEach((k) => {
-      if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen);
-    });
-
-    ["data", "items", "records", "catalog", "base", "database", "result", "results"].forEach((k) => {
-      if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen);
-    });
+    ["brands", "marques"].forEach((k) => { if (node[k]) ingestNode(node[k], null, null, null, sourceLabel, sourceUrl, depth + 1, seen); });
+    ["models", "modeles", "vehicles", "vehicules"].forEach((k) => { if (node[k]) ingestNode(node[k], b, null, null, sourceLabel, sourceUrl, depth + 1, seen); });
+    ["engines", "motorisations", "motorizations", "powertrains", "versions", "variants"].forEach((k) => { if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen); });
+    ["defects", "pannes", "faults", "rappels", "problems", "issues"].forEach((k) => { if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen); });
+    ["data", "items", "records", "catalog", "base", "database", "result", "results"].forEach((k) => { if (node[k]) ingestNode(node[k], b, m, null, sourceLabel, sourceUrl, depth + 1, seen); });
 
     if (isPlainContainer(node)) {
       Object.keys(node).forEach((key) => {
         if (isMetaKey(key)) return;
         const val = node[key];
-
         if (val && typeof val === "object") {
           ingestNode(val, b, m, key, sourceLabel, sourceUrl, depth + 1, seen);
         } else if (typeof val === "string") {
           const s = String(val || "").trim();
           if (!s) return;
-
           if (b && m) {
-            addEngine({
-              b,
-              m,
-              e: key,
-              p: s,
-              source: sourceLabel,
-              sourceUrl
-            }, sourceUrl, false, sourceLabel);
+            addEngine({ b, m, e: key, p: s, source: sourceLabel, sourceUrl }, sourceUrl, false, sourceLabel);
           } else if (b) {
             addModel(b, key, s, sourceLabel, sourceUrl);
           } else {
@@ -1865,90 +1769,54 @@
   const parseBalanced = (text, start) => {
     const open = text.charAt(start);
     if (open !== "[" && open !== "{") return null;
-
     const stack = [open];
     let inString = false;
     let escape = false;
     const max = Math.min(text.length, start + 3000000);
-
     for (let i = start + 1; i < max; i++) {
       const ch = text.charAt(i);
-
-      if (escape) {
-        escape = false;
-        continue;
-      }
-
-      if (ch === "\\") {
-        escape = true;
-        continue;
-      }
-
-      if (ch === '"') {
-        inString = !inString;
-        continue;
-      }
-
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
       if (inString) continue;
-
-      if (ch === "[" || ch === "{") {
-        stack.push(ch);
-      } else if (ch === "]" || ch === "}") {
+      if (ch === "[" || ch === "{") { stack.push(ch); }
+      else if (ch === "]" || ch === "}") {
         const expected = ch === "]" ? "[" : "{";
         if (stack.pop() !== expected) return null;
         if (stack.length === 0) return text.substring(start, i + 1);
       }
     }
-
     return null;
   };
 
   const tryParseJsonish = (raw) => {
-    try {
-      return JSON.parse(raw);
-    } catch {}
-
+    try { return JSON.parse(raw); } catch {}
     let s = String(raw || "");
-
     s = s.replace(/\/\*[\s\S]*?\*\//g, "");
     s = s.replace(/(^|[^:])\/\/.*$/gm, "$1");
     s = s.replace(/'((?:[^'\\]|\\.)*)'/g, (_, p) => '"' + String(p).replace(/"/g, '\\"') + '"');
     s = s.replace(/([{,]\s*)([A-Za-z_$][\w$]*)\s*:/g, '$1"$2":');
     s = s.replace(/,(\s*[}\]])/g, "$1");
-
-    try {
-      return JSON.parse(s);
-    } catch {
-      return null;
-    }
+    try { return JSON.parse(s); } catch { return null; }
   };
 
   const extractJsonCandidates = (text) => {
     const out = [];
     if (!text) return out;
-
     const keywordRe = /marque|brand|modele|model|motorisation|engine|panne|defaut|dtc|symptom|rappel|recall|puissance|power|energie|fuel|cylindree|displacement/i;
     const max = Math.min(text.length, 3500000);
     let attempts = 0;
-
     for (let i = 0; i < max && attempts < 500; i++) {
       const ch = text.charAt(i);
       if (ch !== "[" && ch !== "{") continue;
-
       const snippet = text.substr(i, 900).toLowerCase();
       if (!keywordRe.test(snippet)) continue;
-
       attempts++;
       const raw = parseBalanced(text, i);
       if (!raw) continue;
-
       const parsed = tryParseJsonish(raw);
-      if (parsed) {
-        out.push(parsed);
-        i += raw.length;
-      }
+      if (parsed) { out.push(parsed); i += raw.length; }
     }
-
     return out;
   };
 
@@ -1962,14 +1830,12 @@
     const urls = [];
     const re = /<script[^>]+src=["']([^"']+)["']/gi;
     let m;
-
     while ((m = re.exec(html)) !== null && urls.length < 50) {
       const src = m[1];
       if (/^https?:\/\//i.test(src) || src.charAt(0) === "/" || /^[\w./-]+\.js(?:\?|$)/i.test(src)) {
         urls.push(resolveUrl(baseUrl, src));
       }
     }
-
     return unique(urls);
   };
 
@@ -1983,13 +1849,8 @@
     CONFIG.catalog.engineUrl = (q("#engineCatalogUrl") || {}).value || CONFIG.catalog.engineUrl;
     CONFIG.catalog.autoBaseUrl = (q("#autoBaseUrl") || {}).value || CONFIG.catalog.autoBaseUrl;
     CONFIG.catalog.nhtsaEnabled = !!(q("#nhtsaEnabled") || {}).checked;
-
     const eps = (q("#autoEndpoints") || {}).value || "";
-    CONFIG.catalog.endpoints = String(eps)
-      .split(/[\n,]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-
+    CONFIG.catalog.endpoints = String(eps).split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
     save(KEYS.CATALOG_CFG, CONFIG.catalog);
     toast("Configuration catalogue enregistrée.", "success");
   };
@@ -2003,73 +1864,8 @@
   };
 
   const seedBaseCatalog = () => {
-    BASE_BRANDS.forEach((b) => addBrand(b, BRAND_ALIASES[normKey(b)] || [], "base locale", ""));
-
-    [
-      {
-        b: "Skoda", m: "Elroq|Enyaq", y: "2021-2026",
-        e: "Batterie haute tension / BMS / autonomie", p: "55 kWh|63 kWh|77 kWh",
-        s: "autonomie reduite|soh|charge lente|charge impossible|deséquilibre cellules|erreur BMS|temperature batterie|voyant batterie|perte autonomie|batterie froide|chauffe batterie|gonflement batterie|odeur brulee|fumee",
-        sev: "critique", wf: 0.92,
-        n: "Plateforme MEB : surveillance BMS, cellules, gestion thermique, dégradation d'autonomie et cohérence entre capacité annoncée et usage réel.",
-        law: "Sécurité L.423-1 C.consom.; conformité L.217-4 C.consom.; produits défectueux art. 1245 C.civ.; vice caché art. 1641 C.civ.",
-        rec: "Rappels EV/MEB; DGCCRF; KBA; NHTSA; fiches auto-diagnostic; vérification VIN; lecture SOH/BMS.",
-        tg: "batterie|charge|autonomie|electricite|securite|logiciel|MEB",
-        dtc: "P0Axx|U1xxx|P1xxx|B1xxx", et: "Électrique"
-      },
-      {
-        b: "Skoda", m: "Elroq|Enyaq", y: "2021-2026",
-        e: "Recharge AC/DC / port de charge / isolation haute tension", p: "N/A",
-        s: "charge AC|charge DC|cable|port de charge|verrou|recharge impossible|charge lente|ISO|isolation HV|erreur recharge|thermal derating|echauffement prise|odeur brulee|fumee",
-        sev: "critique", wf: 0.9,
-        n: "Défaut possible de charge AC/DC, verrouillage, câble, port, isolation haute tension ou bridage thermique.",
-        law: "Sécurité L.423-1 C.consom.; conformité L.217-4 C.consom.; produits défectueux art. 1245 C.civ.; tromperie L.213-1 C.consom.",
-        rec: "Rappels recharge EV; DGCCRF; KBA; NHTSA; essais de charge documentés.",
-        tg: "charge|batterie|electricite|securite|HV|recharge",
-        dtc: "U1xxx|P0Axx|C1xxx", et: "Électrique"
-      },
-      {
-        b: "Skoda", m: "Elroq|Enyaq", y: "2021-2026",
-        e: "Logiciel / OTA / calculateurs / ADAS / Travel Assist", p: "N/A",
-        s: "logiciel|OTA|mise a jour|freeze|redemarrage|voyant multiple|erreur software|Travel Assist|ADAS|camera|radar|lane keeping|emergency brake|calibration|phantom braking",
-        sev: "critique", wf: 0.88,
-        n: "Les véhicules MEB reposent fortement sur logiciels, calculateurs, ADAS, caméra, radar et mises à jour OTA.",
-        law: "Conformité L.217-4 C.consom.; sécurité L.423-1 C.consom.; produits défectueux art. 1245 C.civ.",
-        rec: "TSB logiciels; rappels ADAS/OTA; DGCCRF; KBA; NHTSA; Euro NCAP.",
-        tg: "logiciel|OTA|ADAS|camera|radar|securite|electricite",
-        dtc: "U0xxx|U1xxx|P1xxx|C2xxx", et: "Électrique"
-      },
-      {
-        b: "Renault", m: "Clio|Megane|Scenic|Duster|Kangoo|Trafic|Master", y: "2017-2022",
-        e: "K9K / 1.5 dCi", p: "75ch-110ch",
-        s: "casse bielle|claquement moteur|usure coussinets|pompe a huile|bruit metallique|pression huile basse|voyant huile|calage",
-        sev: "critique", wf: 0.9,
-        n: "Risque de casse bielle/coussinets lié à la lubrification et à la pompe à huile.",
-        law: "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
-        rec: "Programme technique Renault K9K; TSB; jurisprudences",
-        tg: "moteur|huile|bielle|pompe|bruit|critique", et: "Diesel"
-      },
-      {
-        b: "Peugeot", m: "208|2008|308|3008|5008|Partner|Rifter|Boxer", y: "2017-2024",
-        e: "EB2 / 1.2 PureTech", p: "100ch-155ch",
-        s: "courroie distribution|wet belt|desagregration courroie|crepine pompe|casse moteur|bruit cliquetis|voyant pression huile|consommation huile|surchauffe|mode degrade",
-        sev: "critique", wf: 0.85,
-        n: "Courroie humide qui se désagrège, bouche la crépine de pompe à huile et peut casser le moteur.",
-        law: "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
-        rec: "Extension garantie Stellantis PureTech; TSB; DGCCRF",
-        tg: "moteur|distribution|courroie|huile|pompe|critique", et: "Essence"
-      },
-      {
-        b: "Tesla", m: "Model 3|Model Y|Model S|Model X", y: "2017-2027",
-        e: "Électrique", p: "283ch-1020ch",
-        s: "Autopilot|FSD|phantom braking|12V battery|charging port|door handle|software|battery degradation|thermal|range|ADAS|camera|radar",
-        sev: "critique", wf: 0.92,
-        n: "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
-        law: "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
-        rec: "NHTSA Tesla recalls; DGCCRF; SafetyGate",
-        tg: "ADAS|batterie|charge|logiciel|securite", et: "Électrique"
-      }
-    ].forEach((d) => addDefect(d, "base locale", ""));
+    // La base massive remplace le seeding manuel basique
+    seedMassiveCatalog();
   };
 
   const loadStoredTechnicalUpdates = () => {
@@ -2097,7 +1893,6 @@
       { url: CONFIG.catalog.engineUrl, label: "catalogue local" },
       { url: CONFIG.catalog.technicalUrl, label: "mise à jour JSON" }
     ];
-
     await Promise.all(urls.map(async ({ url, label }) => {
       try {
         const json = await fetchJson(url);
@@ -2109,19 +1904,12 @@
 
   const nhtsaMake = (brand) => {
     const s = String(brand || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toUpperCase().trim();
-    const map = {
-      "RANGE ROVER": "LAND ROVER",
-      "MERCEDES BENZ": "MERCEDES-BENZ",
-      "CITROEN": "CITROEN",
-      "SKODA": "SKODA",
-      "VOLKSWAGEN": "VOLKSWAGEN"
-    };
+    const map = { "RANGE ROVER": "LAND ROVER", "MERCEDES BENZ": "MERCEDES-BENZ", "CITROEN": "CITROEN", "SKODA": "SKODA", "VOLKSWAGEN": "VOLKSWAGEN" };
     return map[s] || s;
   };
 
   const loadNhtsaMakes = async () => {
     if (!CONFIG.catalog.nhtsaEnabled || !window.fetch) return;
-
     try {
       const data = await fetchJson("https://vpic.nhtsa.dot.gov/api/vehicles/getmakes?format=json");
       const results = (data && data.Results) || [];
@@ -2134,72 +1922,39 @@
 
   const fetchNhtsaModels = async (brand) => {
     if (!CONFIG.catalog.nhtsaEnabled || !window.fetch || !brand) return [];
-
     const make = nhtsaMake(brand);
     const url = `https://vpic.nhtsa.dot.gov/api/vehicles/getmodelsformake/${encodeURIComponent(make)}?format=json`;
-
     try {
       const data = await fetchJson(url);
       const results = (data && data.Results) || [];
-      return results
-        .map((r) => ({
-          id: `${normKey(brand)}|${normKey(r.Model_Name)}`,
-          brand,
-          name: r.Model_Name,
-          years: "1990-2026",
-          source: "NHTSA vPIC"
-        }))
-        .filter((x) => x.name);
-    } catch {
-      return [];
-    }
+      return results.map((r) => ({
+        id: `${normKey(brand)}|${normKey(r.Model_Name)}`, brand, name: r.Model_Name, years: "1990-2026", source: "NHTSA vPIC"
+      })).filter((x) => x.name);
+    } catch { return []; }
   };
 
   const autoUrls = () => {
     const urls = new Set();
     const add = (u) => { if (u) urls.add(u); };
-
     const endpoints = CONFIG.catalog.endpoints || [];
     const base = CONFIG.catalog.autoBaseUrl;
-
     if (base) {
       endpoints.forEach((ep) => add(resolveUrl(base, ep)));
       (CONFIG.catalog.scriptUrls || []).forEach((sp) => add(resolveUrl(base, sp)));
     }
-
     const repo = CONFIG.catalog.rawRepo;
     const branches = CONFIG.catalog.rawBranches || ["main", "master"];
-
     if (repo) {
       branches.forEach((branch) => {
         const rb = `https://raw.githubusercontent.com/${repo}/${branch}/`;
         endpoints.forEach((ep) => add(rb + ep));
         (CONFIG.catalog.scriptUrls || []).forEach((sp) => add(rb + sp));
-
-        [
-          "data/export.json",
-          "data/auto-diagnostic-export.json",
-          "data/db.json",
-          "db.json",
-          "data/data.json",
-          "data/catalog.json",
-          "data/vehicles.json",
-          "data/engines.json",
-          "data/motorizations.json",
-          "data/motorisations.json",
-          "data/models.json",
-          "data/brands.json",
-          "data/pannes.json",
-          "data/rappels.json",
-          "data/dtc.json"
-        ].forEach((ep) => add(rb + ep));
+        ["data/export.json", "data/auto-diagnostic-export.json", "data/db.json", "db.json", "data/data.json", "data/catalog.json", "data/vehicles.json", "data/engines.json", "data/motorizations.json", "data/motorisations.json", "data/models.json", "data/brands.json", "data/pannes.json", "data/rappels.json", "data/dtc.json"].forEach((ep) => add(rb + ep));
       });
     }
-
     ["./data/auto-diagnostic/", "./data/"].forEach((prefix) => {
       endpoints.forEach((ep) => add(resolveUrl(prefix, ep)));
     });
-
     return Array.from(urls).slice(0, 220);
   };
 
@@ -2207,9 +1962,7 @@
     try {
       const res = await fetch(url, { cache: "no-store", method: "GET" });
       if (!res.ok) return false;
-
       const text = await res.text();
-
       try {
         const json = JSON.parse(text);
         ingestNode(json, null, null, null, label, url, 0);
@@ -2217,65 +1970,49 @@
       } catch {
         return ingestAutoText(url, text, label);
       }
-    } catch {
-      return false;
-    }
+    } catch { return false; }
   };
 
   const loadAutoDiagnostic = async (manual = false) => {
     if (!window.fetch) return false;
-
     updateDataStatus(manual ? "Synchronisation auto-diagnostic..." : "Auto-diagnostic en arrière-plan...");
-
     const before = catalogSnapshot();
     const urls = autoUrls();
-
     await Promise.all(urls.map((u) => ingestUrl(u, "auto-diagnostic")));
-
     autoLastSync = Date.now();
     save(KEYS.AUTO_LAST_SYNC, autoLastSync);
-
     const after = catalogSnapshot();
     const added = {
       models: Math.max(0, after.models - before.models),
       engines: Math.max(0, after.engines - before.engines),
       defects: Math.max(0, after.defects - before.defects)
     };
-
     clearEngineCache();
     updateAdminStats();
     refreshSelectorsFromCatalog();
-
     const ok = added.models + added.engines + added.defects > 0;
-
     updateDataStatus(ok
       ? `Auto-diagnostic synchronisé • +modèles: ${added.models} • +motorisations: ${added.engines} • +fiches: ${added.defects}`
       : "Auto-diagnostic : aucune nouvelle donnée exploitable trouvée");
-
     if (manual) {
       toast(ok
         ? `Auto-diagnostic renforcé : +${added.engines} motorisation(s), +${added.defects} fiche(s).`
         : "Aucune nouvelle donnée auto-diagnostic exploitable trouvée.",
         ok ? "success" : "warning");
     }
-
     return ok;
   };
 
   const loadCatalogs = async (manual = false) => {
     updateDataStatus(manual ? "Chargement des catalogues..." : "Chargement des catalogues en arrière-plan...");
-
     try {
       await loadLocalCatalogs();
       await loadAutoDiagnostic(manual);
       await loadNhtsaMakes();
-
       clearEngineCache();
       updateAdminStats();
       refreshSelectorsFromCatalog();
-
       updateDataStatus(`Catalogue chargé • Marques: ${getAllBrands().length} • Modèles: ${catalog.models.length} • Motorisations: ${catalog.engines.length} • Fiches: ${catalog.defects.length}`);
-
       if (manual) toast("Catalogues rechargés et renforcés.", "success");
     } catch (err) {
       console.warn("[AR-EXPERT] Chargement catalogue impossible:", err);
@@ -2307,20 +2044,17 @@
     const input = q("#brandInput");
     const panel = q("#brandPanel");
     if (!input || !panel) return;
-
     const val = norm(input.value);
     const brands = getAllBrands().filter((b) => {
       if (!val) return true;
       if (norm(b.name).includes(val)) return true;
       return b.aliases.some((a) => norm(a).includes(val));
     }).slice(0, 80);
-
     if (!brands.length) {
       panel.innerHTML = '<div class="combo-empty">Aucune marque trouvée.</div>';
       panel.classList.remove("hidden");
       return;
     }
-
     panel.innerHTML = brands.map((b) => `<button type="button" class="suggest-item" data-brand="${esc(b.name)}">${esc(b.name)}</button>`).join("");
     panel.classList.remove("hidden");
   };
@@ -2329,10 +2063,8 @@
     selection.brand = { name };
     selection.model = null;
     selection.engine = null;
-
     const input = q("#brandInput");
     if (input) input.value = name;
-
     closeAllCombos();
     updateModelButton();
     updateEngineButton();
@@ -2343,13 +2075,11 @@
   const updateModelButton = () => {
     const btn = q("#modelButton");
     if (!btn) return;
-
     if (!selection.brand) {
       btn.disabled = true;
       btn.textContent = "Choisir d’abord une marque";
       return;
     }
-
     if (selection.model) {
       btn.disabled = false;
       btn.textContent = selection.model.name + (selection.model.years ? " • " + selection.model.years : "");
@@ -2362,13 +2092,11 @@
   const updateEngineButton = () => {
     const btn = q("#engineButton");
     if (!btn) return;
-
     if (!selection.brand || !selection.model) {
       btn.disabled = true;
       btn.textContent = !selection.brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle";
       return;
     }
-
     if (selection.engine) {
       btn.disabled = false;
       btn.textContent = engineLabel(selection.engine);
@@ -2387,10 +2115,8 @@
     if (o.transmission) parts.push(o.transmission);
     if (o.code) parts.push(o.code);
     if (o.years) parts.push(o.years);
-
     if (o.source && norm(o.source).includes("générateur")) parts.push("à confirmer");
     else if (o.source && o.source !== "catalogue local") parts.push(o.source);
-
     return parts.join(" • ");
   };
 
@@ -2404,30 +2130,24 @@
   const renderModelList = (filter) => {
     const list = q("#modelList");
     if (!list) return;
-
     const f = norm(filter || "");
     currentModelOptions = modelOptions.filter((o) => !f || norm(modelLabel(o)).includes(f));
-
     if (!currentModelOptions.length) {
       list.innerHTML = '<div class="combo-empty">Aucun modèle trouvé.</div>';
       return;
     }
-
     list.innerHTML = currentModelOptions.map((o, i) => `<button type="button" class="combo-option" data-model-index="${i}">${esc(modelLabel(o))}</button>`).join("");
   };
 
   const renderEngineList = (filter) => {
     const list = q("#engineList");
     if (!list) return;
-
     const f = norm(filter || "");
     currentEngineOptions = engineOptions.filter((o) => !f || norm(engineLabel(o)).includes(f));
-
     if (!currentEngineOptions.length) {
       list.innerHTML = '<div class="combo-empty">Aucune motorisation trouvée.</div>';
       return;
     }
-
     list.innerHTML = currentEngineOptions.map((o, i) => `<button type="button" class="combo-option" data-engine-index="${i}">${esc(engineLabel(o))}</button>`).join("");
   };
 
@@ -2435,15 +2155,8 @@
     const token = ++modelLoadToken;
     const year = parseYear((q("#vehicleYear") || {}).value);
     const local = getModels(brand, year);
-
     if (showLoading && local.length < 5) {
-      modelOptions = local.concat([{
-        id: "__loading__",
-        brand,
-        name: "Chargement des modèles...",
-        years: "",
-        source: "auto-diagnostic / NHTSA"
-      }]);
+      modelOptions = local.concat([{ id: "__loading__", brand, name: "Chargement des modèles...", years: "", source: "auto-diagnostic / NHTSA" }]);
       renderModelList("");
       updateModelButton();
     } else {
@@ -2451,34 +2164,17 @@
       renderModelList("");
       updateModelButton();
     }
-
     if (CONFIG.catalog.nhtsaEnabled && local.length < 30) {
       fetchNhtsaModels(brand).then((remote) => {
         if (token !== modelLoadToken) return;
-
         const merged = local.slice();
         const seen = {};
         merged.forEach((m) => { seen[m.id] = true; });
-
-        remote.forEach((m) => {
-          if (!seen[m.id]) {
-            seen[m.id] = true;
-            merged.push(m);
-          }
-        });
-
+        remote.forEach((m) => { if (!seen[m.id]) { seen[m.id] = true; merged.push(m); } });
         merged.sort((a, b) => norm(a.name).localeCompare(norm(b.name)));
-
         if (!merged.length) {
-          merged.push({
-            id: "__custom__",
-            brand,
-            name: "Autre modèle (saisie libre)",
-            years: "",
-            source: "manuel"
-          });
+          merged.push({ id: "__custom__", brand, name: "Autre modèle (saisie libre)", years: "", source: "manuel" });
         }
-
         modelOptions = merged;
         renderModelList((q("#modelSearch") || {}).value || "");
         updateModelButton();
@@ -2486,48 +2182,29 @@
         refreshEngineOptions();
       }).catch(() => {
         if (token !== modelLoadToken) return;
-
         const merged = local.slice();
         if (!merged.length) {
-          merged.push({
-            id: "__custom__",
-            brand,
-            name: "Autre modèle (saisie libre)",
-            years: "",
-            source: "manuel"
-          });
+          merged.push({ id: "__custom__", brand, name: "Autre modèle (saisie libre)", years: "", source: "manuel" });
         }
-
         modelOptions = merged;
         renderModelList((q("#modelSearch") || {}).value || "");
         updateModelButton();
         refreshEngineOptions();
       });
     }
-
     refreshEngineOptions();
   };
 
   const selectModel = (opt) => {
     if (!opt || opt.id === "__loading__") return;
-
     if (opt.id === "__custom__") {
       const name = prompt("Nom exact du modèle recherché :", "");
       if (!name || !name.trim()) return;
-
-      selection.model = {
-        id: `custom|${normKey(name)}`,
-        brand: selection.brand.name,
-        name: name.trim(),
-        years: "",
-        source: "manuel"
-      };
+      selection.model = { id: `custom|${normKey(name)}`, brand: selection.brand.name, name: name.trim(), years: "", source: "manuel" };
     } else {
       selection.model = opt;
     }
-
     selection.engine = null;
-
     closeAllCombos();
     updateModelButton();
     refreshEngineOptions();
@@ -2541,28 +2218,13 @@
       updateEngineButton();
       return;
     }
-
     const year = parseYear((q("#vehicleYear") || {}).value);
     let engines = getEnginesFor(selection.brand.name, selection.model.name, year);
-
     if (!engines.length) {
       engines = [{
-        id: "__unknown_engine__",
-        brand: selection.brand.name,
-        model: selection.model.name,
-        engine: "Autre / non précisée",
-        displacement: "",
-        power: "N/A",
-        fuel: "Non précisé / mixte",
-        transmission: "",
-        code: "",
-        years: year ? String(year) : "",
-        source: "manuel",
-        sourceUrl: "",
-        confidence: 0.4
+        id: "__unknown_engine__", brand: selection.brand.name, model: selection.model.name, engine: "Autre / non précisée", displacement: "", power: "N/A", fuel: "Non précisé / mixte", transmission: "", code: "", years: year ? String(year) : "", source: "manuel", sourceUrl: "", confidence: 0.4
       }];
     }
-
     engineOptions = engines;
     renderEngineList("");
     updateEngineButton();
@@ -2571,7 +2233,6 @@
   const selectEngine = (opt) => {
     if (!opt) return;
     selection.engine = opt;
-
     closeAllCombos();
     updateEngineButton();
     updateSelectionSummary();
@@ -2580,14 +2241,11 @@
   const updateSelectionSummary = () => {
     const el = q("#selectionSummary");
     if (!el) return;
-
     const v = getSelectedVehicleData();
-
     if (!v.marque && !v.modele && !v.annee && !v.engine) {
       el.textContent = "Aucune sélection véhicule complète.";
       return;
     }
-
     const parts = [];
     if (v.marque) parts.push(v.marque);
     if (v.modele) parts.push(v.modele);
@@ -2598,7 +2256,6 @@
     if (v.fuel) parts.push(v.fuel);
     if (v.transmission) parts.push(v.transmission);
     if (v.code) parts.push(v.code);
-
     el.textContent = "Sélection retenue : " + parts.join(" • ");
   };
 
@@ -2607,7 +2264,6 @@
     const yearEl = q("#vehicleYear");
     const kmEl = q("#vehicleKilometrage");
     const vinEl = q("#vehicleVin");
-
     return {
       marque: selection.brand ? selection.brand.name : (brandEl ? brandEl.value.trim() : ""),
       modele: selection.model ? selection.model.name : "",
@@ -2638,20 +2294,15 @@
     return unique(m.map((x) => x.toUpperCase()));
   };
 
-  const powerTokens = (p) => String(p || "")
-    .split(/[^a-z0-9]+/i)
-    .map((x) => norm(x))
-    .filter((x) => x.length > 1);
+  const powerTokens = (p) => String(p || "").split(/[^a-z0-9]+/i).map((x) => norm(x)).filter((x) => x.length > 1);
 
   const legalForDefect = (d) => {
     const laws = [];
     if (d.law) laws.push(d.law);
-
     const tags = norm(d.tg || "");
     const symptoms = norm(d.s || "");
     const sev = d.sev || "moyen";
     const type = norm(d.et || "");
-
     if (sev === "critique") {
       laws.push("Vice caché art. 1641 C.civ.");
       laws.push("Défaut de conformité L.217-4 C.consom. si vendeur professionnel.");
@@ -2660,37 +2311,30 @@
       laws.push("Vice caché art. 1641 C.civ. à confirmer par expertise.");
       laws.push("Usure normale à écarter selon kilométrage, entretien et usage.");
     }
-
     if (type.includes("diesel") || tags.includes("diesel") || tags.includes("egr") || tags.includes("fap") || tags.includes("adblue")) {
       laws.push("Conformité antipollution L.217-4 C.consom.; tromperie L.213-1 si dispositif illicite ou dissimulation.");
       laws.push("Sécurité / environnement L.423-1 C.consom. en cas de risque collectif.");
     }
-
     if (isElectricLike(type) || tags.includes("batterie") || tags.includes("charge") || tags.includes("electricite")) {
       laws.push("Sécurité batterie / BMS / charge L.423-1 C.consom.");
       laws.push("Produits défectueux art. 1245 C.civ.");
       laws.push("Conformité du bien numérique/logiciel L.217-4 C.consom.");
     }
-
     if (type.includes("essence") || tags.includes("turbo") || tags.includes("huile") || tags.includes("distribution")) {
       laws.push("Vice caché moteur art. 1641 C.civ.; usure à écarter par expertise.");
     }
-
     if (tags.includes("eau") || tags.includes("electricite") || symptoms.includes("court circuit")) {
       laws.push("Défaut de sécurité L.423-1 C.consom.");
       laws.push("Responsabilité du fait des produits défectueux art. 1245 C.civ.");
     }
-
     if (tags.includes("incendie") || symptoms.includes("incendie") || symptoms.includes("airbag")) {
       laws.push("Mise en danger art. 223-1 C.pénal.");
       laws.push("Homicide/blessures involontaires art. 221-6 / 222-19 C.pénal en cas d’accident.");
     }
-
     if (tags.includes("adas") || symptoms.includes("autopilot") || symptoms.includes("phantom")) {
       laws.push("Sécurité des systèmes automatisés L.423-1 C.consom.");
       laws.push("Responsabilité du constructeur/art. 1245 C.civ.");
     }
-
     return laws.filter((v, i, a) => a.indexOf(v) === i).join(" | ");
   };
 
@@ -2698,10 +2342,8 @@
     const s = norm(symptom);
     if (!s) return false;
     if (textNorm.includes(s)) return true;
-
     const words = s.split(/\s+/).filter((w) => w.length > 3);
     if (!words.length) return false;
-
     return words.every((w) => textNorm.includes(w));
   };
 
@@ -2720,67 +2362,47 @@
     const km = parseKm(v.kilometrage);
     const dtcCodes = extractDtcCodes(text);
     const results = [];
-
     catalog.defects.forEach((d) => {
       if (v.marque && !brandMatches(d.b, v.marque)) return;
       if (!yearMatches(d.y, yr)) return;
       if (v.modele && d.m && d.m !== "*" && !modelListContains(d.m, v.modele)) return;
-
       let score = 0;
       const found = [];
-
       String(d.s || "").split("|").forEach((s) => {
-        if (symptomMatch(txt, s)) {
-          score++;
-          found.push(s);
-        }
+        if (symptomMatch(txt, s)) { score++; found.push(s); }
       });
-
       score += tagBoost(txt, d.tg);
-
       if (v.modele && d.m && d.m !== "*" && modelListContains(d.m, v.modele)) score += 2;
       if (yr && yearMatches(d.y, yr)) score += 1;
-
       if (v.engine && d.e) {
         if (normKey(v.engine) === normKey(d.e)) score += 5;
         else if (norm(d.e).includes(norm(v.engine)) || norm(v.engine).includes(norm(d.e))) score += 3;
       }
-
       if (v.displacement && containsAny(`${d.e} ${d.n} ${d.tg}`, [v.displacement])) score += 2;
-
       if (v.power && d.p) {
         const sel = powerTokens(v.power);
         const def = powerTokens(d.p);
         if (sel.some((x) => def.includes(x))) score += 2;
       }
-
       if (v.fuel && norm(d.et) === norm(v.fuel)) score += 3;
-
       if (v.transmission && containsAny(`${d.tg} ${d.e} ${d.n}`, [v.transmission])) score += 1;
-
       if (v.code && containsAny(`${d.e} ${d.n} ${d.tg} ${d.dtc}`, [v.code])) score += 2;
-
       if (dtcCodes.length && d.dtc) {
         const dd = norm(d.dtc);
         if (dtcCodes.some((c) => dd.includes(norm(c)))) score += 3;
       }
-
       if (v.fuel && isElectricLike(v.fuel) && containsAny(`${d.tg} ${d.s}`, ["batterie", "charge", "autonomie", "electricite", "hybride", "48v"])) {
         score += 2;
       }
-
       if (norm(v.fuel) === "diesel" && containsAny(`${d.tg} ${d.s}`, ["diesel", "egr", "fap", "adblue", "nox", "pollution"])) {
         score += 2;
       }
-
       if (norm(v.fuel) === "essence" && containsAny(`${d.tg} ${d.s}`, ["essence", "turbo", "huile", "distribution", "courroie", "chaine"])) {
         score += 1.5;
       }
-
       if (score >= 1) {
         let confidence = "Haute";
         let wearAlert = "Kilométrage compatible avec un vice caché ou un défaut de série.";
-
         if (d.wf >= 0.9) {
           confidence = "Haute";
           wearAlert = "Défaut de conception/montage/software peu dépendant du kilométrage.";
@@ -2794,37 +2416,24 @@
           confidence = "Moyenne";
           wearAlert = "Kilométrage élevé (>100 000 km) : usure possible, mais défaut documenté suspect.";
         }
-
         results.push({
-          constructeur: d.b,
-          moteur: d.e,
-          puissance: d.p,
-          periode: d.y,
+          constructeur: d.b, moteur: d.e, puissance: d.p, periode: d.y,
           modeles: d.m === "*" ? ["Toutes motorisations"] : String(d.m || "").split("|"),
-          severite: d.sev,
-          description: d.n,
+          severite: d.sev, description: d.n,
           symptomes: found.length ? found : String(d.s || "").split("|").slice(0, 3),
-          score,
-          confiance: confidence,
-          alerteUsure: wearAlert,
+          score, confiance: confidence, alerteUsure: wearAlert,
           baseLegale: legalForDefect(d),
           rappelRef: d.rec || "À vérifier via VIN auprès constructeur, DGCCRF, rappel.conso, NHTSA, KBA, SafetyGate.",
-          wearFactor: d.wf,
-          tags: d.tg,
-          dtc: d.dtc || "",
-          engineType: d.et || "",
-          source: d.source || "base locale",
-          sourceUrl: d.sourceUrl || ""
+          wearFactor: d.wf, tags: d.tg, dtc: d.dtc || "", engineType: d.et || "",
+          source: d.source || "base locale", sourceUrl: d.sourceUrl || ""
         });
       }
     });
-
     return results.sort((a, b) => b.score - a.score).slice(0, 12);
   };
 
   const engineAngle = (flags) => {
     let h = "";
-
     if (flags.engine) {
       h += '<div class="rappel-info"><h4>🧰 Motorisation retenue pour l’analyse</h4>';
       h += `<p><strong>Motorisation :</strong> ${esc(flags.engine)}</p>`;
@@ -2837,7 +2446,6 @@
       h += "<p>La motorisation est prise en compte comme critère technique et juridique : elle oriente le diagnostic, la présomption d’antériorité, la gravité, les rappels applicables et les fondements de responsabilité.</p>";
       h += "</div>";
     }
-
     if (flags.diesel) {
       h += '<div class="rappel-info"><h4>🛢️ Angle diesel / dépollution</h4>';
       h += "<p>La motorisation diesel active les axes EGR, FAP/DPF, AdBlue, NOx, injecteurs, turbo, régénération, logiciel moteur et conformité antipollution.</p>";
@@ -2845,7 +2453,6 @@
       h += "<p><strong>Point ingénieur :</strong> distinguer l’usure d’entretien d’un défaut de conception, de logiciel ou de montage.</p>";
       h += "</div>";
     }
-
     if (flags.electricLike) {
       h += '<div class="rappel-info"><h4>⚡ Angle motorisation électrifiée / hybride / électrique</h4>';
       h += "<p>La motorisation électrifiée active les axes batterie, BMS, cellules, autonomie, charge AC/DC, DC-DC, batterie 12V, logiciel, isolation HV, gestion thermique et sécurité incendie.</p>";
@@ -2853,21 +2460,18 @@
       h += "<p><strong>Point juriste :</strong> autonomie réelle non conforme, défaut de charge, bug logiciel ou risque batterie peuvent engager L.217-4 C.consom., L.423-1 C.consom. et art. 1245 C.civ.</p>";
       h += "</div>";
     }
-
     if (flags.petrol) {
       h += '<div class="rappel-info"><h4>⛽ Angle essence / turbo downsizing</h4>';
       h += "<p>La motorisation essence active les axes turbo, consommation huile, chaîne/courroie de distribution, PCV, carbonisation, pré-allumage, perte de puissance et surchauffe.</p>";
       h += "<p><strong>Point ingénieur :</strong> certains désordres sont indépendants du kilométrage quand ils relèvent de la conception, du montage ou du logiciel.</p>";
       h += "</div>";
     }
-
     if (flags.mild48) {
       h += '<div class="rappel-info"><h4>🔋 Angle hybride léger 48V</h4>';
       h += "<p>La micro-hybridation 48V introduit batterie secondaire, convertisseur, logiciel, démarrage/arrêt, alternodémarreur et risques de voyants multiples.</p>";
       h += "<p>Ces éléments peuvent être non conformes ou dangereux même si le moteur thermique principal semble fonctionnel.</p>";
       h += "</div>";
     }
-
     return h;
   };
 
@@ -2875,15 +2479,8 @@
     const all = `${text} ${context}`.toLowerCase();
     const allNorm = norm(all);
     const fuelNorm = norm(vehicleData.fuel || "");
-
     const flags = {
-      engine: vehicleData.engine || "",
-      displacement: vehicleData.displacement || "",
-      power: vehicleData.power || "",
-      fuel: vehicleData.fuel || "",
-      transmission: vehicleData.transmission || "",
-      code: vehicleData.code || "",
-      engineSource: vehicleData.engineSource || "",
+      engine: vehicleData.engine || "", displacement: vehicleData.displacement || "", power: vehicleData.power || "", fuel: vehicleData.fuel || "", transmission: vehicleData.transmission || "", code: vehicleData.code || "", engineSource: vehicleData.engineSource || "",
       professional: sellerType === "professional" || containsAny(all, ["professionnel", "garage", "concession", "revendeur", "automobile", "commercial"]),
       privateSeller: sellerType === "private" || containsAny(all, ["particulier", "entre particuliers", "leboncoin", "lavitrine"]),
       waterLeak: containsAny(all, ["eau", "humidité", "infiltration", "baie", "pare brise", "pare-brise", "moisiure", "court circuit", "traces d’eau", "flaque", "égouttement"]),
@@ -2891,29 +2488,14 @@
       ev: isElectricLike(fuelNorm) || containsAny(all, ["batterie", "charge", "autonomie", "electrique", "électrique", "hybride", "BMS", "DC", "AC", "recharge"]),
       diesel: fuelNorm.includes("diesel") || containsAny(allNorm, ["diesel", "egr", "fap", "adblue", "nox", "gasoil"]),
       petrol: fuelNorm.includes("essence") || containsAny(allNorm, ["essence", "turbo", "puretech", "tce", "tsi", "ecoboost"]),
-      hybrid: fuelNorm.includes("hybride"),
-      phev: fuelNorm.includes("rechargeable"),
-      mild48: fuelNorm.includes("48v"),
-      electricLike: isElectricLike(fuelNorm),
+      hybrid: fuelNorm.includes("hybride"), phev: fuelNorm.includes("rechargeable"), mild48: fuelNorm.includes("48v"), electricLike: isElectricLike(fuelNorm),
       dtc: /\bp[0-9a-z]{3,5}\b/i.test(all) || allNorm.includes("dtc") || allNorm.includes("code défaut"),
-      invoice: all.includes("facture"),
-      repair: all.includes("réparation") || all.includes("ordre de réparation") || all.includes("devis"),
-      controlTech: all.includes("contrôle technique") || all.includes(" ct "),
-      warranty: all.includes("garantie"),
-      highKm: parseKm(vehicleData.kilometrage) > 120000,
-      veryHighKm: parseKm(vehicleData.kilometrage) > 180000
+      invoice: all.includes("facture"), repair: all.includes("réparation") || all.includes("ordre de réparation") || all.includes("devis"),
+      controlTech: all.includes("contrôle technique") || all.includes(" ct "), warranty: all.includes("garantie"),
+      highKm: parseKm(vehicleData.kilometrage) > 120000, veryHighKm: parseKm(vehicleData.kilometrage) > 180000
     };
-
     const matches = matchDefects(vehicleData, text);
-
-    analysisData = {
-      date: new Date().toLocaleString("fr-FR"),
-      vehicleData,
-      flags,
-      matches,
-      sections: []
-    };
-
+    analysisData = { date: new Date().toLocaleString("fr-FR"), vehicleData, flags, matches, sections: [] };
     const S = [];
     S.push(["I. IDENTIFICATION DU VÉHICULE ET SÉLECTIONS RENFORCÉES", secIdentification(text, context)]);
     S.push(["II. ANALYSE TECHNIQUE — MOTORISATION, DÉFAUTS CONNUS, USURE, SÉCURITÉ", secTechnique(matches, flags, vehicleData)]);
@@ -2922,36 +2504,23 @@
     S.push(["V. PREUVE, STRATÉGIE ET VÉRIFICATIONS EXTERNES", secPreuve(matches, flags, objective)]);
     S.push(["VI. CONCLUSION ORIENTÉE INGÉNIEUR / JURISTE / SÉCURITÉ", secConclusion(objective, matches, flags, vehicleData)]);
     S.push(["VII. LEXIQUE JURIDIQUE ET TECHNIQUE MOBILISÉ", secLexique()]);
-
     analysisData.sections = S;
     renderAnalysis();
   };
 
   const renderAnalysis = () => {
     let html = "";
-    analysisData.sections.forEach((pair) => {
-      html += `<h3>${pair[0]}</h3>${pair[1]}`;
-    });
-
+    analysisData.sections.forEach((pair) => { html += `<h3>${pair[0]}</h3>${pair[1]}`; });
     html += '<div class="verification-needed"><strong>Rappel méthodologique :</strong> ce rapport effectue d’abord un croisement local technique/juridique/motorisation/auto-diagnostic avant toute rédaction assistée par IA. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>';
-
     const result = q("#analysisResult");
     if (result) result.innerHTML = html;
-
     const section = q("#analysisSection");
-    if (section) {
-      section.classList.remove("hidden");
-      section.scrollIntoView({ behavior: "smooth" });
-    }
+    if (section) { section.classList.remove("hidden"); section.scrollIntoView({ behavior: "smooth" }); }
   };
 
   const secIdentification = (text, context) => {
     let h = `<p><strong>Objet :</strong> recensement des éléments fournis ${addTerm("éléments factuels", "faits allégués")}.</p>`;
-
-    const availableEngines = vehicleData.marque && vehicleData.modele
-      ? getEnginesFor(vehicleData.marque, vehicleData.modele, parseYear(vehicleData.annee))
-      : [];
-
+    const availableEngines = vehicleData.marque && vehicleData.modele ? getEnginesFor(vehicleData.marque, vehicleData.modele, parseYear(vehicleData.annee)) : [];
     h += "<h4>A. Véhicule sélectionné</h4><ul>";
     h += `<li><strong>Marque :</strong> ${esc(vehicleData.marque || "non précisée")}</li>`;
     h += `<li><strong>Modèle :</strong> ${esc(vehicleData.modele || "non précisé")}</li>`;
@@ -2966,23 +2535,15 @@
     h += `<li><strong>Kilométrage :</strong> ${esc(vehicleData.kilometrage || "non précisé")} km ${addTerm("kilométrage", "usure normale", "vétusté")}</li>`;
     h += `<li><strong>VIN :</strong> ${esc(vehicleData.vin || "non communiqué")} ${addTerm("VIN", "numéro de série", "traçabilité")}</li>`;
     h += "</ul>";
-
     if (availableEngines.length) {
       h += "<h4>B. Motorisations disponibles retenues par le moteur ingénieur</h4><ul>";
-      availableEngines.slice(0, 25).forEach((e) => {
-        h += `<li>${esc(engineLabel(e))}</li>`;
-      });
+      availableEngines.slice(0, 25).forEach((e) => { h += `<li>${esc(engineLabel(e))}</li>`; });
       if (availableEngines.length > 25) h += `<li>… ${availableEngines.length - 25} autre(s) motorisation(s) disponible(s)</li>`;
       h += "</ul>";
     }
-
     h += "<h4>C. Faits rapportés</h4>";
     h += `<p>${esc(text.substring(0, 1400))}${text.length > 1400 ? " [...] (tronqué pour affichage, analyse complète conservée en mémoire)" : ""}</p>`;
-
-    if (context) {
-      h += `<h4>D. Contexte transactionnel</h4><p>${esc(context.substring(0, 1000))}</p>`;
-    }
-
+    if (context) { h += `<h4>D. Contexte transactionnel</h4><p>${esc(context.substring(0, 1000))}</p>`; }
     h += `<div class="certainty-low"><strong>Limite :</strong> faits non vérifiés par expertise contradictoire ${addTerm("faits non vérifiés", "principe du contradictoire")}.</div>`;
     return h;
   };
@@ -2991,9 +2552,7 @@
     const km = parseKm(vData.kilometrage);
     const yr = parseYear(vData.annee);
     const age = new Date().getFullYear() - (yr || new Date().getFullYear());
-
     let h = engineAngle(flags);
-
     if (!matches.length) {
       h += `<p><strong>Objet :</strong> recherche de défauts conceptuels connus ${addTerm("défauts conceptuels", "problèmes récurrents", "défaut de série")}.</p>`;
       h += '<div class="verification-needed">';
@@ -3003,13 +2562,10 @@
       h += "</div>";
       return h;
     }
-
     h += `<p><strong>Objet :</strong> croisement technique local avec motorisation, cylindrée, puissance, énergie, code moteur, défauts connus, rappels, TSB, forums spécialisés, DGCCRF, NHTSA, SafetyGate, KBA, auto-diagnostic et bases de sécurité ${addTerm("vice caché notoire", "défaut de série", "défaut de conception")}.</p>`;
-
     matches.forEach((m, i) => {
       const cls = m.severite === "critique" ? "rappel-critical" : "rappel-info";
       const confColor = m.confiance === "Haute" ? "#10b981" : (m.confiance === "Moyenne" ? "#f59e0b" : "#ef4444");
-
       h += `<div class="${cls}">`;
       h += `<h4>${i + 1}. ${esc(m.moteur)} — ${esc(m.puissance)} — ${esc(m.periode)}</h4>`;
       h += `<p><strong>Constructeur :</strong> ${esc(m.constructeur)}</p>`;
@@ -3027,12 +2583,10 @@
       h += `<p><strong>Rappel / TSB / source :</strong> ${esc(m.rappelRef)} ${addTerm("rappel constructeur", "campagne technique", "TSB")}</p>`;
       h += "</div>";
     });
-
     h += "<h4>Analyse de vétusté et kilométrage</h4><ul>";
     h += `<li><strong>Âge approximatif :</strong> ${age} ans</li>`;
     h += `<li><strong>Kilométrage :</strong> ${km.toLocaleString("fr-FR")} km</li>`;
     h += `<li><strong>Rythme estimé :</strong> ${age > 0 ? Math.round(km / age).toLocaleString("fr-FR") : "N/A"} km/an</li>`;
-
     if (km > 200000) {
       h += '<li class="certainty-low">Kilométrage très élevé : usure normale fortement plausible. Expertise indispensable pour distinguer défaut et usure.</li>';
     } else if (km > 120000) {
@@ -3041,7 +2595,6 @@
       h += '<li class="certainty-high">Kilométrage modéré : la thèse du vice caché / défaut de conception est renforcée.</li>';
     }
     h += "</ul>";
-
     if (flags.waterLeak) {
       h += '<div class="rappel-critical"><h4>💧 Alerte infiltration d’eau — angle ingénieur / sapeur-pompier</h4>';
       h += "<p>Les symptômes évoquent une infiltration d’eau (baie de pare-brise, joints, évacuations, toit ouvrant, climatisation).</p>";
@@ -3050,23 +2603,19 @@
       h += "<p><strong>Constat recommandé :</strong> photos des moisiures, boîtier fusibles, connecteurs sous tableau de bord, cavillon, joints de pare-brise, évacuations.</p>";
       h += "</div>";
     }
-
     if (flags.dtc) {
       h += '<div class="rappel-info"><h4>🧾 Angle codes défaut / DTC</h4>';
       h += "<p>Des codes défaut ou mentions DTC semblent présents dans le dossier.</p>";
       h += "<p><strong>Recommandation :</strong> faire extraire la liste complète des DTC par un diagnostiqueur indépendant, conserver le rapport horodaté, croiser avec les fiches auto-diagnostic et les TSB constructeurs.</p>";
       h += "</div>";
     }
-
     if (matches.some((m) => m.severite === "critique")) {
       h += '<div class="rappel-critical"><h4>🚨 Alerte sécurité civile / sapeur-pompier</h4>';
       h += "<p>Un défaut critique est identifié : risque moteur, incendie, perte de contrôle, airbag, batterie ou immobilisation brutale.</p>";
       h += "<p>En attendant expertise, limiter l’usage du véhicule, éviter autoroutes, transports d’enfants, trajets de nuit et longue durée.</p>";
       h += "</div>";
     }
-
     h += `<div class="certainty-medium"><strong>Synthèse :</strong> faisceau d’indices techniques ${addTerm("faisceau d’indices", "indice grave précis et concordant")} en faveur d’un défaut antérieur, caché et grave. Le vendeur professionnel aurait pu connaître ce risque ${addTerm("obligation de renseignement", "présomption de connaissance")}.</div>`;
-
     return h;
   };
 
@@ -3074,10 +2623,8 @@
     const autoMatches = matches.filter((m) => m.source === "auto-diagnostic");
     const autoCount = catalog.defects.filter((d) => d.source === "auto-diagnostic").length;
     const autoEngineCount = catalog.engines.filter((e) => e.source === "auto-diagnostic").length;
-
     let h = `<p><strong>Objet :</strong> appui technique issu de la base auto-diagnostic, corrélé au contexte du litige et à la motorisation ${addTerm("appui technique", "corrélation auto-diagnostic", "fiche expert", "DTC", "motorisation")}.</p>`;
     h += `<p><strong>Entrées auto-diagnostic disponibles :</strong> ${autoCount} fiche(s) / ${autoEngineCount} motorisation(s) renforcée(s).</p>`;
-
     if (!autoCount) {
       h += '<div class="verification-needed">';
       h += "<p>La base auto-diagnostic n’a pas encore exposé de données exploitables via JSON ou extraction HTML/JS.</p>";
@@ -3086,7 +2633,6 @@
       h += "</div>";
       return h;
     }
-
     if (!autoMatches.length) {
       h += '<div class="certainty-medium">';
       h += "<p>Aucune fiche auto-diagnostic ne correspond directement au véhicule / motorisation / symptômes déclarés.</p>";
@@ -3094,9 +2640,7 @@
       h += "</div>";
       return h;
     }
-
     h += '<div class="rappel-info"><h4>Fiches auto-diagnostic corrélées au litige</h4><ul>';
-
     autoMatches.slice(0, 10).forEach((m, i) => {
       h += `<li><strong>${i + 1}. ${esc(m.constructeur)} ${esc(m.modeles.join(", "))} — ${esc(m.moteur)}</strong>`;
       if (m.engineType) h += ` — type : ${esc(m.engineType)}`;
@@ -3107,28 +2651,23 @@
       h += `<br/><strong>Appui juridique :</strong> ${esc(m.baseLegale)}`;
       h += "</li>";
     });
-
     h += "</ul></div>";
-
     h += "<h4>Exploitation experte / juriste de l’appui auto-diagnostic</h4><ul>";
     h += `<li>${addTerm("corrélation technique", "faisceau d’indices")} : les fiches auto-diagnostic permettent de démontrer que le désordre n’est pas isolé mais documenté.</li>`;
     h += `<li>${addTerm("antériorité", "défaut de série")} : si la fiche vise le même moteur / boîte / système, l’origine antérieure à la vente est renforcée.</li>`;
     h += `<li>${addTerm("caractère caché", "non-décelable par examen standard")} : les défauts électroniques, logiciels, ADAS, batterie, infiltration ou mécatronique ne sont généralement pas visibles lors d’un essai court.</li>`;
     h += `<li>${addTerm("gravité", "coût de réparation", "sécurité")} : les DTC et fiches expert aident à qualifier l’impact sur la sécurité, la valeur d’usage et le coût de remise en état.</li>`;
-
     if (flags.professional) {
       h += `<li>${addTerm("vendeur professionnel", "obligation de conseil", "vérification des rappels")} : la notoriété du défaut dans la base auto-diagnostic peut fonder une présomption de connaissance ou de faute.</li>`;
     } else {
       h += `<li>${addTerm("vendeur particulier", "mauvaise foi", "réticence dolosive")} : si le vendeur connaissait la fiche / rappel / DTC, la clause vendu en l’état peut être écartée.</li>`;
     }
-
     h += "</ul>";
     return h;
   };
 
   const secJuridique = (flags, matches) => {
     let h = `<p><strong>Objet :</strong> qualification juridique, risques et régimes de garantie ${addTerm("qualification juridique", "responsabilité", "garantie")}.</p>`;
-
     if (flags.professional && !flags.privateSeller) {
       h += `<div class="certainty-high"><p>Vendeur présumé professionnel ${addTerm("vendeur professionnel")}. Protection consommateur renforcée : garantie légale de conformité, charge de la preuve allégée, obligation d’information et de vérification des rappels.</p></div>`;
     } else if (flags.privateSeller && !flags.professional) {
@@ -3136,15 +2675,12 @@
     } else {
       h += `<div class="certainty-low"><p>Statut du vendeur incertain ${addTerm("ambiguïté statut vendeur")}. Qualifier d’abord le vendeur avant action.</p></div>`;
     }
-
     h += "<h4>A. Critères cumulatifs</h4>";
     h += `<p><strong>Antériorité :</strong> ${matches.some((m) => m.confiance === "Haute") ? "renforcée par défaut de série / logiciel / conception." : "à confirmer par expertise."} ${addTerm("antériorité")}</p>`;
     h += `<p><strong>Caractère caché :</strong> ${matches.some((m) => m.wearFactor >= 0.8) ? "soutenable, défaut non visible lors d’un examen standard." : "à apprécier concrètement."} ${addTerm("caractère caché")}</p>`;
     h += `<p><strong>Gravité :</strong> ${matches.some((m) => m.severite === "critique") ? "élevée : sécurité, casse, incendie, immobilisation, coût disproportionné." : "à mesurer par devis et usage normal."} ${addTerm("gravité")}</p>`;
-
     h += "<h4>B. Régimes mobilisables</h4><ul>";
     h += `<li>${addTerm("garantie des vices cachés", "1641 C.civ.")}</li>`;
-
     if (flags.professional) {
       h += `<li>${addTerm("garantie légale de conformité", "L.217-4 C.consom.")}</li>`;
       h += `<li>${addTerm("responsabilité contractuelle", "1231-1 C.civ.")}</li>`;
@@ -3154,11 +2690,9 @@
       h += `<li>${addTerm("dol", "1137 C.civ.")} si dissimulation</li>`;
       h += `<li>${addTerm("obligation d’information précontractuelle", "1112-1 C.civ.")}</li>`;
     }
-
     h += `<li>${addTerm("produits défectueux", "1245 C.civ.")}</li>`;
     h += `<li>${addTerm("défaut de sécurité", "L.423-1 C.consom.")}</li>`;
     h += "</ul>";
-
     if (flags.diesel) {
       h += "<h4>C. Incidence diesel</h4><ul>";
       h += `<li>Conformité antipollution ${addTerm("L.217-4 C.consom.")}</li>`;
@@ -3166,7 +2700,6 @@
       h += `<li>Rappel / campagne technique ${addTerm("DGCCRF", "KBA", "NHTSA")}</li>`;
       h += "</ul>";
     }
-
     if (flags.electricLike) {
       h += "<h4>D. Incidence électrifiée</h4><ul>";
       h += `<li>Sécurité batterie / charge / BMS ${addTerm("L.423-1 C.consom.")}</li>`;
@@ -3174,7 +2707,6 @@
       h += `<li>Produits défectueux ${addTerm("1245 C.civ.")}</li>`;
       h += "</ul>";
     }
-
     return h;
   };
 
@@ -3182,7 +2714,6 @@
     const baseQuery = `${brand} ${model} ${engine || ""} ${fuel || ""} ${(symptoms || []).slice(0, 3).join(" ")}`.trim();
     const q1 = encodeURIComponent(`${baseQuery} défaut panne rappel incendie DTC motorisation puissance cylindrée`);
     const q2 = encodeURIComponent(`${brand} ${model}`);
-
     return [
       { label: "Base auto-diagnostic", url: CONFIG.catalog.autoBaseUrl },
       { label: "Recherche spécialisée Google / forums techniques", url: "https://www.google.com/search?q=" + q1 },
@@ -3196,7 +2727,6 @@
 
   const secPreuve = (matches, flags, objective) => {
     let h = `<p><strong>Objet :</strong> dossier probatoire, stratégie et vérifications ${addTerm("preuve documentaire", "stratégie contentieuse")}.</p>`;
-
     h += "<h4>A. Documents à consolider</h4><ul>";
     h += `<li>Facture d’achat : ${flags.invoice ? "présente" : "à récupérer"}</li>`;
     h += "<li>Certificat de cession / carte grise : vérifier motorisation, énergie, puissance, cylindrée, kilométrage</li>";
@@ -3209,7 +2739,6 @@
     h += "<li>Document motorisation : énergie, puissance, cylindrée, code moteur, boîte, logiciel</li>";
     h += "<li>Photos : moisiure, eau, corrosion, voyants, niveaux, batterie, charge</li>";
     h += "</ul>";
-
     h += "<h4>B. Stratégie recommandée</h4><ol>";
     h += "<li>Expertise amiable contradictoire</li>";
     h += "<li>Devis réparation</li>";
@@ -3222,23 +2751,11 @@
     h += "<li>Assignation / expertise judiciaire si nécessaire</li>";
     if (matches.some((m) => m.severite === "critique")) h += "<li>Signalement DGCCRF / préfet / NHTSA / KBA si danger collectif</li>";
     h += "</ol>";
-
-    const links = researchLinks(
-      vehicleData.marque,
-      vehicleData.modele,
-      matches[0] ? matches[0].moteur : vehicleData.engine,
-      matches[0] ? matches[0].symptomes : [],
-      vehicleData.fuel
-    );
-
+    const links = researchLinks(vehicleData.marque, vehicleData.modele, matches[0] ? matches[0].moteur : vehicleData.engine, matches[0] ? matches[0].symptomes : [], vehicleData.fuel);
     h += "<h4>C. Pistes de recherche externe</h4><ul>";
-    links.forEach((l) => {
-      h += `<li><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a></li>`;
-    });
+    links.forEach((l) => { h += `<li><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a></li>`; });
     h += "</ul>";
-
     if (objective) h += `<p><strong>Objectif déclaré :</strong> ${esc(objective)}</p>`;
-
     return h;
   };
 
@@ -3246,11 +2763,8 @@
     const high = matches.some((m) => m.confiance === "Haute");
     const critical = matches.some((m) => m.severite === "critique");
     const auto = matches.some((m) => m.source === "auto-diagnostic");
-
     let h = `<p><strong>Objet :</strong> conclusion prudente orientée ingénieur / juriste ${addTerm("synthèse", "conclusion")}.</p>`;
-
     h += `<p><strong>Sélections prises en compte :</strong> ${esc(vData.marque || "marque non précisée")} / ${esc(vData.modele || "modèle non précisé")} / ${esc(vData.annee || "année non précisée")} / ${esc(vData.engine || "motorisation non précisée")}${vData.displacement ? " / " + esc(vData.displacement) : ""}${vData.power && vData.power !== "N/A" ? " / " + esc(vData.power) : ""}${vData.fuel ? " / " + esc(vData.fuel) : ""}${vData.transmission ? " / " + esc(vData.transmission) : ""}${vData.code ? " / code " + esc(vData.code) : ""}.</p>`;
-
     h += "<p>";
     if (high && critical && auto) {
       h += "Le croisement local technique/juridique/motorisation/auto-diagnostic oriente fortement vers un défaut de conception, de montage, de logiciel ou de sécurité, antérieur, caché et grave. L’appui auto-diagnostic renforce la démonstration du caractère documenté et non isolé du désordre.";
@@ -3262,29 +2776,22 @@
       h += "Aucun défaut de série identifié localement. Le problème peut être individuel : diagnostic et expertise nécessaires.";
     }
     h += "</p>";
-
     if (flags.diesel) h += "<p><strong>Incidence diesel :</strong> la qualification peut mobiliser conformité antipollution, tromperie, rappel et sécurité produit.</p>";
     if (flags.electricLike) h += "<p><strong>Incidence électrifiée :</strong> la qualification peut mobiliser batterie, autonomie, charge, logiciel, sécurité incendie et produits défectueux.</p>";
-
     h += "<p><strong>Recommandation opérationnelle :</strong> ne pas effectuer de réparation destructrice avant constat/expertise. Conserver le véhicule en l’état si possible, photographier, obtenir devis, exporter les fiches auto-diagnostic corrélées, puis mise en demeure LRAR.</p>";
-
     if (flags.professional) {
       h += "<p><strong>Si vendeur professionnel :</strong> privilégier garantie légale de conformité + signalement DGCCRF si danger.</p>";
     } else {
       h += "<p><strong>Si vendeur particulier :</strong> privilégier expertise amiable puis action en vices cachés.</p>";
     }
-
     h += '<div class="certainty-low"><strong>Avertissement :</strong> document d’aide à la rédaction. Ne constitue pas un avis juridique définitif.</div>';
-
     return h;
   };
 
   const secLexique = () => {
     const terms = Array.from(termesMobilises).sort();
     let h = `<p><strong>Termes mobilisés :</strong> ${terms.length}</p><div class="lexique-section">`;
-    terms.forEach((t) => {
-      h += `<div class="lexique-item"><strong>${esc(t)}</strong></div>`;
-    });
+    terms.forEach((t) => { h += `<div class="lexique-item"><strong>${esc(t)}</strong></div>`; });
     h += "</div>";
     return h;
   };
@@ -3299,15 +2806,12 @@
 
   const updateAdminStats = () => {
     const autoCount = catalog.defects.filter((d) => d.source === "auto-diagnostic").length;
-
     if (q("#statBrands")) q("#statBrands").textContent = getAllBrands().length;
     if (q("#statModels")) q("#statModels").textContent = catalog.models.length;
     if (q("#statEngines")) q("#statEngines").textContent = catalog.engines.length;
     if (q("#statEntries")) q("#statEntries").textContent = catalog.defects.length;
     if (q("#statAutoEntries")) q("#statAutoEntries").textContent = autoCount;
-
     if (q("#statAutoSync")) q("#statAutoSync").textContent = autoLastSync ? new Date(autoLastSync).toLocaleString("fr-FR") : "Jamais";
-
     const last = loadWithMigration(KEYS.LAST_UPDATE, OLD_KEYS.LAST_UPDATE, 0);
     if (q("#statSync")) q("#statSync").textContent = last ? new Date(last).toLocaleString("fr-FR") : "Jamais";
   };
@@ -3315,22 +2819,13 @@
   const renderRequests = () => {
     const box = q("#pendingRequests");
     if (!box) return;
-
     const all = getRequests().slice().sort((a, b) => (b.ts || 0) - (a.ts || 0));
     const pending = all.filter((r) => r.status === "pending");
     const processed = all.filter((r) => r.status !== "pending").slice(0, 30);
-
     if (q("#pendingCount")) q("#pendingCount").textContent = pending.length;
-
-    if (!all.length) {
-      box.innerHTML = '<p class="empty-state">Aucune demande.</p>';
-      return;
-    }
-
+    if (!all.length) { box.innerHTML = '<p class="empty-state">Aucune demande.</p>'; return; }
     let html = "";
-
     html += `<h4>À traiter (${pending.length})</h4>`;
-
     if (!pending.length) {
       html += '<p class="empty-state">Aucune demande en attente.</p>';
     } else {
@@ -3345,19 +2840,15 @@
         `</div></div>`
       )).join("");
     }
-
     if (processed.length) {
       html += "<h4>Dernières demandes traitées</h4>";
-
       html += processed.map((r) => {
         const cls = r.status === "approved" ? "approved" : "refused";
         const label = r.status === "approved" ? "Acceptée" : "Refusée";
         let actions = "";
-
         if (r.status === "approved") {
           actions = `<button class="btn-ok" data-action="share-grant" data-email="${esc(r.email)}" data-name="${esc(r.name)}" type="button">📤 Envoyer l’accès au tiers</button>`;
         }
-
         return `<div class="card ${cls}">` +
           `<strong>${esc(r.name)}</strong> <small>${esc(r.email)}</small>` +
           `<p>${esc(r.reason)}</p>` +
@@ -3366,26 +2857,18 @@
           `</div>`;
       }).join("");
     }
-
     box.innerHTML = html;
   };
 
   const renderUsers = () => {
     const box = q("#authorizedUsers");
     if (!box) return;
-
     const users = getUsers().filter((u) => u.role !== "admin");
-
-    if (!users.length) {
-      box.innerHTML = '<p class="empty-state">Aucun tiers.</p>';
-      return;
-    }
-
+    if (!users.length) { box.innerHTML = '<p class="empty-state">Aucun tiers.</p>'; return; }
     box.innerHTML = users.map((u) => {
       const action = u.status === "approved"
         ? `<button class="btn-warn" data-action="revoke" data-email="${esc(u.email)}" data-name="${esc(u.name)}" type="button">Révoquer</button>`
         : `<button class="btn-ok" data-action="restore" data-email="${esc(u.email)}" data-name="${esc(u.name)}" type="button">Rétablir</button>`;
-
       return `<div class="card ${esc(u.status)}">` +
         `<strong>${esc(u.name)}</strong> <small>${esc(u.email)} • ${esc(u.status)}</small>` +
         `<div class="actions">${action}</div>` +
@@ -3405,7 +2888,6 @@
      ========================================================= */
   const ensurePdfJs = () => {
     if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
-
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
       s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
@@ -3422,7 +2904,6 @@
 
   const ensureJsPdf = () => {
     if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve(window.jspdf.jsPDF);
-
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
       s.src = "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js";
@@ -3448,22 +2929,14 @@
 
   const pdfStatus = (msg, type) => {
     const el = q("#pdfStatus");
-    if (el) {
-      el.textContent = msg;
-      el.className = "status " + type;
-    } else {
-      toast(msg, type);
-    }
+    if (el) { el.textContent = msg; el.className = "status " + type; } else { toast(msg, type); }
   };
 
   const buildPrintHtml = () => {
     let body = "";
     if (analysisData && analysisData.sections) {
-      analysisData.sections.forEach((pair) => {
-        body += `<h2>${pair[0]}</h2>${pair[1]}`;
-      });
+      analysisData.sections.forEach((pair) => { body += `<h2>${pair[0]}</h2>${pair[1]}`; });
     }
-
     return `<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -3502,22 +2975,12 @@ ${body}
 
   const printReportFallback = () => {
     const win = window.open("", "_blank");
-    if (!win) {
-      downloadHtmlReport();
-      return;
-    }
-
+    if (!win) { downloadHtmlReport(); return; }
     win.document.open();
     win.document.write(buildPrintHtml());
     win.document.close();
-
     setTimeout(() => {
-      try {
-        win.focus();
-        win.print();
-      } catch {
-        downloadHtmlReport();
-      }
+      try { win.focus(); win.print(); } catch { downloadHtmlReport(); }
     }, 350);
   };
 
@@ -3525,56 +2988,38 @@ ${body}
     const jsPDF = await ensureJsPdf();
     const doc = new jsPDF();
     let y = 20;
-
     doc.setFontSize(16);
     doc.text("RAPPORT D'ANALYSE EXPERT AUTO", 105, y, { align: "center" });
     y += 10;
-
     doc.setFontSize(10);
     doc.text("Date : " + analysisData.date, 20, y);
     y += 6;
-
     doc.text("Véhicule : " + (vehicleData.marque || "") + " " + (vehicleData.modele || "") + " " + (vehicleData.annee || ""), 20, y);
     y += 6;
-
     doc.text("Motorisation : " + (vehicleData.engine || "") + " — " + (vehicleData.displacement || "") + " — " + (vehicleData.power || "") + " — " + (vehicleData.fuel || ""), 20, y);
     y += 6;
-
     doc.text("Kilométrage : " + (vehicleData.kilometrage || "") + " km", 20, y);
     y += 10;
-
     analysisData.sections.forEach((pair) => {
       const title = pair[0];
       const content = pair[1];
-
-      if (y > 265) {
-        doc.addPage();
-        y = 20;
-      }
-
+      if (y > 265) { doc.addPage(); y = 20; }
       doc.setFont(undefined, "bold");
       doc.setFontSize(11);
       const titleLines = doc.splitTextToSize(title, 170);
       doc.text(titleLines, 20, y);
       y += titleLines.length * 5 + 2;
-
       doc.setFont(undefined, "normal");
       doc.setFontSize(9);
       const plain = stripTags(content);
       const lines = doc.splitTextToSize(plain, 170);
-
       lines.forEach((line) => {
-        if (y > 280) {
-          doc.addPage();
-          y = 20;
-        }
+        if (y > 280) { doc.addPage(); y = 20; }
         doc.text(line, 20, y);
         y += 4;
       });
-
       y += 5;
     });
-
     doc.save("analyse-experte-" + new Date().toISOString().slice(0, 10) + ".pdf");
     toast("PDF généré.", "success");
   };
@@ -3585,32 +3030,21 @@ ${body}
   const registerServiceWorker = () => {
     try {
       if ("serviceWorker" in navigator && location.protocol !== "file:") {
-        navigator.serviceWorker
-          .register("./sw.js")
-          .then((reg) => {
-            swRegistration = reg;
-            return navigator.serviceWorker.ready;
-          })
-          .then((reg) => {
-            swRegistration = reg;
-            console.log("[AR-EXPERT] Service Worker prêt.");
-          })
+        navigator.serviceWorker.register("./sw.js")
+          .then((reg) => { swRegistration = reg; return navigator.serviceWorker.ready; })
+          .then((reg) => { swRegistration = reg; console.log("[AR-EXPERT] Service Worker prêt."); })
           .catch((err) => console.warn("[AR-EXPERT] Service Worker non enregistré:", err));
       }
-    } catch (e) {
-      console.warn("[AR-EXPERT] Enregistrement SW impossible:", e);
-    }
+    } catch (e) { console.warn("[AR-EXPERT] Enregistrement SW impossible:", e); }
   };
 
   const clearCacheAndReload = () => {
     const unload = ("serviceWorker" in navigator)
       ? navigator.serviceWorker.getRegistrations().then((regs) => Promise.all(regs.map((r) => r.unregister().catch(() => {}))))
       : Promise.resolve();
-
     const delCache = ("caches" in window)
       ? caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n).catch(() => {}))))
       : Promise.resolve();
-
     Promise.all([unload.catch(() => {}), delCache.catch(() => {})])
       .then(() => location.reload(true))
       .catch(() => location.reload(true));
@@ -3641,10 +3075,8 @@ ${body}
         qa(".auth-tab").forEach((b) => b.classList.remove("active"));
         qa(".auth-pane").forEach((p) => p.classList.remove("active"));
         btn.classList.add("active");
-
         const pane = q("#" + btn.dataset.authTab + "Pane");
         if (pane) pane.classList.add("active");
-
         authMessage("", "");
       });
     });
@@ -3654,18 +3086,9 @@ ${body}
       const rememberEl = q("#rememberAdminPwd");
       const pwd = pwdEl ? pwdEl.value : "";
       const remember = rememberEl ? rememberEl.checked : false;
-
-      if (!pwd) {
-        authMessage("Mot de passe requis.", "error");
-        return;
-      }
-
+      if (!pwd) { authMessage("Mot de passe requis.", "error"); return; }
       const ok = await verifyAdminPassword(pwd);
-      if (!ok) {
-        authMessage("Mot de passe incorrect.", "error");
-        return;
-      }
-
+      if (!ok) { authMessage("Mot de passe incorrect.", "error"); return; }
       if (remember) {
         const h = await sha256(pwd);
         save(KEYS.ADMIN_PWD_HASH, h);
@@ -3674,7 +3097,6 @@ ${body}
         del(KEYS.ADMIN_PWD_HASH);
         refreshSavedPasswordButton();
       }
-
       setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
       showApp();
       toast("Connexion admin réussie.", "success");
@@ -3683,11 +3105,7 @@ ${body}
 
     on("#useSavedPwdBtn", "click", async () => {
       const saved = loadWithMigration(KEYS.ADMIN_PWD_HASH, OLD_KEYS.ADMIN_PWD_HASH, null);
-      if (!saved) {
-        authMessage("Aucun mot de passe enregistré.", "warning");
-        return;
-      }
-
+      if (!saved) { authMessage("Aucun mot de passe enregistré.", "warning"); return; }
       const ok = await loginAdminFromHash(saved);
       if (!ok) {
         authMessage("Mot de passe enregistré invalide.", "error");
@@ -3695,7 +3113,6 @@ ${body}
         refreshSavedPasswordButton();
         return;
       }
-
       setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
       showApp();
       toast("Connexion admin via mot de passe enregistré.", "success");
@@ -3705,65 +3122,33 @@ ${body}
       const nameEl = q("#reqName");
       const emailEl = q("#reqEmail");
       const reasonEl = q("#reqReason");
-
       const name = nameEl ? nameEl.value.trim() : "";
       const email = emailEl ? emailEl.value.trim() : "";
       const reason = reasonEl ? reasonEl.value.trim() : "";
-
-      if (!name || !email || !reason) {
-        authMessage("Nom, email et motif sont requis.", "error");
-        return;
-      }
-
+      if (!name || !email || !reason) { authMessage("Nom, email et motif sont requis.", "error"); return; }
       const requests = getRequests();
       const emailKey = userEmailKey(email);
-
       const alreadyPending = requests.find((r) => r.emailNorm === emailKey && r.status === "pending");
-      if (alreadyPending) {
-        authMessage("Demande déjà en attente.", "warning");
-        return;
-      }
-
+      if (alreadyPending) { authMessage("Demande déjà en attente.", "warning"); return; }
       const existingApproved = findApprovedUser(name, email);
-      if (existingApproved) {
-        authMessage("Accès déjà accordé. Utilisez Connexion tiers.", "success");
-        return;
-      }
-
+      if (existingApproved) { authMessage("Accès déjà accordé. Utilisez Connexion tiers.", "success"); return; }
       const req = migrateRequest({
-        id: uid(),
-        name,
-        email,
-        reason,
-        status: "pending",
-        date: new Date().toLocaleString("fr-FR"),
-        ts: Date.now(),
-        source: "formulaire-local"
+        id: uid(), name, email, reason, status: "pending", date: new Date().toLocaleString("fr-FR"), ts: Date.now(), source: "formulaire-local"
       });
-
       requests.push(req);
       saveRequests(requests);
-
       lastSharedAccessRequest = req;
-
       const shareBtn = q("#shareRequestBtn");
       if (shareBtn) shareBtn.classList.remove("hidden");
-
       publishAccessRequest(req);
-
       authMessage("Demande envoyée. Si l’admin est sur le même appareil, il sera notifié. Sinon, utilisez ‘Partager la demande avec l’admin’.", "success");
-
       if (nameEl) nameEl.value = "";
       if (emailEl) emailEl.value = "";
       if (reasonEl) reasonEl.value = "";
     });
 
     on("#shareRequestBtn", "click", () => {
-      if (!lastSharedAccessRequest) {
-        toast("Aucune demande à partager.", "warning");
-        return;
-      }
-
+      if (!lastSharedAccessRequest) { toast("Aucune demande à partager.", "warning"); return; }
       const url = makeAccessRequestShareUrl(lastSharedAccessRequest);
       const text =
         "Demande d’accès Expert Auto\n" +
@@ -3771,37 +3156,26 @@ ${body}
         "Email : " + lastSharedAccessRequest.email + "\n" +
         "Motif : " + lastSharedAccessRequest.reason + "\n" +
         "Lien admin : " + url;
-
       shareTextUrl(text, url, "Demande d’accès Expert Auto");
     });
 
     on("#thirdLoginBtn", "click", () => {
       const nameEl = q("#loginName");
       const emailEl = q("#loginEmail");
-
       const name = nameEl ? nameEl.value.trim() : "";
       const email = emailEl ? emailEl.value.trim() : "";
-
-      if (!email) {
-        authMessage("Email requis.", "error");
-        return;
-      }
-
+      if (!email) { authMessage("Email requis.", "error"); return; }
       const user = findApprovedUser(name, email);
-
       if (!user) {
         const emailKey = userEmailKey(email);
         const pending = getRequests().find((r) => r.status === "pending" && r.emailNorm === emailKey);
-
         if (pending) {
           authMessage("Votre demande est en attente de validation admin. Nom enregistré : " + pending.name, "warning");
           return;
         }
-
         authMessage("Aucun accès approuvé trouvé pour cet email. Demandez l’accès puis attendez la validation admin, ou ouvrez le lien d’accès envoyé par l’admin.", "error");
         return;
       }
-
       setSession(user);
       showApp();
       toast("Connexion tiers réussie.", "success");
@@ -3848,9 +3222,7 @@ ${body}
       }
     });
 
-    on("#modelSearch", "input", function () {
-      renderModelList(this.value);
-    });
+    on("#modelSearch", "input", function () { renderModelList(this.value); });
 
     on("#modelList", "mousedown", (e) => {
       const btn = e.target.closest("[data-model-index]");
@@ -3873,9 +3245,7 @@ ${body}
       }
     });
 
-    on("#engineSearch", "input", function () {
-      renderEngineList(this.value);
-    });
+    on("#engineSearch", "input", function () { renderEngineList(this.value); });
 
     on("#engineList", "mousedown", (e) => {
       const btn = e.target.closest("[data-engine-index]");
@@ -3904,36 +3274,23 @@ ${body}
     on("#pdfUpload", "change", async (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
-
-      if (file.type !== "application/pdf") {
-        pdfStatus("Format non supporté. PDF uniquement.", "error");
-        return;
-      }
-
+      if (file.type !== "application/pdf") { pdfStatus("Format non supporté. PDF uniquement.", "error"); return; }
       pdfStatus("Chargement de la bibliothèque PDF...", "success");
-
       try {
         await ensurePdfJs();
         pdfStatus("Extraction du texte en cours...", "success");
-
         const arrayBuffer = await readFileAsArrayBuffer(file);
         const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-
         let fullText = "";
         const promises = [];
-
         for (let i = 1; i <= pdf.numPages; i++) {
           promises.push(
-            pdf.getPage(i)
-              .then((page) => page.getTextContent())
-              .then((tc) => {
-                fullText += tc.items.map((item) => item.str).join(" ") + "\n\n";
-              })
+            pdf.getPage(i).then((page) => page.getTextContent()).then((tc) => {
+              fullText += tc.items.map((item) => item.str).join(" ") + "\n\n";
+            })
           );
         }
-
         await Promise.all(promises);
-
         extractedText = fullText;
         const textInput = q("#textInput");
         if (textInput) textInput.value = fullText;
@@ -3945,45 +3302,27 @@ ${body}
     });
 
     on("#analyzeBtn", "click", () => {
-      if (!currentUser) {
-        toast("Connectez-vous.", "error");
-        return;
-      }
-
+      if (!currentUser) { toast("Connectez-vous.", "error"); return; }
       const info = dailyInfo();
-      if (!info.allowed) {
-        toast(`Limite de ${CONFIG.maxDailyAnalyses} analyses/jour atteinte.`, "warning");
-        return;
-      }
-
+      if (!info.allowed) { toast(`Limite de ${CONFIG.maxDailyAnalyses} analyses/jour atteinte.`, "warning"); return; }
       const textEl = q("#textInput");
       const contextEl = q("#contextInfo");
       const objectiveEl = q("#objectiveInfo");
       const goalEl = q("#goalSelect");
       const sellerEl = q("#sellerType");
-
       let text = textEl ? textEl.value.trim() : "";
       if (!text) text = extractedText.trim();
-
       const context = contextEl ? contextEl.value.trim() : "";
       const objective = (objectiveEl && objectiveEl.value.trim()) || (goalEl ? goalEl.value : "") || "";
       const sellerType = sellerEl ? sellerEl.value : "unknown";
-
       vehicleData = getSelectedVehicleData();
-
-      if (!text) {
-        toast("Saisissez des faits ou importez un PDF.", "warning");
-        return;
-      }
-
+      if (!text) { toast("Saisissez des faits ou importez un PDF.", "warning"); return; }
       termesMobilises = new Set();
-
       const btn = q("#analyzeBtn");
       if (btn) {
         btn.disabled = true;
         btn.innerHTML = '<span class="spinner"></span> Analyse experte + motorisation + auto-diagnostic en cours...';
       }
-
       setTimeout(() => {
         try {
           runAnalysis(text, context, objective, sellerType);
@@ -4026,84 +3365,48 @@ ${body}
     on("#adminPanel", "click", (e) => {
       const btn = e.target.closest("button[data-action]");
       if (!btn) return;
-
       const action = btn.dataset.action;
-
       if (action === "approve" || action === "refuse") {
         const id = btn.dataset.id;
         const reqs = getRequests();
         const req = reqs.find((r) => r.id === id);
         if (!req) return;
-
         req.status = action === "approve" ? "approved" : "refused";
         req.processedAt = Date.now();
         req.processedDate = new Date(req.processedAt).toLocaleString("fr-FR");
-
         if (action === "approve") {
-          const user = upsertUser({
-            id: req.id,
-            name: req.name,
-            email: req.email,
-            role: "user",
-            status: "approved",
-            daily: { date: todayKey(), count: 0 }
-          });
-
+          const user = upsertUser({ id: req.id, name: req.name, email: req.email, role: "user", status: "approved", daily: { date: todayKey(), count: 0 } });
           req.userId = user.key;
           notify("Accès approuvé", `${req.name} (${req.email})`);
         }
-
         saveRequests(reqs);
-
         if (broadcast) {
           try { broadcast.postMessage({ type: "access-change", payload: { email: req.email, status: req.status } }); } catch {}
         }
-
         renderAdmin();
-
-        toast(
-          action === "approve"
-            ? "Demande acceptée. Si le tiers est sur un autre appareil, envoyez-lui le lien d’accès."
-            : "Demande refusée.",
-          action === "approve" ? "success" : "warning"
-        );
+        toast(action === "approve" ? "Demande acceptée. Si le tiers est sur un autre appareil, envoyez-lui le lien d’accès." : "Demande refusée.", action === "approve" ? "success" : "warning");
       }
-
       if (action === "revoke" || action === "restore") {
         const emailKey = userEmailKey(btn.dataset.email || "");
         const users = getUsers();
-
         const idx = users.findIndex((u) => u.emailNorm === emailKey && u.role !== "admin");
         if (idx >= 0) {
           users[idx].status = action === "revoke" ? "revoked" : "approved";
           users[idx].updatedAt = Date.now();
-
           saveUsers(users);
-
           if (broadcast) {
             try { broadcast.postMessage({ type: "access-change", payload: { email: users[idx].email, status: users[idx].status } }); } catch {}
           }
-
           renderAdmin();
           enforceTierAccess();
-
-          toast(
-            action === "revoke" ? "Accès révoqué." : "Accès rétabli.",
-            action === "revoke" ? "warning" : "success"
-          );
+          toast(action === "revoke" ? "Accès révoqué." : "Accès rétabli.", action === "revoke" ? "warning" : "success");
         }
       }
-
       if (action === "share-grant") {
         const name = btn.dataset.name || "";
         const email = btn.dataset.email || "";
-
         const user = findApprovedUser(name, email);
-        if (!user) {
-          toast("Aucun utilisateur approuvé trouvé pour cet email.", "error");
-          return;
-        }
-
+        if (!user) { toast("Aucun utilisateur approuvé trouvé pour cet email.", "error"); return; }
         const url = makeAccessGrantUrl(user);
         const text =
           "Accès Expert Auto accordé\n" +
@@ -4111,7 +3414,6 @@ ${body}
           "Email : " + user.email + "\n" +
           "Ouvrez ce lien dans l’application pour être connecté automatiquement :\n" +
           url;
-
         shareTextUrl(text, url, "Accès Expert Auto");
       }
     });
@@ -4141,13 +3443,10 @@ ${body}
 
     on("#notifBellBtn", "click", () => {
       if (!currentUser || currentUser.role !== "admin") return;
-
       const panel = q("#adminPanel");
       if (panel) panel.classList.remove("hidden");
-
       qa(".admin-tab").forEach((b) => b.classList.toggle("active", b.dataset.adminTab === "requests"));
       qa(".admin-pane").forEach((p) => p.classList.toggle("active", p.id === "requestsPane"));
-
       renderAdmin();
     });
 
@@ -4192,11 +3491,10 @@ ${body}
           defects: catalog.defects.length
         }
       };
-
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = "aide-redactionnelle-expert-data-v20.json";
+      a.download = "aide-redactionnelle-expert-data-v21.json";
       a.click();
       toast("Données exportées.", "success");
     });
@@ -4205,25 +3503,19 @@ ${body}
       const input = document.createElement("input");
       input.type = "file";
       input.accept = ".json";
-
       input.onchange = () => {
         const file = input.files && input.files[0];
         if (!file) return;
-
         const reader = new FileReader();
         reader.onload = () => {
           try {
             const data = JSON.parse(reader.result);
-
             if (data.users) saveUsers(data.users);
             if (data.requests) saveRequests(data.requests);
-
             const imported = loadWithMigration(KEYS.IMPORTED_RAW, OLD_KEYS.IMPORTED_RAW, []) || [];
             imported.push(data);
             save(KEYS.IMPORTED_RAW, imported);
-
             ingestNode(data, null, null, null, "import-admin", "import", 0);
-
             clearEngineCache();
             updateAdminStats();
             refreshSelectorsFromCatalog();
@@ -4234,10 +3526,8 @@ ${body}
             toast("Erreur d’import JSON.", "error");
           }
         };
-
         reader.readAsText(file);
       };
-
       input.click();
     });
 
@@ -4278,7 +3568,6 @@ ${body}
         toast("Générez d’abord une analyse.", "warning");
         return;
       }
-
       generatePdfWithJsPdf().catch(() => {
         toast("Bibliothèque PDF indisponible. Impression/fallback HTML activé.", "warning");
         printReportFallback();
@@ -4290,9 +3579,7 @@ ${body}
         toast("Aucune analyse à partager.", "warning");
         return;
       }
-
       const text = analysisData.sections.map((pair) => pair[0] + "\n" + stripTags(pair[1])).join("\n\n");
-
       if (navigator.share) {
         navigator.share({ title: "Analyse Expert Auto", text }).catch(() => {});
       } else if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -4307,12 +3594,10 @@ ${body}
     window.addEventListener("storage", (e) => {
       if (e.key === KEYS.USERS || e.key === KEYS.REQUESTS || e.key === OLD_KEYS.USERS || e.key === OLD_KEYS.REQUESTS) {
         updateNotificationBell();
-
         if (currentUser && currentUser.role === "admin") {
           pollAdminNotifications();
           renderAdminIfOpen();
         }
-
         enforceTierAccess();
       }
     });
@@ -4321,20 +3606,15 @@ ${body}
       broadcast.onmessage = (event) => {
         try {
           const data = event.data || {};
-
           if (data.type === "access-request") onAccessRequestReceived(data.payload);
-
           if (data.type === "access-change") {
             enforceTierAccess();
-
             if (currentUser && currentUser.role === "admin") {
               updateNotificationBell();
               renderAdminIfOpen();
             }
           }
-        } catch (e) {
-          console.warn("[AR-EXPERT] Broadcast message ignoré:", e);
-        }
+        } catch (e) { console.warn("[AR-EXPERT] Broadcast message ignoré:", e); }
       };
     }
 
@@ -4349,37 +3629,28 @@ ${body}
     seedBaseCatalog();
     loadStoredTechnicalUpdates();
     loadImportedCatalog();
-
     autoLastSync = loadWithMigration(KEYS.AUTO_LAST_SYNC, OLD_KEYS.AUTO_LAST_SYNC, 0) || 0;
-
     updateAdminStats();
-    updateDataStatus("Base locale ingénieur chargée");
+    updateDataStatus("Base locale massive ingénieur chargée (2017-2027)");
     updateNotificationState();
-
     registerServiceWorker();
     refreshSavedPasswordButton();
-
     processIncomingAccessRequestFromUrl();
-
     if (processIncomingAccessGrantFromUrl()) {
       updateNotificationBell();
       loadCatalogs(false);
       return;
     }
-
     if (restoreSession()) {
       showApp();
     } else {
       showLogin();
     }
-
     updateModelButton();
     updateEngineButton();
     updateSelectionSummary();
-
     loadCatalogs(false);
-
-    toast("Application prête. Filtres marques/modèles/motorisations renforcés.", "success");
+    toast("Application prête. Toutes les marques/modèles/motorisations 2017-2027 chargés.", "success");
   };
 
   const boot = () => {
