@@ -1,233 +1,380 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Aide Rédactionnelle Expert Auto - V29</title>
-    <link rel="stylesheet" href="./styles.css">
-    <link rel="manifest" href="./manifest.json">
-    <!-- Police système moderne -->
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <meta name="description" content="Aide rédactionnelle expert auto : analyse technique et juridique croisée, synchronisation dynamique Auto-Diagnostic, PWA/APK." />
+  <title>Expert Auto – Analyse Croisée Dynamique V30</title>
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="./icon.svg" />
+  <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
+  <div class="bg-layer" aria-hidden="true"></div>
+  <div class="bg-noise" aria-hidden="true"></div>
 
-    <!-- TOAST NOTIFICATION CONTAINER -->
-    <div id="toast" class="toast hidden"></div>
+  <div id="toast" class="toast hidden"></div>
 
-    <!-- LOGIN SCREEN -->
-    <div id="loginScreen" class="screen active">
-        <div class="card login-card">
-            <h1>🔐 Aide Rédactionnelle Expert</h1>
-            <p class="subtitle">Accès réservé aux professionnels agréés.</p>
-            
-            <div class="auth-tabs">
-                <button class="auth-tab active" data-auth-tab="admin">Admin</button>
-                <button class="auth-tab" data-auth-tab="request">Demande d'accès</button>
-                <button class="auth-tab" data-auth-tab="third">Connexion Tiers</button>
-            </div>
+  <!-- LOGIN -->
+  <section id="loginScreen" class="screen">
+    <div class="auth-shell">
+      <div class="hero-card glass">
+        <div class="hero-badge">V30 • Dynamic Auto-Diagnostic</div>
+        <h1>Aide Rédactionnelle Expert Auto</h1>
+        <p class="lead">
+          Analyse croisée technique + juridique, synchronisation dynamique avec la base Auto-Diagnostic,
+          contrôle d’accès tiers, partage sécurisé et préparation APK/PWA.
+        </p>
 
-            <div id="authMsg" class="auth-msg"></div>
-
-            <!-- Admin Pane -->
-            <div id="adminPane" class="auth-pane active">
-                <label>Mot de passe Admin</label>
-                <input type="password" id="adminPassword" placeholder="••••••••">
-                <label class="checkbox-label">
-                    <input type="checkbox" id="rememberAdminPwd"> Se souvenir du mot de passe
-                </label>
-                <button id="adminLoginBtn" class="btn-primary">Se connecter</button>
-                <button id="useSavedPwdBtn" class="btn-secondary hidden">Utiliser mot de passe enregistré</button>
-            </div>
-
-            <!-- Request Access Pane -->
-            <div id="requestPane" class="auth-pane hidden">
-                <label>Nom Prénom</label>
-                <input type="text" id="reqName" placeholder="Jean Dupont">
-                <label>Email Professionnel</label>
-                <input type="email" id="reqEmail" placeholder="jean.dupont@cabinet.fr">
-                <label>Motif de la demande</label>
-                <textarea id="reqReason" rows="3" placeholder="Expertise judiciaire / Cabinet d'avocats..."></textarea>
-                <button id="requestBtn" class="btn-primary">Envoyer la demande</button>
-            </div>
-
-            <!-- Third Party Login Pane -->
-            <div id="thirdPane" class="auth-pane hidden">
-                <label>Nom (Optionnel)</label>
-                <input type="text" id="loginName" placeholder="Votre nom">
-                <label>Email Approuvé</label>
-                <input type="email" id="loginEmail" placeholder="email@approuve.fr">
-                <button id="thirdLoginBtn" class="btn-primary">Accéder</button>
-            </div>
+        <div class="hero-grid">
+          <div class="mini-card">
+            <strong>Marque</strong>
+            <span>Filtre dynamique sans exception</span>
+          </div>
+          <div class="mini-card">
+            <strong>Modèle</strong>
+            <span>Toutes générations regroupées</span>
+          </div>
+          <div class="mini-card">
+            <strong>Motorisation</strong>
+            <span>Toutes puissances disponibles</span>
+          </div>
+          <div class="mini-card">
+            <strong>APK</strong>
+            <span>Fond d’écran + install PWA</span>
+          </div>
         </div>
-    </div>
+      </div>
 
-    <!-- MAIN APPLICATION -->
-    <div id="mainApp" class="screen hidden">
-        
-        <!-- HEADER -->
-        <header class="app-header">
-            <div class="header-left">
-                <span id="userBadge" class="badge">👤 Invité</span>
-                <span id="dailyCounter" class="counter">📊 --/-- analyses</span>
-            </div>
-            <div class="header-right">
-                <button id="notifBellBtn" class="icon-btn hidden" title="Notifications">🔔<span id="notifBadge" class="badge-dot hidden">0</span></button>
-                <button id="adminPanelBtn" class="icon-btn hidden" title="Administration">⚙️</button>
-                <button id="logoutBtn" class="icon-btn" title="Déconnexion">🚪</button>
-            </div>
-        </header>
-
-        <!-- STATUS BAR -->
-        <div id="dataStatus" class="status-bar">Initialisation...</div>
-
-        <!-- SELECTION SECTION -->
-        <section class="selection-section card">
-            <h2>🚗 Identification Véhicule</h2>
-            <p class="help-text">Sélectionnez la configuration exacte. L'année n'est pas requise ici ; elle sera déduite ou précisée dans les faits si nécessaire.</p>
-            
-            <div class="form-grid">
-                <!-- BRAND -->
-                <div class="combo-wrapper">
-                    <label for="brandInput">Marque</label>
-                    <input type="text" id="brandInput" placeholder="Ex: Peugeot, Renault..." autocomplete="off">
-                    <div id="brandPanel" class="dropdown-panel hidden"></div>
-                </div>
-
-                <!-- MODEL -->
-                <div class="combo-wrapper">
-                    <label>Modèle</label>
-                    <button id="modelButton" class="select-btn" disabled>Choisir d'abord une marque</button>
-                    <div id="modelPanel" class="dropdown-panel hidden">
-                        <input type="text" id="modelSearch" placeholder="Rechercher un modèle..." autocomplete="off">
-                        <div id="modelList" class="scroll-list"></div>
-                    </div>
-                </div>
-
-                <!-- ENGINE -->
-                <div class="combo-wrapper">
-                    <label>Motorisation</label>
-                    <button id="engineButton" class="select-btn" disabled>Choisir d'abord un modèle</button>
-                    <div id="enginePanel" class="dropdown-panel hidden">
-                        <input type="text" id="engineSearch" placeholder="Filtrer (ex: Diesel, 130ch)..." autocomplete="off">
-                        <div id="engineList" class="scroll-list"></div>
-                    </div>
-                </div>
-
-                <!-- KM & VIN -->
-                <div class="input-group">
-                    <label for="vehicleKilometrage">Kilométrage</label>
-                    <input type="number" id="vehicleKilometrage" placeholder="Ex: 125000">
-                </div>
-                
-                <div class="input-group">
-                    <label for="vehicleVin">VIN (Numéro Série)</label>
-                    <input type="text" id="vehicleVin" placeholder="Optionnel mais recommandé">
-                </div>
-            </div>
-
-            <div id="selectionSummary" class="summary-box">Aucune sélection véhicule complète.</div>
-        </section>
-
-        <!-- ANALYSIS INPUT SECTION -->
-        <section class="analysis-input-section card">
-            <h2>📝 Faits & Contexte Litigieux</h2>
-            
-            <div class="form-row">
-                <div class="input-group flex-grow">
-                    <label for="sellerType">Statut Vendeur</label>
-                    <select id="sellerType">
-                        <option value="unknown">Inconnu / À préciser</option>
-                        <option value="professional">Professionnel (Garage, Concession)</option>
-                        <option value="private">Particulier</option>
-                    </select>
-                </div>
-                <div class="input-group flex-grow">
-                    <label for="goalSelect">Objectif Principal</label>
-                    <select id="goalSelect">
-                        <option value="">-- Choisir --</option>
-                        <option value="remboursement">Remboursement total</option>
-                        <option value="reparation">Prise en charge réparation</option>
-                        <option value="indemnisation">Indemnisation préjudice</option>
-                        <option value="annulation">Annulation vente</option>
-                    </select>
-                </div>
-            </div>
-
-            <div class="input-group">
-                <label for="textInput">Description des pannes / Symptômes / Historique</label>
-                <textarea id="textInput" rows="6" placeholder="Décrivez précisément les symptômes, les codes défauts apparus, les interventions effectuées, et pourquoi vous estimez qu'il s'agit d'un vice caché ou d'une non-conformité..."></textarea>
-            </div>
-
-            <div class="input-group">
-                <label for="contextInfo">Contexte Transactionnel (Date achat, prix, échanges avec vendeur)</label>
-                <textarea id="contextInfo" rows="3" placeholder="Ex: Acheté le 12/05/2023 chez Garage X pour 15 000€. Panne constatée après 2 semaines..."></textarea>
-            </div>
-
-            <div class="input-group">
-                <label for="objectiveInfo">Objectif Détaillé (Si différent de la liste déroulante)</label>
-                <input type="text" id="objectiveInfo" placeholder="Ex: Je souhaite obtenir un remboursement intégral car le véhicule est invendable en l'état.">
-            </div>
-
-            <button id="analyzeBtn" class="btn-analyze">🔍 Lancer l’analyse croisée technique + juridique + motorisation</button>
-        </section>
-
-        <!-- RESULT SECTION -->
-        <section id="analysisSection" class="result-section card hidden">
-            <h2>📄 Rapport d'Expertise Préliminaire</h2>
-            <div id="analysisResult" class="report-content"></div>
-            <div class="actions-footer">
-                <button onclick="window.print()" class="btn-print">🖨️ Imprimer / PDF</button>
-            </div>
-        </section>
-
-    </div>
-
-    <!-- ADMIN PANEL MODAL -->
-    <div id="adminPanel" class="modal-overlay hidden">
-        <div class="modal-content card">
-            <div class="modal-header">
-                <h2>⚙️ Administration Système</h2>
-                <button id="closeAdminBtn" class="icon-btn">✕</button>
-            </div>
-            
-            <div class="admin-tabs">
-                <button class="admin-tab active" data-admin-tab="stats">Stats</button>
-                <button class="admin-tab" data-admin-tab="requests">Demandes</button>
-                <button class="admin-tab" data-admin-tab="users">Utilisateurs</button>
-                <button class="admin-tab" data-admin-tab="data">Données</button>
-            </div>
-
-            <div id="statsPane" class="admin-pane active">
-                <div class="stat-grid">
-                    <div class="stat-item"><strong>Marques:</strong> <span id="statBrands">0</span></div>
-                    <div class="stat-item"><strong>Modèles:</strong> <span id="statModels">0</span></div>
-                    <div class="stat-item"><strong>Motorisations:</strong> <span id="statEngines">0</span></div>
-                    <div class="stat-item"><strong>Défauts Connus:</strong> <span id="statEntries">0</span></div>
-                </div>
-                <div class="admin-actions">
-                    <button id="reloadCatalogBtn" class="btn-secondary">🔄 Recharger Catalogue Distants</button>
-                    <button id="clearCacheBtn" class="btn-danger">🧹 Vider Cache & Reload</button>
-                    <button id="exportDataBtn" class="btn-secondary">💾 Exporter Données JSON</button>
-                </div>
-                <p id="notifState" class="small-text">État notifications: inconnu</p>
-            </div>
-
-            <div id="requestsPane" class="admin-pane hidden">
-                <div id="pendingRequestsList" class="list-container"></div>
-            </div>
-
-            <div id="usersPane" class="admin-pane hidden">
-                <div id="approvedUsersList" class="list-container"></div>
-            </div>
-
-            <div id="dataPane" class="admin-pane hidden">
-                <p>Gestion avancée des bases de données locales et distantes.</p>
-            </div>
+      <div class="login-card glass">
+        <h2>Accès sécurisé</h2>
+        <div class="tabs">
+          <button class="tab-btn active" data-auth-tab="admin">Admin</button>
+          <button class="tab-btn" data-auth-tab="request">Demande</button>
+          <button class="tab-btn" data-auth-tab="third">Tiers</button>
         </div>
-    </div>
 
-    <script src="./app.js"></script>
+        <div id="authMsg" class="auth-msg"></div>
+
+        <div id="adminPane" class="auth-pane active">
+          <label for="adminPassword">Mot de passe administrateur</label>
+          <input id="adminPassword" type="password" placeholder="••••••••" autocomplete="current-password" />
+          <label class="check-row">
+            <input id="rememberAdminPwd" type="checkbox" />
+            <span>Se souvenir du mot de passe</span>
+          </label>
+          <button id="adminLoginBtn" class="btn primary full">Connexion Admin</button>
+          <button id="useSavedPwdBtn" class="btn ghost full hidden">Utiliser le mot de passe mémorisé</button>
+        </div>
+
+        <div id="requestPane" class="auth-pane hidden">
+          <label for="reqName">Nom / Prénom</label>
+          <input id="reqName" type="text" placeholder="Ex. Kevin Expert" />
+
+          <label for="reqEmail">E-mail</label>
+          <input id="reqEmail" type="email" placeholder="nom@domaine.fr" />
+
+          <label for="reqReason">Motif de la demande</label>
+          <textarea id="reqReason" rows="4" placeholder="Expertise, cabinet, association, assurance..."></textarea>
+
+          <button id="requestBtn" class="btn primary full">Envoyer la demande</button>
+        </div>
+
+        <div id="thirdPane" class="auth-pane hidden">
+          <label for="loginName">Nom (optionnel)</label>
+          <input id="loginName" type="text" placeholder="Votre nom" />
+
+          <label for="loginEmail">E-mail approuvé</label>
+          <input id="loginEmail" type="email" placeholder="email@approuve.fr" />
+
+          <button id="thirdLoginBtn" class="btn primary full">Accéder</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- APP -->
+  <section id="mainApp" class="screen hidden">
+    <header class="topbar glass">
+      <div class="top-left">
+        <span id="userBadge" class="pill">👤 Invité</span>
+        <span id="dailyCounter" class="pill soft">📊 --/--</span>
+      </div>
+      <div class="top-right">
+        <button id="notifBellBtn" class="icon-btn hidden" title="Notifications">
+          🔔<span id="notifBadge" class="dot hidden">0</span>
+        </button>
+        <button id="adminPanelBtn" class="icon-btn hidden" title="Administration">⚙️</button>
+        <button id="logoutBtn" class="icon-btn" title="Déconnexion">🚪</button>
+      </div>
+    </header>
+
+    <div id="dataStatus" class="status-strip">Initialisation dynamique...</div>
+
+    <main class="container">
+      <section class="panel glass">
+        <div class="panel-head">
+          <div>
+            <h2>Identification véhicule</h2>
+            <p class="muted">Sélection sans filtre d’année. Toutes les motorisations et puissances du modèle sont exposées.</p>
+          </div>
+          <div class="pulse-dot" title="Synchronisation dynamique"></div>
+        </div>
+
+        <div class="selector-grid">
+          <div class="field combo">
+            <label for="brandInput">Marque</label>
+            <input id="brandInput" type="text" placeholder="Rechercher une marque..." autocomplete="off" />
+            <div id="brandPanel" class="dropdown hidden"></div>
+          </div>
+
+          <div class="field combo">
+            <label>Modèle</label>
+            <button id="modelButton" class="select-btn" disabled>Choisir d’abord une marque</button>
+            <div id="modelPanel" class="dropdown hidden">
+              <input id="modelSearch" type="text" placeholder="Filtrer les modèles..." autocomplete="off" />
+              <div id="modelList" class="list"></div>
+            </div>
+          </div>
+
+          <div class="field combo">
+            <label>Motorisation</label>
+            <button id="engineButton" class="select-btn" disabled>Choisir d’abord un modèle</button>
+            <div id="enginePanel" class="dropdown hidden">
+              <input id="engineSearch" type="text" placeholder="Filtrer motorisation / puissance / code..." autocomplete="off" />
+              <div id="engineFilters" class="chip-row"></div>
+              <div id="engineList" class="list tall"></div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="vehicleKilometrage">Kilométrage</label>
+            <input id="vehicleKilometrage" type="number" min="0" step="1" placeholder="Ex. 125000" />
+          </div>
+
+          <div class="field">
+            <label for="vehicleVin">VIN</label>
+            <input id="vehicleVin" type="text" placeholder="Optionnel mais recommandé" />
+          </div>
+        </div>
+
+        <div id="selectionSummary" class="summary-box">Aucune sélection véhicule complète.</div>
+      </section>
+
+      <section class="panel glass">
+        <div class="panel-head">
+          <div>
+            <h2>Contexte du litige</h2>
+            <p class="muted">Le compte rendu est orienté dynamiquement selon l’objectif et la nature du vendeur.</p>
+          </div>
+        </div>
+
+        <div class="two-cols">
+          <div class="field">
+            <label for="sellerType">Statut du vendeur</label>
+            <select id="sellerType">
+              <option value="unknown">Inconnu / à qualifier</option>
+              <option value="professional">Professionnel</option>
+              <option value="private">Particulier</option>
+            </select>
+          </div>
+
+          <div class="field">
+            <label for="goalSelect">Objectif principal</label>
+            <select id="goalSelect">
+              <option value="">-- Choisir --</option>
+              <option value="remboursement">Remboursement total</option>
+              <option value="reparation">Prise en charge réparation</option>
+              <option value="indemnisation">Indemnisation préjudice</option>
+              <option value="annulation">Annulation de la vente</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="textInput">Faits, symptômes, codes défaut, historique</label>
+          <textarea id="textInput" rows="8" placeholder="Décrivez précisément le désordre, les voyants, les DTC, les interventions, les échanges, la date d'apparition, l'usage du véhicule..."></textarea>
+        </div>
+
+        <div class="field">
+          <label for="contextInfo">Contexte transactionnel</label>
+          <textarea id="contextInfo" rows="4" placeholder="Achat, prix, vendeur, garantie, contrôle technique, factures, promesses, refus du vendeur..."></textarea>
+        </div>
+
+        <div class="field">
+          <label for="objectiveInfo">Objectif détaillé</label>
+          <input id="objectiveInfo" type="text" placeholder="Ex. obtenir la résolution de la vente et le remboursement intégral" />
+        </div>
+
+        <button id="analyzeBtn" class="btn analyze full">🔍 Lancer l’analyse croisée technique + juridique + Auto-Diagnostic</button>
+      </section>
+
+      <section id="analysisSection" class="panel glass hidden">
+        <div class="panel-head">
+          <div>
+            <h2>Rapport d’expertise préliminaire</h2>
+            <p class="muted">Document d’aide à la rédaction. Ne remplace pas une expertise contradictoire ni un avis juridique définitif.</p>
+          </div>
+          <button onclick="window.print()" class="btn ghost">🖨️ PDF / Impression</button>
+        </div>
+        <div id="analysisResult" class="report"></div>
+      </section>
+
+      <section class="panel glass apk-showcase">
+        <div class="apk-copy">
+          <div class="hero-badge green">PWA / APK Ready</div>
+          <h2>Application moderne, fluide, installable</h2>
+          <p class="muted">
+            L’application est pensée pour être utilisée en PWA et préparée pour un packaging APK.
+            L’administrateur peut personnaliser le fond d’écran, le télécharger, puis l’intégrer dans la build Android.
+          </p>
+
+          <div class="apk-actions">
+            <button id="installBtn" class="btn primary">📲 Installer l’application</button>
+            <button id="downloadWallpaperBtn" class="btn ghost">⬇️ Télécharger le fond d’écran</button>
+            <button id="downloadManifestBtn" class="btn ghost">⬇️ manifest.json</button>
+            <button id="downloadCapacitorBtn" class="btn ghost">⬇️ capacitor.config.json</button>
+          </div>
+
+          <div id="installHint" class="hint-box">
+            Astuce : sur Android Chrome, menu ⋮ → “Ajouter à l’écran d’accueil”. Pour l’APK complet, suivre `APK-README.md`.
+          </div>
+        </div>
+
+        <div class="phone-mockup" aria-hidden="true">
+          <div class="phone-frame">
+            <div class="phone-notch"></div>
+            <div class="phone-screen">
+              <div class="phone-header">Expert Auto</div>
+              <div class="phone-card"></div>
+              <div class="phone-card small"></div>
+              <div class="phone-button"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <!-- ADMIN -->
+  <div id="adminPanel" class="modal hidden">
+    <div class="modal-card glass">
+      <div class="modal-head">
+        <h2>Administration</h2>
+        <button id="closeAdminBtn" class="icon-btn">✕</button>
+      </div>
+
+      <div class="tabs admin-tabs">
+        <button class="tab-btn active" data-admin-tab="stats">Pilotage</button>
+        <button class="tab-btn" data-admin-tab="requests">Demandes</button>
+        <button class="tab-btn" data-admin-tab="users">Tiers</button>
+        <button class="tab-btn" data-admin-tab="data">Données</button>
+        <button class="tab-btn" data-admin-tab="apk">APK / Écran</button>
+      </div>
+
+      <div id="statsPane" class="admin-pane active">
+        <div class="stats-grid">
+          <div class="stat"><span>Marques</span><strong id="statBrands">0</strong></div>
+          <div class="stat"><span>Modèles</span><strong id="statModels">0</strong></div>
+          <div class="stat"><span>Motorisations</span><strong id="statEngines">0</strong></div>
+          <div class="stat"><span>Pannes / rappels</span><strong id="statEntries">0</strong></div>
+        </div>
+
+        <div class="admin-block">
+          <h3>Synchronisation dynamique</h3>
+          <p id="remoteStatus" class="muted">État distant inconnu.</p>
+          <p id="lastSyncText" class="muted">Dernière synchro : jamais.</p>
+          <div class="row-actions">
+            <button id="syncNowBtn" class="btn primary">🔄 Synchroniser maintenant</button>
+            <button id="clearCacheBtn" class="btn danger">🧹 Vider cache & reload</button>
+          </div>
+          <p id="notifState" class="muted">État notifications : inconnu</p>
+        </div>
+      </div>
+
+      <div id="requestsPane" class="admin-pane hidden">
+        <div class="admin-block">
+          <h3>Demandes en attente</h3>
+          <div id="pendingRequestsList" class="admin-list"></div>
+        </div>
+      </div>
+
+      <div id="usersPane" class="admin-pane hidden">
+        <div class="admin-block">
+          <h3>Comptes tiers</h3>
+          <div id="approvedUsersList" class="admin-list"></div>
+        </div>
+      </div>
+
+      <div id="dataPane" class="admin-pane hidden">
+        <div class="admin-block">
+          <h3>Import / Export</h3>
+          <p class="muted">
+            Permet d’importer manuellement des exports JSON si les endpoints distants ne sont pas encore exposés.
+          </p>
+
+          <div class="file-row">
+            <label class="btn ghost file-btn">
+              Import modèles
+              <input id="importModelsInput" type="file" accept=".json" hidden />
+            </label>
+
+            <label class="btn ghost file-btn">
+              Import motorisations
+              <input id="importEnginesInput" type="file" accept=".json" hidden />
+            </label>
+
+            <label class="btn ghost file-btn">
+              Import pannes / rappels
+              <input id="importDefectsInput" type="file" accept=".json" hidden />
+            </label>
+          </div>
+
+          <div class="row-actions">
+            <button id="exportDataBtn" class="btn primary">💾 Exporter les données locales</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="apkPane" class="admin-pane hidden">
+        <div class="admin-block">
+          <h3>Fond d’écran APK / PWA</h3>
+          <p class="muted">
+            Téléversez une image de fond, visualisez-la, puis téléchargez le fichier à intégrer dans la build APK.
+          </p>
+
+          <div class="wallpaper-tools">
+            <label class="btn primary file-btn">
+              Téléverser une image
+              <input id="wallpaperInput" type="file" accept="image/*" hidden />
+            </label>
+            <button id="resetWallpaperBtn" class="btn ghost">Réinitialiser le fond</button>
+          </div>
+
+          <div id="wallpaperPreview" class="wallpaper-preview"></div>
+
+          <div class="row-actions">
+            <button id="downloadWallpaperBtn2" class="btn primary">⬇️ Télécharger wallpaper.png</button>
+          </div>
+        </div>
+
+        <div class="admin-block">
+          <h3>Notifications e-mail</h3>
+          <p class="muted">
+            En statique, l’envoi automatique réel nécessite un service tiers. Ici, un fallback `mailto:` est fourni.
+          </p>
+          <label for="adminEmailInput">E-mail administrateur pour les notifications</label>
+          <input id="adminEmailInput" type="email" placeholder="admin@domaine.fr" />
+          <div class="row-actions">
+            <button id="saveSettingsBtn" class="btn primary">💾 Enregistrer</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
 </body>
 </html>
