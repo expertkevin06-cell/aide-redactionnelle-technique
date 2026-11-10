@@ -1,0 +1,80 @@
+{
+  "brands": [
+    { "brand": "Peugeot" },
+    { "brand": "Renault" },
+    { "brand": "Volkswagen" },
+    { "brand": "Tesla" }
+  ],
+  "models": [
+    { "brand": "Peugeot", "model": "3008" },
+    { "brand": "Peugeot", "model": "208" },
+    { "brand": "Renault", "model": "Clio" },
+    { "brand": "Volkswagen", "model": "Golf" },
+    { "brand": "Tesla", "model": "Model Y" }
+  ],
+  "engines": [
+    {
+      "brand": "Peugeot",
+      "model": "3008",
+      "engine": "1.2 PureTech 130",
+      "power": "130ch",
+      "fuel": "Essence",
+      "transmission": "EAT8",
+      "code": "EB2|1.2 L"
+    },
+    {
+      "brand": "Peugeot",
+      "model": "3008",
+      "engine": "1.5 BlueHDi 130",
+      "power": "130ch",
+      "fuel": "Diesel",
+      "transmission": "EAT8",
+      "code": "DV5|1.5 L"
+    },
+    {
+      "brand": "Renault",
+      "model": "Clio",
+      "engine": "1.5 dCi",
+      "power": "90ch",
+      "fuel": "Diesel",
+      "transmission": "BVM6",
+      "code": "K9K|1.5 L"
+    },
+    {
+      "brand": "Tesla",
+      "model": "Model Y",
+      "engine": "Long Range",
+      "power": "442ch",
+      "fuel": "Électrique",
+      "transmission": "AWD / réducteur",
+      "code": "BEV|75 kWh"
+    }
+  ],
+  "defects": [
+    {
+      "brand": "Peugeot",
+      "models": ["3008", "208", "2008", "308", "5008"],
+      "engines": ["EB2", "1.2 PureTech"],
+      "powers": ["110ch", "130ch"],
+      "fuels": ["Essence"],
+      "symptoms": [
+        "courroie distribution",
+        "wet belt",
+        "désagrégation courroie",
+        "crépine pompe à huile",
+        "casse moteur",
+        "pression huile basse",
+        "consommation huile",
+        "mode dégradé"
+      ],
+      "severity": "critique",
+      "description": "Courroie humide susceptible de se désagréger et d’obstruer la crépine de pompe à huile.",
+      "legal": "Vice caché 1641 C.civ.; tromperie L.213-1 C.consom.",
+      "recall": "TSB / extension Stellantis PureTech à vérifier via VIN",
+      "dtc": ["P052B", "P0011", "P0300"],
+      "tags": ["moteur", "distribution", "courroie", "huile", "pompe"],
+      "source": "Auto Diagnostic Pro",
+      "sourceUrl": "https://expertkevin06-cell.github.io/auto-diagnostic/"
+    }
+  ]
+}
