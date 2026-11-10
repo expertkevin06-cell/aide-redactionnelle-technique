@@ -1,89 +1,80 @@
 (() => {
   "use strict";
 
-  const VERSION = "v31-apk-robust-engineer";
+  const VERSION = "v35-ai-locale-wallpaper-admin";
   const ADMIN_PASSWORD = "Kevin83600";
   const MAX_DAILY_ANALYSES = 10;
-  const REMOTE_BASE = "https://expertkevin06-cell.github.io/auto-diagnostic/";
 
-  const DB_NAME = "expert_auto_apk_v31";
+  const DB_NAME = "expert_auto_ai_v35";
   const DB_VERSION = 1;
-  const STORES = ["meta", "brands", "models", "engines", "defects"];
+  const STORES = ["meta", "brands", "models", "engines", "defects", "assets"];
 
   const KEYS = {
-    SESSION: "arex_session_v31",
-    USERS: "arex_users_v31",
-    REQUESTS: "arex_requests_v31",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v31",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v31",
-    BACKGROUND: "arex_background_v31",
-    SETTINGS: "arex_settings_v31"
+    SESSION: "arex_session_v35",
+    USERS: "arex_users_v35",
+    REQUESTS: "arex_requests_v35",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v35",
+    SETTINGS: "arex_settings_v35",
+    LAST_SYNC: "arex_last_sync_v35"
   };
 
   const OLD_KEYS = {
-    SESSION: "arex_session_v30",
-    USERS: "arex_users_v30",
-    REQUESTS: "arex_requests_v30",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v30",
-    AUTO_LAST_SYNC: "arex_auto_last_sync_v30"
+    SESSION: "arex_session_v34",
+    USERS: "arex_users_v34",
+    REQUESTS: "arex_requests_v34",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v34",
+    SETTINGS: "arex_settings_v34",
+    LAST_SYNC: "arex_last_sync_v34"
   };
 
-  const ENDPOINT_GROUPS = [
-    {
-      kind: "brands",
-      paths: [
-        "data/brands.json",
-        "data/marques.json",
-        "api/brands.json"
-      ]
-    },
-    {
-      kind: "models",
-      paths: [
-        "data/models.json",
-        "data/vehicles.json",
-        "data/modeles.json"
-      ]
-    },
-    {
-      kind: "engines",
-      paths: [
-        "data/engines.json",
-        "data/motorisations.json",
-        "data/moteurs.json"
-      ]
-    },
-    {
-      kind: "defects",
-      paths: [
-        "data/defects.json",
-        "data/pannes.json",
-        "data/rappels.json",
-        "data/recalls.json",
-        "data/technical-updates.json"
-      ]
-    }
+  const BRAND_KEYS = ["brand", "marque", "b", "constructeur", "make", "brandName", "brand_name", "name", "nom", "label"];
+  const MODEL_KEYS = ["model", "modele", "modèle", "m", "vehicle", "vehicule", "modelName", "model_name", "name", "nom", "label"];
+  const ENGINE_KEYS = ["engine", "motorisation", "moteur", "e", "version", "variant", "powertrain", "engineName", "engine_name"];
+  const POWER_KEYS = ["power", "puissance", "p", "ch", "kw", "hp"];
+  const FUEL_KEYS = ["fuel", "energie", "énergie", "type", "t", "carburant", "engineType", "energy"];
+  const TRANS_KEYS = ["transmission", "boite", "boîte", "gearbox", "tr"];
+  const CODE_KEYS = ["code", "engineCode", "codeMoteur", "codemoteur", "cylindree", "cylindrée", "displacement", "d", "cyl"];
+  const SYMPTOM_KEYS = ["symptoms", "symptomes", "s", "pannes", "panne", "defauts", "defaut", "problemes", "probleme", "faults", "issue", "issues"];
+
+  const LOCAL_DATA_PATHS = [
+    "./data/auto-diagnostic-export.json",
+    "./data/apk-base.json",
+    "./data/base.json"
   ];
 
-  const PROXIES = [
-    (u) => `https://api.allorigins.win/raw?url=${encodeURIComponent(u)}`,
-    (u) => `https://corsproxy.io/?${encodeURIComponent(u)}`,
-    (u) => `https://api.codetabs.com/v1/proxy/?quest=${encodeURIComponent(u)}`
+  const SEPARATE_DATA_PATHS = [
+    ["./data/brands.json", "brands"],
+    ["./data/marques.json", "brands"],
+    ["./data/models.json", "models"],
+    ["./data/modeles.json", "models"],
+    ["./data/vehicles.json", "models"],
+    ["./data/engines.json", "engines"],
+    ["./data/motorisations.json", "engines"],
+    ["./data/moteurs.json", "engines"],
+    ["./data/defects.json", "defects"],
+    ["./data/pannes.json", "defects"],
+    ["./data/rappels.json", "defects"],
+    ["./data/recalls.json", "defects"],
+    ["./data/technical-updates.json", "defects"]
+  ];
+
+  const REMOTE_DATA_BASES = [
+    "https://expertkevin06-cell.github.io/auto-diagnostic/"
   ];
 
   /* =========================================================
-     HELPERS DOM / TEXTE / STOCKAGE
+     HELPERS
      ========================================================= */
-  const q = (sel) => {
+  const $ = (sel) => {
     try { return document.querySelector(sel); } catch { return null; }
   };
 
-  const qa = (sel) => {
+  const $$ = (sel) => {
     try { return Array.from(document.querySelectorAll(sel)); } catch { return []; }
   };
 
   const on = (sel, evt, fn) => {
-    const el = q(sel);
+    const el = $(sel);
     if (el) el.addEventListener(evt, fn);
   };
 
@@ -161,11 +152,6 @@
     return m ? parseInt(m[1], 10) : 0;
   };
 
-  const expandPowers = (p) => {
-    const parts = splitList(p);
-    return parts.length ? parts : [""];
-  };
-
   const containsAny = (text, list) => {
     const t = norm(text);
     return (list || []).some((x) => t.includes(norm(x)));
@@ -174,8 +160,7 @@
   const isElectricLike = (fuel) => /electrique|bev|ev|hybride rechargeable|plug.in|phev/.test(norm(fuel));
 
   const brandMatches = (a, b) => {
-    const na = normKey(a);
-    const nb = normKey(b);
+    const na = normKey(a), nb = normKey(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
 
@@ -208,8 +193,7 @@
   };
 
   const nameMatch = (a, b) => {
-    const na = normKey(a);
-    const nb = normKey(b);
+    const na = normKey(a), nb = normKey(b);
     if (!na || !nb) return false;
     if (na === nb) return true;
     if (na.length > 2 && nb.includes(na)) return true;
@@ -218,7 +202,7 @@
   };
 
   const ensureToast = () => {
-    let t = q("#toast");
+    let t = $("#toast");
     if (!t) {
       t = document.createElement("div");
       t.id = "toast";
@@ -286,31 +270,6 @@
 
   const valToString = (v) => Array.isArray(v) ? v.join("|") : (v == null ? "" : String(v));
 
-  const getField = (obj, keys) => {
-    if (!obj || typeof obj !== "object") return "";
-    for (const k of keys) {
-      if (obj[k] != null && obj[k] !== "") return obj[k];
-    }
-    const lower = {};
-    for (const p in obj) {
-      if (Object.prototype.hasOwnProperty.call(obj, p)) lower[normKey(p)] = p;
-    }
-    for (const k of keys) {
-      const lk = lower[normKey(k)];
-      if (lk && obj[lk] != null && obj[lk] !== "") return obj[lk];
-    }
-    return "";
-  };
-
-  const getBrandField = (o) => valToString(getField(o, ["b", "brand", "marque", "constructeur", "make", "brandName", "brand_name"]));
-  const getModelField = (o) => valToString(getField(o, ["m", "model", "modele", "modèle", "vehicle", "vehicule", "modelName", "model_name", "name"]));
-  const getEngineField = (o) => valToString(getField(o, ["e", "engine", "motorisation", "moteur", "powertrain", "version", "variant", "engineName", "engine_name"]));
-  const getPowerField = (o) => valToString(getField(o, ["p", "power", "puissance", "ch", "kw", "hp"]));
-  const getFuelField = (o) => valToString(getField(o, ["t", "type", "fuel", "energie", "énergie", "carburant", "engineType", "energy"]));
-  const getTransField = (o) => valToString(getField(o, ["tr", "transmission", "boite", "boîte", "gearbox", "gearboxName"]));
-  const getCodeField = (o) => valToString(getField(o, ["code", "codeMoteur", "engineCode", "codemoteur", "d", "cyl", "cylindree", "cylindrée", "displacement"]));
-  const getSymptomsField = (o) => valToString(getField(o, ["s", "symptoms", "symptomes", "panne", "pannes", "defaut", "défaut", "probleme", "problème", "issue", "fault"]));
-
   const downloadText = (text, filename, mime = "application/json") => {
     const blob = new Blob([text], { type: mime });
     const url = URL.createObjectURL(blob);
@@ -335,150 +294,31 @@
   const readFileAsText = (file) => new Promise((resolve, reject) => {
     const fr = new FileReader();
     fr.onload = () => resolve(String(fr.result || ""));
-    fr.onerror = reject;
+    fr.onerror = () => reject(fr.error || new Error("Lecture impossible"));
     fr.readAsText(file);
   });
 
   const readFileAsDataUrl = (file) => new Promise((resolve, reject) => {
     const fr = new FileReader();
     fr.onload = () => resolve(String(fr.result || ""));
-    fr.onerror = reject;
+    fr.onerror = () => reject(fr.error || new Error("Lecture image impossible"));
     fr.readAsDataURL(file);
   });
 
-  /* =========================================================
-     INJECTION CSS / PURGE ANNÉE
-     ========================================================= */
-  const injectCss = () => {
-    if (q("#apkEngineerStyles")) return;
-    const style = document.createElement("style");
-    style.id = "apkEngineerStyles";
-    style.textContent = `
-      .apk-update-bar{
-        width:min(1180px,100%);
-        margin:0 auto 14px;
-        padding:14px 16px;
-        border-radius:18px;
-        background:linear-gradient(135deg, rgba(34,211,238,0.12), rgba(59,130,246,0.12), rgba(139,92,246,0.12));
-        border:1px solid rgba(148,163,184,0.18);
-        box-shadow:0 18px 50px rgba(0,0,0,0.22);
-        display:grid;
-        gap:10px;
-      }
-      .apk-update-row{
-        display:flex;
-        flex-wrap:wrap;
-        gap:10px;
-        align-items:center;
-      }
-      .apk-update-title{
-        font-weight:800;
-        letter-spacing:.2px;
-      }
-      .apk-update-status{
-        color:#cbd5e1;
-        font-size:.95rem;
-        min-height:22px;
-      }
-      .apk-progress{
-        width:100%;
-        height:10px;
-        border-radius:999px;
-        overflow:hidden;
-        background:rgba(2,6,23,0.45);
-        border:1px solid rgba(148,163,184,0.16);
-      }
-      .apk-progress-inner{
-        height:100%;
-        width:0%;
-        background:linear-gradient(90deg,#22d3ee,#3b82f6,#8b5cf6);
-        transition:width .25s ease;
-      }
-      .apk-mini-stat{
-        padding:6px 10px;
-        border-radius:999px;
-        background:rgba(255,255,255,0.06);
-        border:1px solid rgba(148,163,184,0.16);
-        font-size:.86rem;
-        color:#e2e8f0;
-      }
-      .apk-admin-block{
-        margin-top:14px;
-        padding:14px;
-        border-radius:16px;
-        background:rgba(2,6,23,0.28);
-        border:1px solid rgba(148,163,184,0.16);
-      }
-      .apk-admin-block h4{
-        margin:0 0 10px;
-      }
-      .btn.apk-action{
-        background:linear-gradient(135deg,#06b6d4,#3b82f6);
-        border-color:transparent;
-        color:white;
-      }
-      .btn.apk-export{
-        background:linear-gradient(135deg,#22c55e,#0ea5e9);
-        border-color:transparent;
-        color:white;
-      }
-      .btn.apk-danger{
-        background:rgba(239,68,68,0.14);
-        border-color:rgba(239,68,68,0.28);
-        color:#fecaca;
-      }
-      .year-purged{
-        display:none !important;
-      }
-    `;
-    document.head.appendChild(style);
-  };
-
-  const purgeYearControls = () => {
-    try {
-      const selectors = [
-        "#vehicleYear",
-        "[id*='year' i]",
-        "[name*='annee' i]",
-        "[data-field='year']",
-        "[placeholder*='année' i]",
-        "[placeholder*='millésime' i]"
-      ];
-
-      document.querySelectorAll(selectors.join(",")).forEach((el) => {
-        const group = el.closest(".field, .input-group, .form-grid > div, .two-cols > div, div");
-        if (group && /année|millésime|mise en circulation/i.test(group.textContent || "")) {
-          group.classList.add("year-purged");
-          group.style.display = "none";
-        } else {
-          el.classList.add("year-purged");
-          el.style.display = "none";
-        }
-      });
-
-      document.querySelectorAll("label").forEach((label) => {
-        if (/année|millésime|mise en circulation/i.test(label.textContent || "")) {
-          const group = label.closest(".field, .input-group, .form-grid > div, .two-cols > div, div");
-          if (group) {
-            group.classList.add("year-purged");
-            group.style.display = "none";
-          } else {
-            label.classList.add("year-purged");
-            label.style.display = "none";
-          }
-        }
-      });
-    } catch (e) {
-      console.warn("[EXPERT-AUTO] Purge année ignorée:", e);
-    }
+  const formatBytes = (bytes) => {
+    const n = Number(bytes || 0);
+    if (!n) return "0 o";
+    const units = ["o", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(n) / Math.log(1024));
+    return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + " " + units[i];
   };
 
   /* =========================================================
      INDEXEDDB
      ========================================================= */
-  let idb = null;
+  let db = null;
 
-  const openIdb = () => new Promise((resolve) => {
+  const openDb = () => new Promise((resolve) => {
     if (!("indexedDB" in window)) {
       resolve(null);
       return;
@@ -488,10 +328,10 @@
       const req = indexedDB.open(DB_NAME, DB_VERSION);
 
       req.onupgradeneeded = (event) => {
-        const db = event.target.result;
+        const d = event.target.result;
         STORES.forEach((store) => {
-          if (!db.objectStoreNames.contains(store)) {
-            db.createObjectStore(store, { keyPath: "key" });
+          if (!d.objectStoreNames.contains(store)) {
+            d.createObjectStore(store, { keyPath: "key" });
           }
         });
       };
@@ -503,14 +343,14 @@
     }
   });
 
-  const idbGetAll = (store) => new Promise((resolve) => {
-    if (!idb) {
+  const idbAll = (store) => new Promise((resolve) => {
+    if (!db) {
       resolve([]);
       return;
     }
 
     try {
-      const tx = idb.transaction(store, "readonly");
+      const tx = db.transaction(store, "readonly");
       const req = tx.objectStore(store).getAll();
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => resolve([]);
@@ -520,13 +360,13 @@
   });
 
   const idbClear = (store) => new Promise((resolve) => {
-    if (!idb) {
+    if (!db) {
       resolve();
       return;
     }
 
     try {
-      const tx = idb.transaction(store, "readwrite");
+      const tx = db.transaction(store, "readwrite");
       tx.objectStore(store).clear();
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
@@ -535,16 +375,72 @@
     }
   });
 
-  const idbPutAll = (store, items) => new Promise((resolve) => {
-    if (!idb || !items || !items.length) {
+  const idbPutAll = (store, items) => new Promise((resolve, reject) => {
+    if (!db || !items || !items.length) {
       resolve();
       return;
     }
 
     try {
-      const tx = idb.transaction(store, "readwrite");
+      const tx = db.transaction(store, "readwrite");
       const os = tx.objectStore(store);
       items.forEach((item) => os.put(item));
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error("Transaction IndexedDB en erreur"));
+      tx.onabort = () => reject(tx.error || new Error("Transaction IndexedDB abortée"));
+    } catch (e) {
+      reject(e);
+    }
+  });
+
+  const idbPutAllChunked = async (store, items) => {
+    const chunk = 300;
+    for (let i = 0; i < items.length; i += chunk) {
+      await idbPutAll(store, items.slice(i, i + chunk));
+    }
+  };
+
+  const idbGetAsset = (key) => new Promise((resolve) => {
+    if (!db) {
+      resolve(null);
+      return;
+    }
+
+    try {
+      const tx = db.transaction("assets", "readonly");
+      const req = tx.objectStore("assets").get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+
+  const idbSetAsset = (item) => new Promise((resolve, reject) => {
+    if (!db) {
+      reject(new Error("IndexedDB indisponible"));
+      return;
+    }
+
+    try {
+      const tx = db.transaction("assets", "readwrite");
+      tx.objectStore("assets").put(item);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error || new Error("Échec sauvegarde asset"));
+    } catch (e) {
+      reject(e);
+    }
+  });
+
+  const idbDeleteAsset = (key) => new Promise((resolve) => {
+    if (!db) {
+      resolve();
+      return;
+    }
+
+    try {
+      const tx = db.transaction("assets", "readwrite");
+      tx.objectStore("assets").delete(key);
       tx.oncomplete = () => resolve();
       tx.onerror = () => resolve();
     } catch {
@@ -553,7 +449,7 @@
   });
 
   /* =========================================================
-     MÉMOIRE / INDEX LOCAL MASSIF
+     MÉMOIRE
      ========================================================= */
   const mem = {
     brands: new Map(),
@@ -576,11 +472,13 @@
 
   const recomputeCounts = () => {
     mem.brands.forEach((b) => { b.modelCount = 0; });
+    mem.models.forEach((m) => { m.engineCount = 0; });
+
     mem.models.forEach((m) => {
-      m.engineCount = 0;
       const b = mem.brands.get(m.brandKey);
       if (b) b.modelCount = (b.modelCount || 0) + 1;
     });
+
     mem.engines.forEach((e) => {
       const m = mem.models.get(e.modelKey);
       if (m) m.engineCount = (m.engineCount || 0) + 1;
@@ -589,61 +487,74 @@
 
   const ensureBrand = (name, source = "local") => {
     name = String(name || "").trim();
-    if (!name) return null;
+    if (!name) return false;
 
     const key = normKey(name);
-    let b = mem.brands.get(key);
-
-    if (!b) {
-      b = {
-        key,
-        name,
-        modelCount: 0,
-        sources: []
-      };
-      mem.brands.set(key, b);
+    if (mem.brands.has(key)) {
+      addSource(mem.brands.get(key), source);
+      return false;
     }
 
-    addSource(b, source);
-    return b;
+    mem.brands.set(key, {
+      key,
+      name,
+      modelCount: 0,
+      sources: [source],
+      updatedAt: Date.now()
+    });
+
+    return true;
   };
 
   const ensureModel = (brandName, modelName, source = "local") => {
-    const b = ensureBrand(brandName, source);
+    brandName = String(brandName || "").trim();
     modelName = String(modelName || "").trim();
-    if (!b || !modelName) return null;
+    if (!brandName || !modelName) return false;
 
-    const key = `${b.key}|${normKey(modelName)}`;
-    let m = mem.models.get(key);
+    ensureBrand(brandName, source);
 
-    if (!m) {
-      m = {
-        key,
-        brandKey: b.key,
-        brandName: b.name,
-        name: modelName,
-        engineCount: 0,
-        sources: []
-      };
-      mem.models.set(key, m);
-      b.modelCount = (b.modelCount || 0) + 1;
+    const bk = normKey(brandName);
+    const key = `${bk}|${normKey(modelName)}`;
+
+    if (mem.models.has(key)) {
+      addSource(mem.models.get(key), source);
+      return false;
     }
 
-    addSource(m, source);
-    return m;
+    mem.models.set(key, {
+      key,
+      brandKey: bk,
+      brandName,
+      name: modelName,
+      engineCount: 0,
+      sources: [source],
+      updatedAt: Date.now()
+    });
+
+    return true;
   };
 
   const addEngine = (brandName, modelName, engine, power, fuel, transmission, code, source = "local") => {
-    const m = ensureModel(brandName, modelName, source);
+    brandName = String(brandName || "").trim();
+    modelName = String(modelName || "").trim();
     engine = String(engine || "").trim();
-    if (!m || !engine) return 0;
+
+    if (!brandName || !modelName || !engine) return 0;
+
+    ensureBrand(brandName, source);
+    ensureModel(brandName, modelName, source);
+
+    const bk = normKey(brandName);
+    const mk = normKey(modelName);
+    const modelKey = `${bk}|${mk}`;
 
     let added = 0;
-    const powers = expandPowers(power);
+    const powers = splitList(power);
+    if (!powers.length) powers.push("");
 
     powers.forEach((p) => {
       const key = [
-        m.key,
+        modelKey,
         normKey(engine),
         normKey(p),
         normKey(fuel),
@@ -653,25 +564,23 @@
 
       if (mem.engines.has(key)) return;
 
-      const e = {
+      mem.engines.set(key, {
         key,
-        modelKey: m.key,
-        brandKey: m.brandKey,
-        brandName: m.brandName,
-        modelName: m.name,
+        modelKey,
+        brandKey: bk,
+        brandName,
+        modelName,
         engine,
         power: String(p || "").trim(),
         fuel: String(fuel || "").trim(),
         transmission: String(transmission || "").trim(),
         code: String(code || "").trim(),
-        displacement: /l|cm3|cylindrée/i.test(String(code || "")) ? String(code) : "",
-        sources: [],
-        confidence: String(source || "").includes("distant") ? 0.98 : 0.94
-      };
+        displacement: /l|cm3|kwh|cylindrée/i.test(String(code || "")) ? String(code) : "",
+        sources: [source],
+        confidence: String(source || "").includes("distant") ? 0.98 : 0.95,
+        updatedAt: Date.now()
+      });
 
-      addSource(e, source);
-      mem.engines.set(key, e);
-      m.engineCount = (m.engineCount || 0) + 1;
       added++;
     });
 
@@ -681,76 +590,56 @@
   const addDefect = (d) => {
     if (!d || !d.brand) return 0;
 
-    const key = normKey(JSON.stringify({
-      b: d.brand,
-      m: d.models || [],
-      e: d.engines || [],
-      p: d.powers || [],
-      f: d.fuels || [],
-      s: d.symptoms || [],
-      desc: d.description || ""
-    }));
-
-    if (mem.defects.has(key)) return 0;
-
-    const defect = {
-      key,
+    const normalized = {
       brand: String(d.brand || "").trim(),
       models: unique(d.models || []),
       engines: unique(d.engines || []),
       powers: unique(d.powers || []),
       fuels: unique(d.fuels || []),
       symptoms: unique(d.symptoms || []),
-      severity: String(d.severity || "info").trim(),
-      description: String(d.description || "").trim(),
+      description: String(d.description || "").trim()
+    };
+
+    const key = normKey(JSON.stringify(normalized));
+    if (mem.defects.has(key)) return 0;
+
+    mem.defects.set(key, {
+      key,
+      brand: normalized.brand,
+      models: normalized.models,
+      engines: normalized.engines,
+      powers: normalized.powers,
+      fuels: normalized.fuels,
+      symptoms: normalized.symptoms,
+      severity: String(d.severity || "info").trim().toLowerCase(),
+      description: normalized.description,
       legal: String(d.legal || "").trim(),
       recall: String(d.recall || "").trim(),
       tags: String(d.tags || "").trim(),
       dtc: String(d.dtc || "").trim(),
       source: String(d.source || "base locale").trim(),
       sourceUrl: String(d.sourceUrl || "").trim(),
-      sources: []
-    };
+      sources: [String(d.source || "base locale").trim()],
+      updatedAt: Date.now()
+    });
 
-    addSource(defect, defect.source);
-    mem.defects.set(key, defect);
     return 1;
   };
 
-  const persistMemory = async () => {
-    if (!idb) return;
-
-    await Promise.all([
-      idbClear("brands"),
-      idbClear("models"),
-      idbClear("engines"),
-      idbClear("defects")
-    ]);
-
-    await idbPutAll("brands", [...mem.brands.values()]);
-    await idbPutAll("models", [...mem.models.values()]);
-    await idbPutAll("engines", [...mem.engines.values()]);
-    await idbPutAll("defects", [...mem.defects.values()]);
-    await idbPutAll("meta", [{
-      key: "state",
-      version: VERSION,
-      updatedAt: Date.now(),
-      counts: counts()
-    }]);
-
-    save(KEYS.AUTO_LAST_SYNC, Date.now());
-  };
-
-  const loadMemoryFromIdb = async () => {
+  const clearMemory = () => {
     mem.brands.clear();
     mem.models.clear();
     mem.engines.clear();
     mem.defects.clear();
+  };
 
-    const brands = await idbGetAll("brands");
-    const models = await idbGetAll("models");
-    const engines = await idbGetAll("engines");
-    const defects = await idbGetAll("defects");
+  const loadMemoryFromDb = async () => {
+    clearMemory();
+
+    const brands = await idbAll("brands");
+    const models = await idbAll("models");
+    const engines = await idbAll("engines");
+    const defects = await idbAll("defects");
 
     brands.forEach((b) => mem.brands.set(b.key, b));
     models.forEach((m) => mem.models.set(m.key, m));
@@ -760,255 +649,500 @@
     recomputeCounts();
   };
 
+  const persistMemory = async () => {
+    if (!db) return;
+
+    await Promise.all([
+      idbClear("brands"),
+      idbClear("models"),
+      idbClear("engines"),
+      idbClear("defects")
+    ]);
+
+    await idbPutAllChunked("brands", [...mem.brands.values()]);
+    await idbPutAllChunked("models", [...mem.models.values()]);
+    await idbPutAllChunked("engines", [...mem.engines.values()]);
+    await idbPutAllChunked("defects", [...mem.defects.values()]);
+
+    await idbPutAll("meta", [{
+      key: "state",
+      version: VERSION,
+      updatedAt: Date.now(),
+      counts: counts()
+    }]);
+  };
+
   /* =========================================================
-     BASE DE SECOURS LOCALE
+     NORMALISATION JSON
      ========================================================= */
-  const SEED_VEHICLES = [
-    ["Peugeot", "208", "1.2 VTi", "82ch", "Essence", "BVM5", "EB2|1.2 L"],
-    ["Peugeot", "208", "1.2 PureTech", "110ch|130ch", "Essence", "BVM5|ETG6|EAT8", "EB2|1.2 L"],
-    ["Peugeot", "208", "1.6 HDi", "92ch|115ch", "Diesel", "BVM5|ETG6", "DV6|1.6 L"],
+  const getField = (obj, keys) => {
+    if (!obj || typeof obj !== "object") return "";
+
+    for (const k of keys) {
+      if (obj[k] != null && String(obj[k]).trim()) return String(obj[k]).trim();
+    }
+
+    const lower = {};
+    for (const p in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, p)) {
+        lower[normKey(p)] = p;
+      }
+    }
+
+    for (const k of keys) {
+      const real = lower[normKey(k)];
+      if (real && obj[real] != null && String(obj[real]).trim()) return String(obj[real]).trim();
+    }
+
+    return "";
+  };
+
+  const getArray = (obj, keys) => {
+    if (!obj || typeof obj !== "object") return [];
+
+    for (const k of keys) {
+      if (Array.isArray(obj[k])) return obj[k];
+    }
+
+    const lower = {};
+    for (const p in obj) {
+      if (Object.prototype.hasOwnProperty.call(obj, p)) {
+        lower[normKey(p)] = p;
+      }
+    }
+
+    for (const k of keys) {
+      const real = lower[normKey(k)];
+      if (real && Array.isArray(obj[real])) return obj[real];
+    }
+
+    return [];
+  };
+
+  const toArrayStrings = (value) => {
+    if (Array.isArray(value)) {
+      return value
+        .map((v) => {
+          if (v == null) return "";
+          if (typeof v === "object") {
+            return getField(v, ["name", "model", "modele", "engine", "motorisation", "moteur", "brand", "marque", "value", "text", "label"]) || JSON.stringify(v);
+          }
+          return String(v).trim();
+        })
+        .filter(Boolean);
+    }
+
+    if (value == null) return [];
+    return splitList(value);
+  };
+
+  const pickString = (row, keys) => getField(row, keys);
+
+  const pickArray = (row, keys) => {
+    const arr = getArray(row, keys);
+    if (arr.length) return toArrayStrings(arr);
+
+    const s = pickString(row, keys);
+    return s ? splitList(s) : [];
+  };
+
+  const inferKind = (row) => {
+    if (typeof row === "string") return "brands";
+    if (!row || typeof row !== "object") return null;
+
+    const keys = Object.keys(row).map(normKey).join("|");
+
+    if (/(symptoms?|symptomes?|pannes?|panne|defauts?|defaut|faults?|issues?|dtc|rappels?|rappel|recalls?|description|fiche|expertise)/.test(keys)) {
+      return "defects";
+    }
+
+    if (/(engines?|motorisations?|moteurs?|power|puissance|fuel|energie|carburant|transmission|boite)/.test(keys)) {
+      return "engines";
+    }
+
+    if (/(models?|modeles?|vehicles?|vehicules?)/.test(keys) && /(brands?|marques?)/.test(keys)) {
+      return "models";
+    }
+
+    if (/(brands?|marques?|constructeurs?)/.test(keys)) {
+      return "brands";
+    }
+
+    return null;
+  };
+
+  const ingestRow = (row, source, forcedKind) => {
+    const stats = { brands: 0, models: 0, engines: 0, defects: 0, invalid: 0, duplicates: 0 };
+
+    if (!row) {
+      stats.invalid++;
+      return stats;
+    }
+
+    if (typeof row === "string") {
+      if (ensureBrand(row, source)) stats.brands++;
+      else stats.duplicates++;
+      return stats;
+    }
+
+    if (typeof row !== "object") {
+      stats.invalid++;
+      return stats;
+    }
+
+    const kind = forcedKind && forcedKind !== "auto" ? forcedKind : (inferKind(row) || "auto");
+
+    const brand = pickString(row, BRAND_KEYS);
+    const model = pickString(row, MODEL_KEYS);
+    const engine = pickString(row, ENGINE_KEYS);
+    const power = pickString(row, POWER_KEYS);
+    const fuel = pickString(row, FUEL_KEYS);
+    const transmission = pickString(row, TRANS_KEYS);
+    const code = pickString(row, CODE_KEYS);
+
+    if (kind === "brands" || (kind === "auto" && brand && !model && !engine)) {
+      if (brand) {
+        if (ensureBrand(brand, source)) stats.brands++;
+        else stats.duplicates++;
+      } else {
+        stats.invalid++;
+      }
+      return stats;
+    }
+
+    if (kind === "models" || (kind === "auto" && brand && model && !engine)) {
+      if (brand && model) {
+        if (ensureModel(brand, model, source)) stats.models++;
+        else stats.duplicates++;
+      } else {
+        stats.invalid++;
+      }
+      return stats;
+    }
+
+    if (kind === "engines" || (kind === "auto" && brand && model && engine)) {
+      if (brand && model && engine) {
+        const added = addEngine(brand, model, engine, power, fuel, transmission, code, source);
+        stats.engines += added;
+        if (!added) stats.duplicates++;
+      } else {
+        stats.invalid++;
+      }
+      return stats;
+    }
+
+    if (kind === "defects") {
+      if (!brand) {
+        stats.invalid++;
+        return stats;
+      }
+
+      const models = pickArray(row, ["models", "modeles", "model", "modele", "vehicle", "vehicule"]);
+      if (!models.length && model) models.push(model);
+
+      const engines = pickArray(row, ["engines", "motorisations", "moteurs", "engine", "motorisation", "moteur", "e"]);
+      if (!engines.length && engine) engines.push(engine);
+
+      const powers = pickArray(row, ["powers", "puissances", "power", "puissance", "p"]);
+      if (!powers.length && power) powers.push(power);
+
+      const fuels = pickArray(row, ["fuels", "energies", "fuel", "energie", "type", "t", "carburants", "carburant"]);
+      if (!fuels.length && fuel) fuels.push(fuel);
+
+      const symptoms = pickArray(row, SYMPTOM_KEYS);
+
+      const description = pickString(row, [
+        "description", "fiche", "expertise", "note", "n", "details", "resume", "résumé"
+      ]);
+
+      if (!symptoms.length && description) {
+        symptoms.push(...splitList(description).slice(0, 8));
+      }
+
+      const tags = pickArray(row, ["tags", "tg", "keywords", "mots_cles", "motscles"]).join("|");
+      const dtc = pickArray(row, ["dtc", "codes", "codeDtc", "code_defaut"]).join("|");
+
+      const severity = (pickString(row, ["severity", "severite", "sev", "gravite"]) || "info").trim().toLowerCase();
+      const legal = pickString(row, ["legal", "law", "baseLegale", "base_legale", "juridique"]);
+      const recall = pickString(row, ["recall", "rappel", "campaign", "campagne", "rec", "tsb"]);
+      const sourceUrl = pickString(row, ["sourceUrl", "url", "lien", "link", "href"]);
+
+      const added = addDefect({
+        brand,
+        models,
+        engines,
+        powers,
+        fuels,
+        symptoms,
+        severity,
+        description,
+        legal,
+        recall,
+        tags,
+        dtc,
+        source: pickString(row, ["source"]) || source,
+        sourceUrl
+      });
+
+      if (added) stats.defects++;
+      else stats.duplicates++;
+
+      return stats;
+    }
+
+    // Secours
+    if (brand && model && engine) {
+      const added = addEngine(brand, model, engine, power, fuel, transmission, code, source);
+      stats.engines += added;
+      if (!added) stats.duplicates++;
+      return stats;
+    }
+
+    if (brand && model) {
+      if (ensureModel(brand, model, source)) stats.models++;
+      else stats.duplicates++;
+      return stats;
+    }
+
+    if (brand) {
+      if (ensureBrand(brand, source)) stats.brands++;
+      else stats.duplicates++;
+      return stats;
+    }
+
+    stats.invalid++;
+    return stats;
+  };
+
+  const addStats = (target, source) => {
+    target.brands += source.brands || 0;
+    target.models += source.models || 0;
+    target.engines += source.engines || 0;
+    target.defects += source.defects || 0;
+    target.invalid += source.invalid || 0;
+    target.duplicates += source.duplicates || 0;
+  };
+
+  const ingestPayload = (payload, source, forcedKind = "auto") => {
+    const stats = { brands: 0, models: 0, engines: 0, defects: 0, invalid: 0, duplicates: 0 };
+
+    const root = Array.isArray(payload)
+      ? payload
+      : (payload && typeof payload === "object"
+        ? (payload.data || payload.catalog || payload.results || payload.items || payload.base || payload)
+        : null);
+
+    if (!root) return stats;
+
+    const handle = (row, kind) => addStats(stats, ingestRow(row, source, kind));
+
+    if (Array.isArray(root)) {
+      root.forEach((row) => handle(row, forcedKind));
+      return stats;
+    }
+
+    const brandArr = getArray(root, ["brands", "marques"]);
+    const modelArr = getArray(root, ["models", "modeles", "vehicles", "vehicules"]);
+    const engineArr = getArray(root, ["engines", "motorisations", "moteurs"]);
+    const defectArr = getArray(root, ["defects", "pannes", "rappels", "recalls", "faults", "issues", "fiches", "fiches_expert"]);
+
+    if (brandArr.length) brandArr.forEach((row) => handle(row, "brands"));
+    if (modelArr.length) modelArr.forEach((row) => handle(row, "models"));
+    if (engineArr.length) engineArr.forEach((row) => handle(row, "engines"));
+    if (defectArr.length) defectArr.forEach((row) => handle(row, "defects"));
+
+    if (!stats.brands && !stats.models && !stats.engines && !stats.defects) {
+      const brandMap = root.brands || root.marques;
+      if (brandMap && typeof brandMap === "object" && !Array.isArray(brandMap)) {
+        Object.keys(brandMap).forEach((name) => handle({ brand: name }, "brands"));
+      }
+
+      const modelMap = root.models || root.modeles;
+      if (modelMap && typeof modelMap === "object" && !Array.isArray(modelMap)) {
+        Object.entries(modelMap).forEach(([brand, value]) => {
+          toArrayStrings(value).forEach((model) => handle({ brand, model }, "models"));
+        });
+      }
+
+      const engineMap = root.engines || root.motorisations || root.moteurs;
+      if (engineMap && typeof engineMap === "object" && !Array.isArray(engineMap)) {
+        Object.entries(engineMap).forEach(([key, value]) => {
+          const parts = String(key).split("|");
+          const brand = parts[0] || "";
+          const model = parts[1] || "";
+
+          toArrayStrings(value).forEach((item) => {
+            if (typeof item === "string") {
+              handle({ brand, model, engine: item }, "engines");
+            } else if (item && typeof item === "object") {
+              handle({ brand, model, ...item }, "engines");
+            }
+          });
+        });
+      }
+    }
+
+    if (!stats.brands && !stats.models && !stats.engines && !stats.defects) {
+      Object.values(root).forEach((value) => {
+        if (Array.isArray(value)) {
+          value.forEach((row) => handle(row, forcedKind));
+        }
+      });
+    }
+
+    return stats;
+  };
+
+  const validatePayloadPreview = (payload) => {
+    const stats = { brands: 0, models: 0, engines: 0, defects: 0, invalid: 0 };
+
+    const root = Array.isArray(payload)
+      ? payload
+      : (payload && typeof payload === "object"
+        ? (payload.data || payload.catalog || payload.results || payload.items || payload.base || payload)
+        : null);
+
+    if (!root) return stats;
+
+    const check = (row) => {
+      if (!row) {
+        stats.invalid++;
+        return;
+      }
+
+      if (typeof row === "string") {
+        stats.brands++;
+        return;
+      }
+
+      if (typeof row !== "object") {
+        stats.invalid++;
+        return;
+      }
+
+      const kind = inferKind(row) || "auto";
+      const brand = pickString(row, BRAND_KEYS);
+      const model = pickString(row, MODEL_KEYS);
+      const engine = pickString(row, ENGINE_KEYS);
+
+      if (kind === "defects" && brand) stats.defects++;
+      else if ((kind === "engines" || (kind === "auto" && brand && model && engine)) && brand && model && engine) stats.engines++;
+      else if ((kind === "models" || (kind === "auto" && brand && model && !engine)) && brand && model) stats.models++;
+      else if ((kind === "brands" || (kind === "auto" && brand && !model && !engine)) && brand) stats.brands++;
+      else stats.invalid++;
+    };
+
+    if (Array.isArray(root)) {
+      root.forEach(check);
+      return stats;
+    }
+
+    const brandArr = getArray(root, ["brands", "marques"]);
+    const modelArr = getArray(root, ["models", "modeles", "vehicles", "vehicules"]);
+    const engineArr = getArray(root, ["engines", "motorisations", "moteurs"]);
+    const defectArr = getArray(root, ["defects", "pannes", "rappels", "recalls", "faults", "issues", "fiches"]);
+
+    brandArr.forEach(check);
+    modelArr.forEach(check);
+    engineArr.forEach(check);
+    defectArr.forEach(check);
+
+    if (!stats.brands && !stats.models && !stats.engines && !stats.defects) {
+      Object.values(root).forEach((value) => {
+        if (Array.isArray(value)) value.forEach(check);
+      });
+    }
+
+    return stats;
+  };
+
+  /* =========================================================
+     SEED LOCAL
+     ========================================================= */
+  const SEED_BRANDS = [
+    "Peugeot", "Citroen", "Renault", "Volkswagen", "Audi", "BMW", "Mercedes-Benz",
+    "Toyota", "Skoda", "Tesla", "Ford", "Opel", "Seat", "Hyundai", "Kia"
+  ];
+
+  const SEED_MODELS = [
+    ["Peugeot", "208"], ["Peugeot", "2008"], ["Peugeot", "308"], ["Peugeot", "3008"], ["Peugeot", "5008"],
+    ["Citroen", "C3"], ["Citroen", "C4"], ["Citroen", "C5 Aircross"],
+    ["Renault", "Clio"], ["Renault", "Captur"], ["Renault", "Megane"],
+    ["Volkswagen", "Golf"], ["Volkswagen", "Polo"], ["Volkswagen", "Tiguan"],
+    ["Audi", "A3"], ["Audi", "Q3"],
+    ["BMW", "Serie 1"], ["BMW", "X1"],
+    ["Mercedes-Benz", "Classe A"], ["Mercedes-Benz", "GLA"],
+    ["Toyota", "Yaris"], ["Toyota", "Corolla"], ["Toyota", "RAV4"],
+    ["Skoda", "Octavia"], ["Skoda", "Elroq"],
+    ["Tesla", "Model 3"], ["Tesla", "Model Y"],
+    ["Ford", "Focus"], ["Opel", "Corsa"], ["Seat", "Leon"],
+    ["Hyundai", "Tucson"], ["Kia", "Sportage"]
+  ];
+
+  const SEED_ENGINES = [
+    ["Peugeot", "208", "1.2 PureTech", "110ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
     ["Peugeot", "208", "1.5 BlueHDi", "100ch", "Diesel", "BVM6", "DV5|1.5 L"],
     ["Peugeot", "208", "e-208", "100kW|115kW|156ch", "Électrique", "réducteur", "e-CMP|50 kWh"],
 
-    ["Peugeot", "2008", "1.2 PureTech", "82ch|110ch|130ch", "Essence", "BVM5|ETG6|EAT8", "EB2|1.2 L"],
-    ["Peugeot", "2008", "1.6 HDi", "92ch|115ch", "Diesel", "BVM5|ETG6", "DV6|1.6 L"],
-    ["Peugeot", "2008", "1.5 BlueHDi", "100ch|130ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
-    ["Peugeot", "2008", "e-2008", "100kW|115kW|156ch", "Électrique", "réducteur", "e-CMP|50 kWh"],
-
-    ["Peugeot", "308", "1.6 THP", "125ch|150ch|200ch", "Essence", "BVM6|EAT6", "EP6|1.6 L"],
-    ["Peugeot", "308", "1.2 PureTech", "110ch|130ch", "Essence", "BVM5|ETG6|EAT6|EAT8", "EB2|1.2 L"],
-    ["Peugeot", "308", "1.6 HDi", "92ch|115ch", "Diesel", "BVM5|ETG6", "DV6|1.6 L"],
-    ["Peugeot", "308", "2.0 HDi", "150ch", "Diesel", "BVM6|EAT6", "DW10|2.0 L"],
-    ["Peugeot", "308", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
-    ["Peugeot", "308", "Hybrid 180", "180ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Peugeot", "308", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Peugeot", "308", "e-308", "115kW|150kW", "Électrique", "réducteur", "eCMP|54 kWh"],
-
-    ["Peugeot", "3008", "1.2 PureTech 130", "130ch", "Essence", "EAT6|EAT8", "EB2|1.2 L"],
-    ["Peugeot", "3008", "1.6 PureTech 180", "180ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
-    ["Peugeot", "3008", "1.6 PureTech 225", "225ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
-    ["Peugeot", "3008", "1.5 BlueHDi 120", "120ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
-    ["Peugeot", "3008", "2.0 BlueHDi 150", "150ch", "Diesel", "EAT8", "DW10|2.0 L"],
-    ["Peugeot", "3008", "2.0 BlueHDi 180", "180ch", "Diesel", "EAT8", "DW10|2.0 L"],
+    ["Peugeot", "3008", "1.2 PureTech 130", "130ch", "Essence", "EAT8", "EB2|1.2 L"],
+    ["Peugeot", "3008", "1.5 BlueHDi 130", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
     ["Peugeot", "3008", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Peugeot", "3008", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
-    ["Peugeot", "3008", "1.6 Hybrid 130", "130ch", "Hybride", "automatique", "HEV|1.6 L"],
-    ["Peugeot", "3008", "1.6 Hybrid 180", "180ch", "Hybride", "automatique", "HEV|1.6 L"],
     ["Peugeot", "3008", "e-3008", "210ch", "Électrique", "réducteur", "STLA Medium|73 kWh|97 kWh"],
 
-    ["Peugeot", "5008", "1.2 PureTech 130", "130ch", "Essence", "EAT6|EAT8", "EB2|1.2 L"],
-    ["Peugeot", "5008", "1.6 PureTech 180", "180ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
-    ["Peugeot", "5008", "1.6 PureTech 225", "225ch", "Essence", "EAT8", "EP6FDT|1.6 L"],
-    ["Peugeot", "5008", "1.5 BlueHDi 120", "120ch", "Diesel", "BVM6|EAT8", "DV5|1.5 L"],
-    ["Peugeot", "5008", "2.0 BlueHDi 150", "150ch", "Diesel", "EAT8", "DW10|2.0 L"],
-    ["Peugeot", "5008", "2.0 BlueHDi 180", "180ch", "Diesel", "EAT8", "DW10|2.0 L"],
-    ["Peugeot", "5008", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Peugeot", "5008", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
-    ["Peugeot", "5008", "1.6 Hybrid 130", "130ch", "Hybride", "automatique", "HEV|1.6 L"],
-    ["Peugeot", "5008", "1.6 Hybrid 180", "180ch", "Hybride", "automatique", "HEV|1.6 L"],
-    ["Peugeot", "5008", "e-5008", "210ch", "Électrique", "réducteur", "STLA Medium|73 kWh|97 kWh"],
-
-    ["Citroen", "C3", "1.2 PureTech", "82ch|110ch|130ch", "Essence", "BVM5|BVM6|EAT6", "EB2|1.2 L"],
-    ["Citroen", "C3", "1.5 BlueHDi", "100ch", "Diesel", "BVM6", "DV5|1.5 L"],
-    ["Citroen", "C3", "ë-C3", "94ch|118ch", "Électrique", "réducteur", "eCMP|44 kWh"],
-
-    ["Citroen", "C4", "1.2 PureTech", "100ch|130ch", "Essence", "BVM6|EAT8", "EB2|1.2 L"],
-    ["Citroen", "C4", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
-    ["Citroen", "C4", "ë-C4", "100kW|115kW|156ch", "Électrique", "réducteur", "eCMP|50 kWh"],
-
-    ["Citroen", "C5 Aircross", "1.2 PureTech", "130ch|180ch", "Essence", "EAT8", "EB2|1.2 L"],
-    ["Citroen", "C5 Aircross", "1.5 BlueHDi", "130ch", "Diesel", "EAT8", "DV5|1.5 L"],
-    ["Citroen", "C5 Aircross", "2.0 BlueHDi", "160ch|180ch", "Diesel", "EAT8", "DW10|2.0 L"],
-    ["Citroen", "C5 Aircross", "Hybrid 225", "225ch", "Hybride rechargeable", "EAT8", "PHEV|1.6 L"],
-    ["Citroen", "C5 Aircross", "Hybrid4 300", "300ch", "Hybride rechargeable", "EAT8 4x4", "PHEV4|1.6 L"],
-
-    ["Renault", "Clio", "1.2 16V", "75ch", "Essence", "BVM5", "D4F|1.2 L"],
-    ["Renault", "Clio", "0.9 TCe", "90ch", "Essence", "BVM5|EDC", "H4B|0.9 L"],
-    ["Renault", "Clio", "1.5 dCi", "75ch|90ch|110ch|115ch", "Diesel", "BVM5|BVM6|EDC", "K9K|1.5 L"],
-    ["Renault", "Clio", "1.0 TCe", "65ch|90ch|100ch", "Essence", "BVM5|BVM6", "H4D|1.0 L"],
-    ["Renault", "Clio", "1.3 TCe", "100ch|130ch|140ch|155ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
+    ["Renault", "Clio", "1.5 dCi", "90ch|110ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
     ["Renault", "Clio", "E-Tech Hybrid", "140ch|145ch", "Hybride", "automatique", "TCe 140|1.6 L"],
 
-    ["Renault", "Captur", "1.2 TCe", "120ch", "Essence", "EDC", "H5F|1.2 L"],
-    ["Renault", "Captur", "1.5 dCi", "90ch|110ch", "Diesel", "EDC|BVM6", "K9K|1.5 L"],
-    ["Renault", "Captur", "1.0 TCe", "90ch|100ch", "Essence", "BVM6", "H4D|1.0 L"],
-    ["Renault", "Captur", "1.3 TCe", "130ch|155ch", "Essence", "EDC", "H5H|1.3 L"],
-    ["Renault", "Captur", "1.5 Blue dCi", "100ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
-    ["Renault", "Captur", "E-Tech Hybrid", "140ch|160ch", "Hybride", "automatique", "TCe 160|1.6 L"],
+    ["Volkswagen", "Golf", "1.5 TSI", "130ch|150ch", "Essence", "DSG|BVM6", "EA211 evo|1.5 L"],
+    ["Volkswagen", "Golf", "2.0 TDI", "110ch|150ch|200ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
 
-    ["Renault", "Megane", "1.5 dCi", "90ch|110ch|115ch", "Diesel", "BVM6|EDC", "K9K|1.5 L"],
-    ["Renault", "Megane", "1.2 TCe", "130ch", "Essence", "EDC", "H5F|1.2 L"],
-    ["Renault", "Megane", "1.3 TCe", "100ch|140ch|160ch", "Essence", "BVM6|EDC", "H5H|1.3 L"],
-    ["Renault", "Megane", "E-Tech Hybrid", "160ch|205ch", "Hybride", "automatique", "TCe 200|1.6 L"],
-    ["Renault", "Megane", "Evolution 60 kWh", "130ch|220ch", "Électrique", "réducteur", "CMF-EV|60 kWh"],
-    ["Renault", "Megane", "Iconic 60 kWh", "220ch", "Électrique", "réducteur", "CMF-EV|60 kWh"],
-
-    ["Volkswagen", "Golf", "1.0 TSI", "85ch|110ch|125ch", "Essence", "BVM6|DSG", "EA211|1.0 L"],
-    ["Volkswagen", "Golf", "1.4 TSI", "125ch|150ch", "Essence", "DSG", "EA211|1.4 L"],
-    ["Volkswagen", "Golf", "1.5 TSI", "130ch|150ch|180ch", "Essence", "DSG|BVM6", "EA211 evo|1.5 L"],
-    ["Volkswagen", "Golf", "2.0 TSI", "230ch|310ch|320ch", "Essence", "DSG", "EA888|2.0 L"],
-    ["Volkswagen", "Golf", "1.6 TDI", "90ch|110ch|115ch", "Diesel", "BVM5|DSG", "EA288|1.6 L"],
-    ["Volkswagen", "Golf", "2.0 TDI", "110ch|150ch|184ch|200ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
-    ["Volkswagen", "Golf", "GTE", "204ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
-    ["Volkswagen", "Golf", "eTSI", "110ch|130ch|150ch", "Hybride léger 48V", "DSG", "EA211 evo|1.0 L|1.5 L"],
-    ["Volkswagen", "Golf", "eHybrid", "204ch|245ch", "Hybride rechargeable", "DSG", "PHEV|1.5 L"],
-
-    ["Volkswagen", "Polo", "1.0 MPI", "65ch|75ch", "Essence", "BVM5", "EA211|1.0 L"],
-    ["Volkswagen", "Polo", "1.0 TSI", "95ch|110ch|115ch", "Essence", "BVM5|DSG", "EA211|1.0 L"],
-    ["Volkswagen", "Polo", "1.5 TSI", "150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
-    ["Volkswagen", "Polo", "1.6 TDI", "80ch|95ch|115ch", "Diesel", "BVM5|DSG", "EA288|1.6 L"],
-    ["Volkswagen", "Polo", "2.0 TDI", "95ch|115ch|150ch", "Diesel", "DSG|BVM6", "EA288|2.0 L"],
-
-    ["Volkswagen", "Tiguan", "1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
-    ["Volkswagen", "Tiguan", "2.0 TSI", "190ch|245ch|320ch", "Essence", "DSG 4Motion", "EA888|2.0 L"],
-    ["Volkswagen", "Tiguan", "2.0 TDI", "150ch|190ch|200ch", "Diesel", "DSG|4Motion", "EA288|2.0 L"],
-    ["Volkswagen", "Tiguan", "eHybrid", "245ch|300ch", "Hybride rechargeable", "DSG 4Motion", "PHEV|1.4 L|2.0 L"],
-
-    ["Audi", "A3", "1.4 TFSI", "125ch|150ch", "Essence", "S tronic", "EA211|1.4 L"],
-    ["Audi", "A3", "2.0 TFSI", "190ch|204ch|230ch", "Essence", "S tronic quattro", "EA888|2.0 L"],
-    ["Audi", "A3", "2.0 TDI", "150ch|184ch", "Diesel", "S tronic|quattro", "EA288|2.0 L"],
-    ["Audi", "A3", "30 TFSI", "110ch", "Essence", "S tronic", "EA211|1.0 L"],
-    ["Audi", "A3", "35 TFSI", "150ch", "Essence", "S tronic", "EA211 evo|1.5 L"],
-    ["Audi", "A3", "35 TDI", "150ch", "Diesel", "S tronic", "EA288|2.0 L"],
-    ["Audi", "A3", "45 TFSI e", "245ch|310ch", "Hybride rechargeable", "S tronic", "PHEV|1.4 L"],
-
-    ["Audi", "Q3", "30 TFSI", "110ch|150ch", "Essence", "S tronic", "EA211|1.0 L|1.5 L"],
-    ["Audi", "Q3", "40 TFSI", "190ch|204ch", "Essence", "S tronic quattro", "EA888|2.0 L"],
-    ["Audi", "Q3", "35 TDI", "150ch", "Diesel", "S tronic", "EA288|2.0 L"],
-    ["Audi", "Q3", "40 TDI", "190ch", "Diesel", "S tronic quattro", "EA288|2.0 L"],
-    ["Audi", "Q3", "45 TFSI e", "245ch", "Hybride rechargeable", "S tronic quattro", "PHEV|1.4 L"],
-
-    ["BMW", "Serie 1", "116i", "109ch|136ch", "Essence", "BVM6|Steptronic", "B38/N13|1.5 L|1.6 L"],
-    ["BMW", "Serie 1", "118i", "136ch|156ch|170ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
-    ["BMW", "Serie 1", "120i", "170ch|218ch", "Essence", "Steptronic", "B48|2.0 L"],
-    ["BMW", "Serie 1", "125i", "245ch", "Essence", "Steptronic xDrive", "B48|2.0 L"],
-    ["BMW", "Serie 1", "116d", "116ch", "Diesel", "BVM6|Steptronic", "B37|1.5 L"],
-    ["BMW", "Serie 1", "118d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
-    ["BMW", "Serie 1", "120d", "163ch|190ch", "Diesel", "Steptronic|xDrive", "B47|2.0 L"],
-
-    ["BMW", "X1", "sDrive18i", "136ch|170ch", "Essence", "BVM6|Steptronic", "B38|1.5 L"],
-    ["BMW", "X1", "sDrive18d", "150ch", "Diesel", "BVM6|Steptronic", "B47|2.0 L"],
-    ["BMW", "X1", "sDrive20i", "178ch|204ch", "Essence", "Steptronic", "B48|2.0 L"],
-    ["BMW", "X1", "xDrive25e", "245ch", "Hybride rechargeable", "Steptronic xDrive", "PHEV|1.5 L"],
-
-    ["Mercedes-Benz", "Classe A", "A180", "120ch|122ch|136ch", "Essence", "7G-DCT", "M282/M270|1.3 L|1.6 L"],
-    ["Mercedes-Benz", "Classe A", "A200", "156ch|163ch|184ch|190ch", "Essence", "7G-DCT|8G-DCT", "M282/M260/M270|1.3 L|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "A250", "224ch", "Essence", "8G-DCT 4MATIC", "M260|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "AMG A35", "306ch", "Essence", "AMG SPEEDSHIFT 4MATIC", "M260|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "A180d", "116ch", "Diesel", "7G-DCT", "OM654|1.5 L|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "A200d", "150ch", "Diesel", "8G-DCT", "OM654|2.0 L"],
-    ["Mercedes-Benz", "Classe A", "A250e", "218ch", "Hybride rechargeable", "8G-DCT", "PHEV|1.3 L"],
-
-    ["Toyota", "Yaris", "1.0 VVT-i", "69ch|72ch", "Essence", "BVM5", "1KR-FE|1.0 L"],
-    ["Toyota", "Yaris", "1.33 VVT-i", "101ch", "Essence", "Multidrive S", "2NR-FE|1.3 L"],
-    ["Toyota", "Yaris", "1.5 D-4D", "100ch", "Diesel", "BVM5", "ND|1.5 L"],
-    ["Toyota", "Yaris", "1.5 Hybrid", "116ch|130ch", "Hybride", "e-CVT", "THS II|1.5 L"],
-    ["Toyota", "Yaris", "GR Yaris", "261ch|280ch", "Essence", "BVM6 4x4", "G16E-GTS|1.6 L"],
-
-    ["Toyota", "Corolla", "1.8 Hybrid", "122ch|140ch", "Hybride", "e-CVT", "THS II|1.8 L"],
-    ["Toyota", "Corolla", "2.0 Hybrid", "184ch|196ch", "Hybride", "e-CVT", "Dynamic Force|2.0 L"],
-    ["Toyota", "Corolla", "2.0", "169ch|197ch", "Essence", "BVM6|Direct Shift", "Dynamic Force|2.0 L"],
-    ["Toyota", "Corolla", "1.8 Plug-in Hybrid", "196ch", "Hybride rechargeable", "e-CVT", "PHEV|1.8 L"],
-
-    ["Toyota", "RAV4", "2.0", "171ch", "Essence", "BVM6|Direct Shift", "Dynamic Force|2.0 L"],
-    ["Toyota", "RAV4", "2.5 Hybrid", "218ch|222ch", "Hybride", "e-CVT AWD-i", "THS II|2.5 L"],
-    ["Toyota", "RAV4", "2.5 Plug-in Hybrid", "306ch|320ch", "Hybride rechargeable", "e-CVT AWD-i", "PHEV|2.5 L"],
-    ["Toyota", "RAV4", "2.5 D-4D", "150ch|200ch", "Diesel", "BVM6|Direct Shift 4x4", "GD|2.5 L"],
-
-    ["Skoda", "Octavia", "1.4 TSI", "125ch|150ch", "Essence", "DSG|BVM6", "EA211|1.4 L"],
-    ["Skoda", "Octavia", "1.5 TSI", "110ch|150ch", "Essence", "BVM6|DSG", "EA211 evo|1.5 L"],
-    ["Skoda", "Octavia", "2.0 TSI", "190ch|265ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
-    ["Skoda", "Octavia", "1.6 TDI", "110ch|115ch", "Diesel", "DSG|BVM5", "EA288|1.6 L"],
-    ["Skoda", "Octavia", "2.0 TDI", "115ch|150ch|184ch|200ch", "Diesel", "DSG|4x4", "EA288|2.0 L"],
-    ["Skoda", "Octavia", "iV", "204ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
-
-    ["Skoda", "Elroq", "Elroq 50", "170ch", "Électrique", "RWD / réducteur", "MEB|55 kWh"],
-    ["Skoda", "Elroq", "Elroq 60", "204ch", "Électrique", "RWD / réducteur", "MEB|63 kWh"],
-    ["Skoda", "Elroq", "Elroq 85", "286ch", "Électrique", "RWD / réducteur", "MEB|77 kWh"],
-    ["Skoda", "Elroq", "Elroq 85x", "286ch", "Électrique", "AWD / réducteur", "MEB|77 kWh"],
-
-    ["Tesla", "Model 3", "Standard Range Plus", "283ch", "Électrique", "RWD / réducteur", "BEV|57.5 kWh|60 kWh"],
-    ["Tesla", "Model 3", "Long Range", "351ch|442ch", "Électrique", "RWD/AWD / réducteur", "BEV|75 kWh|82 kWh"],
-    ["Tesla", "Model 3", "Performance", "513ch|534ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
-    ["Tesla", "Model Y", "Standard Range", "299ch", "Électrique", "RWD / réducteur", "BEV|60 kWh|62.5 kWh"],
     ["Tesla", "Model Y", "Long Range", "442ch|534ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
-    ["Tesla", "Model Y", "Performance", "534ch|615ch", "Électrique", "AWD / réducteur", "BEV|75 kWh|82 kWh"],
-    ["Tesla", "Model S", "Long Range", "670ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
-    ["Tesla", "Model S", "Plaid", "1020ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
-    ["Tesla", "Model X", "Long Range", "670ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
-    ["Tesla", "Model X", "Plaid", "1020ch", "Électrique", "AWD / réducteur", "BEV|100 kWh"],
-
-    ["Ford", "Focus", "1.0 EcoBoost", "100ch|125ch|155ch", "Essence", "BVM5|BVM6|PowerShift", "EcoBoost|1.0 L"],
-    ["Ford", "Focus", "1.5 EcoBoost", "150ch|182ch", "Essence", "BVM6|PowerShift", "EcoBoost|1.5 L"],
-    ["Ford", "Focus", "1.5 TDCi", "95ch|120ch", "Diesel", "BVM5|BVM6", "TDCi|1.5 L"],
-    ["Ford", "Focus", "2.0 EcoBlue", "150ch|190ch", "Diesel", "BVM6|Auto", "EcoBlue|2.0 L"],
-    ["Ford", "Focus", "2.3 EcoBoost ST", "280ch", "Essence", "BVM6", "EcoBoost|2.3 L"],
-
-    ["Opel", "Corsa", "1.2", "75ch|100ch|130ch", "Essence", "BVM5|BVM6|EAT8", "EB2|1.2 L"],
-    ["Opel", "Corsa", "1.5 Diesel", "100ch|130ch", "Diesel", "BVM6", "DV5|1.5 L"],
-    ["Opel", "Corsa", "Corsa Electric", "136ch", "Électrique", "réducteur", "eCMP|50 kWh"],
-
-    ["Seat", "Leon", "1.0 TSI", "110ch", "Essence", "DSG", "EA211|1.0 L"],
-    ["Seat", "Leon", "1.5 TSI", "130ch|150ch", "Essence", "DSG", "EA211 evo|1.5 L"],
-    ["Seat", "Leon", "2.0 TSI", "190ch|310ch", "Essence", "DSG 4x4", "EA888|2.0 L"],
-    ["Seat", "Leon", "2.0 TDI", "115ch|150ch", "Diesel", "DSG", "EA288|2.0 L"],
-    ["Seat", "Leon", "e-HYBRID", "204ch|245ch", "Hybride rechargeable", "DSG", "PHEV|1.4 L"],
-
-    ["Hyundai", "Tucson", "1.6 TGDI", "150ch|177ch", "Essence", "BVM6|DCT", "Smartstream|1.6 L"],
-    ["Hyundai", "Tucson", "1.6 CRDi", "115ch|136ch", "Diesel", "BVM6|DCT", "Smartstream|1.6 L"],
-    ["Hyundai", "Tucson", "1.6 Hybrid", "215ch|230ch", "Hybride", "automatique", "HEV|1.6 L"],
-    ["Hyundai", "Tucson", "1.6 Plug-in Hybrid", "253ch|265ch", "Hybride rechargeable", "automatique", "PHEV|1.6 L"],
-
-    ["Kia", "Sportage", "1.6 TGDI", "150ch|180ch", "Essence", "BVM6|DCT", "Smartstream|1.6 L"],
-    ["Kia", "Sportage", "1.6 CRDi", "136ch", "Diesel", "BVM6|DCT 4x4", "Smartstream|1.6 L"],
-    ["Kia", "Sportage", "1.6 Hybrid", "215ch|230ch", "Hybride", "automatique", "HEV|1.6 L"],
-    ["Kia", "Sportage", "1.6 Plug-in Hybrid", "253ch|265ch", "Hybride rechargeable", "automatique 4x4", "PHEV|1.6 L"]
+    ["Skoda", "Elroq", "Elroq 60", "204ch", "Électrique", "RWD / réducteur", "MEB|63 kWh"]
   ];
 
   const SEED_DEFECTS = [
     {
       brand: "Peugeot",
-      models: ["208", "2008", "308", "3008", "5008", "Partner", "Rifter", "Boxer"],
+      models: ["208", "2008", "308", "3008", "5008"],
       engines: ["EB2", "1.2 PureTech"],
-      powers: ["100ch", "110ch", "130ch", "155ch"],
+      powers: ["110ch", "130ch"],
       fuels: ["Essence"],
-      symptoms: ["courroie distribution", "wet belt", "désagrégation courroie", "crépine pompe", "casse moteur", "cliquetis", "pression huile", "consommation huile", "surchauffe", "mode dégradé"],
+      symptoms: ["courroie distribution", "wet belt", "désagrégation courroie", "crépine pompe à huile", "casse moteur", "pression huile basse", "consommation huile", "mode dégradé"],
       severity: "critique",
-      description: "Courroie humide susceptible de se désagréger, d’obstruer la crépine de pompe à huile et d’entraîner une casse moteur.",
-      legal: "Vice caché 1641 C.civ.; tromperie L.213-1; pratique commerciale trompeuse L.121-2.",
-      recall: "Extensions / TSB Stellantis PureTech; DGCCRF; forums techniques.",
-      tags: "moteur|distribution|courroie|huile|pompe|critique",
-      dtc: "P052B|P0011|P0300|P0420",
+      description: "Courroie humide susceptible de se désagréger et d’obstruer la crépine de pompe à huile.",
+      legal: "Vice caché 1641 C.civ.; tromperie L.213-1 C.consom.; pratique commerciale trompeuse L.121-2 C.consom.",
+      recall: "TSB / extension Stellantis PureTech à vérifier via VIN",
+      dtc: "P052B|P0011|P0300",
+      tags: "moteur|distribution|courroie|huile|pompe",
       source: "base locale ingénieur"
     },
     {
       brand: "Renault",
-      models: ["Clio", "Megane", "Scenic", "Duster", "Kangoo", "Trafic", "Master"],
+      models: ["Clio", "Megane", "Scenic", "Kangoo"],
       engines: ["K9K", "1.5 dCi"],
-      powers: ["75ch", "90ch", "100ch", "110ch", "115ch"],
+      powers: ["90ch", "110ch"],
       fuels: ["Diesel"],
-      symptoms: ["casse bielle", "claquement moteur", "usure coussinets", "pompe à huile", "bruit métallique", "pression huile basse", "voyant huile", "calage"],
+      symptoms: ["casse bielle", "claquement moteur", "usure coussinets", "pompe à huile", "bruit métallique", "pression huile basse", "voyant huile"],
       severity: "critique",
-      description: "Risque de casse bielle / coussinets lié à la lubrification et à la pompe à huile.",
-      legal: "Vice caché 1641 C.civ.; tromperie L.213-1; responsabilité contractuelle 1231-1 C.civ.",
-      recall: "Programmes techniques Renault K9K; TSB; jurisprudences.",
-      tags: "moteur|huile|bielle|pompe|bruit|critique",
-      dtc: "P0524|P0525|P0300|P0301",
+      description: "Risque de casse bielle / coussinets lié à la lubrification.",
+      legal: "Vice caché 1641 C.civ.; responsabilité contractuelle 1231-1 C.civ.",
+      recall: "Programme technique Renault K9K à vérifier via VIN",
+      dtc: "P0524|P0525|P0300",
+      tags: "moteur|huile|bielle|pompe",
       source: "base locale ingénieur"
     },
     {
       brand: "Tesla",
-      models: ["Model 3", "Model Y", "Model S", "Model X"],
+      models: ["Model 3", "Model Y"],
       engines: ["Électrique"],
       powers: [],
       fuels: ["Électrique"],
       symptoms: ["autopilot", "fsd", "phantom braking", "batterie 12v", "port de charge", "poignée", "logiciel", "dégradation batterie", "thermique", "autonomie", "adas", "caméra", "radar"],
       severity: "critique",
       description: "ADAS, batterie 12V, port de charge, dégradation batterie, logiciels, poignées, gestion thermique.",
-      legal: "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245; pénal si accident.",
+      legal: "Sécurité L.423-1; conformité L.217-4; produits défectueux 1245.",
       recall: "NHTSA Tesla recalls; DGCCRF; SafetyGate.",
-      tags: "ADAS|batterie|charge|logiciel|sécurité",
       dtc: "P0Axx|U1xxx|B1xxx",
+      tags: "ADAS|batterie|charge|logiciel|sécurité",
       source: "base locale ingénieur"
     },
     {
@@ -1017,402 +1151,27 @@
       engines: ["MEB", "BMS", "batterie haute tension"],
       powers: ["55 kWh", "63 kWh", "77 kWh"],
       fuels: ["Électrique"],
-      symptoms: ["autonomie réduite", "soh", "charge lente", "charge impossible", "déséquilibre cellules", "erreur BMS", "température batterie", "voyant batterie", "perte autonomie", "batterie froide", "chauffe batterie", "gonflement batterie", "odeur brûlée", "fumée"],
+      symptoms: ["autonomie réduite", "soh", "charge lente", "charge impossible", "déséquilibre cellules", "erreur BMS", "température batterie", "voyant batterie", "perte autonomie", "gonflement batterie", "odeur brûlée", "fumée"],
       severity: "critique",
-      description: "Plateforme MEB : surveillance BMS, cellules, gestion thermique, dégradation d’autonomie et cohérence capacité annoncée / usage réel.",
-      legal: "Sécurité L.423-1 C.consom.; conformité L.217-4 C.consom.; produits défectueux art. 1245 C.civ.; vice caché art. 1641 C.civ.",
+      description: "Plateforme MEB : surveillance BMS, cellules, gestion thermique, dégradation d’autonomie.",
+      legal: "Sécurité L.423-1 C.consom.; conformité L.217-4 C.consom.; produits défectueux 1245 C.civ.; vice caché 1641 C.civ.",
       recall: "Rappels EV/MEB; DGCCRF; KBA; NHTSA; vérification VIN; lecture SOH/BMS.",
-      tags: "batterie|charge|autonomie|électricité|sécurité|logiciel|MEB",
       dtc: "P0Axx|U1xxx|P1xxx|B1xxx",
-      source: "base locale ingénieur"
-    },
-    {
-      brand: "Volkswagen",
-      models: ["Golf", "Polo", "Tiguan", "Passat", "Touran"],
-      engines: ["EA189", "EA288", "2.0 TDI", "1.6 TDI"],
-      powers: ["105ch", "110ch", "115ch", "150ch", "184ch"],
-      fuels: ["Diesel"],
-      symptoms: ["fap", "dpf", "egr", "adblue", "nox", "反排放", "défaut antipollution", "voyant moteur", "mode dégradé", "consommation adblue"],
-      severity: "critique",
-      description: "Systèmes antipollution diesel : EGR, FAP/DPF, AdBlue/NOx, logiciel de gestion des émissions.",
-      legal: "Conformité L.217-4 C.consom.; tromperie L.213-1; sécurité produit L.423-1.",
-      recall: "Campagnes diesel VW/Audi; KBA; DGCCRF; NHTSA.",
-      tags: "diesel|pollution|egr|fap|adblue|nox|logiciel",
-      dtc: "P0401|P0420|P2002|P20EE",
-      source: "base locale ingénieur"
-    },
-    {
-      brand: "Ford",
-      models: ["Focus", "Kuga", "Puma", "Fiesta"],
-      engines: ["EcoBoost", "1.0 EcoBoost"],
-      powers: ["100ch", "125ch", "140ch", "155ch"],
-      fuels: ["Essence"],
-      symptoms: ["surchauffe", "refroidissement", "joint culasse", "fuite liquide refroidissement", "voyant température", "huile dans liquide", "casse moteur"],
-      severity: "critique",
-      description: "Surveillance thermique et circuit de refroidissement sur certains EcoBoost 3 cylindres.",
-      legal: "Vice caché 1641 C.civ.; sécurité produit L.423-1; conformité L.217-4.",
-      recall: "TSB Ford; forums techniques; DGCCRF.",
-      tags: "moteur|refroidissement|joint culasse|turbo|essence",
-      dtc: "P0117|P0118|P0217|P0300",
+      tags: "batterie|charge|autonomie|électricité|sécurité|logiciel|MEB",
       source: "base locale ingénieur"
     }
   ];
 
   const seedLocal = () => {
-    SEED_VEHICLES.forEach(([b, m, e, p, f, tr, code]) => {
-      addEngine(b, m, e, p, f, tr, code, "seed-local");
-    });
-
+    SEED_BRANDS.forEach((b) => ensureBrand(b, "seed-local"));
+    SEED_MODELS.forEach(([b, m]) => ensureModel(b, m, "seed-local"));
+    SEED_ENGINES.forEach(([b, m, e, p, f, tr, code]) => addEngine(b, m, e, p, f, tr, code, "seed-local"));
     SEED_DEFECTS.forEach(addDefect);
     recomputeCounts();
   };
 
   /* =========================================================
-     SYNCHRONISATION DISTANTE ROBUSTE
-     ========================================================= */
-  const fetchUrl = async (url, kind = "json", timeout = 10000) => {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), timeout);
-
-    try {
-      const res = await fetch(url, {
-        cache: "no-store",
-        mode: "cors",
-        signal: ctrl.signal
-      });
-
-      clearTimeout(timer);
-
-      if (!res.ok) return null;
-      return kind === "json" ? await res.json() : await res.text();
-    } catch {
-      clearTimeout(timer);
-      return null;
-    }
-  };
-
-  const smartFetch = async (url, kind = "json") => {
-    const direct = await fetchUrl(url, kind, 9000);
-    if (direct != null) return { data: direct, source: "direct" };
-
-    for (let i = 0; i < PROXIES.length; i++) {
-      const proxied = PROXIES[i](url);
-      const data = await fetchUrl(proxied, kind, 12000);
-      if (data != null) return { data, source: `proxy-${i + 1}` };
-    }
-
-    return null;
-  };
-
-  const collectArrays = (value, depth = 0, out = []) => {
-    if (Array.isArray(value)) {
-      out.push(value);
-      if (depth < 3) value.forEach((v) => collectArrays(v, depth + 1, out));
-    } else if (value && typeof value === "object" && depth < 4) {
-      Object.values(value).forEach((v) => collectArrays(v, depth + 1, out));
-    }
-    return out;
-  };
-
-  const inferRowKind = (row) => {
-    if (!row || typeof row !== "object") return null;
-    const keys = Object.keys(row).map(normKey).join("|");
-
-    if (/panne|defaut|symptome|fault|issue|dtc|rappel|recall|description/.test(keys)) return "defects";
-    if (/engine|motorisation|moteur|power|puissance/.test(keys)) return "engines";
-    if (/model|modele|vehicle|vehicule/.test(keys)) return "models";
-    if (/brand|marque|constructeur/.test(keys)) return "brands";
-    return null;
-  };
-
-  const mergeRow = (kind, row, source) => {
-    if (!row) return 0;
-
-    if (typeof row === "string") {
-      if (kind === "brands") return ensureBrand(row, source) ? 1 : 0;
-      return 0;
-    }
-
-    if (typeof row !== "object") return 0;
-
-    const inferred = kind === "auto" ? inferRowKind(row) : kind;
-
-    if (inferred === "brands") {
-      const name = getBrandField(row) || row.name || row.nom || row.label;
-      return ensureBrand(name, source) ? 1 : 0;
-    }
-
-    if (inferred === "models") {
-      const brand = getBrandField(row) || row.brandName || row.marque;
-      const model = getModelField(row) || row.name || row.modele;
-      return ensureModel(brand, model, source) ? 1 : 0;
-    }
-
-    if (inferred === "engines") {
-      const brand = getBrandField(row) || row.brandName || row.marque;
-      const model = getModelField(row) || row.modelName || row.modele;
-      const engine = getEngineField(row) || row.version || row.variant;
-      const power = getPowerField(row);
-      const fuel = getFuelField(row);
-      const trans = getTransField(row);
-      const code = getCodeField(row);
-      return addEngine(brand, model, engine, power, fuel, trans, code, source);
-    }
-
-    if (inferred === "defects") {
-      const brand = getBrandField(row) || row.brandName || row.marque;
-      const models = splitList(getModelField(row) || row.models || row.modeles || row.vehicle);
-      const engines = splitList(getEngineField(row) || row.engines || row.motorisations || row.moteurs);
-      const powers = splitList(getPowerField(row) || row.powers || row.puissances);
-      const fuels = splitList(getFuelField(row) || row.fuels || row.energies || row.carburants);
-      const symptoms = splitList(getSymptomsField(row) || row.symptoms || row.symptomes || row.issue || row.fault);
-
-      return addDefect({
-        brand,
-        models,
-        engines,
-        powers,
-        fuels,
-        symptoms,
-        severity: row.severity || row.severite || row.sev || "info",
-        description: row.description || row.n || row.note || row.details || row.expertise || "",
-        legal: row.legal || row.law || row.baseLegale || "",
-        recall: row.recall || row.rec || row.rappel || row.campaign || "",
-        tags: row.tags || row.tg || "",
-        dtc: row.dtc || row.codes || row.codeDtc || "",
-        source: row.source || source,
-        sourceUrl: row.sourceUrl || row.url || row.link || ""
-      });
-    }
-
-    return 0;
-  };
-
-  const mergePayload = (kind, payload, source) => {
-    let added = 0;
-    const arrays = Array.isArray(payload) ? [payload] : collectArrays(payload);
-
-    arrays.forEach((arr) => {
-      if (!Array.isArray(arr)) return;
-      arr.forEach((row) => {
-        added += mergeRow(kind, row, source);
-      });
-    });
-
-    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
-      Object.values(payload).forEach((v) => {
-        added += mergePayload(kind === "auto" ? "auto" : kind, v, source);
-      });
-    }
-
-    return added;
-  };
-
-  const headerAlias = {
-    marque: "brand",
-    brand: "brand",
-    constructeur: "brand",
-    modele: "model",
-    model: "model",
-    vehicule: "model",
-    motorisation: "engine",
-    engine: "engine",
-    moteur: "engine",
-    version: "engine",
-    puissance: "power",
-    power: "power",
-    ch: "power",
-    kw: "power",
-    energie: "fuel",
-    carburant: "fuel",
-    fuel: "fuel",
-    type: "fuel",
-    boite: "transmission",
-    transmission: "transmission",
-    code: "code",
-    cylindree: "code",
-    cylindrée: "code",
-    displacement: "code",
-    panne: "symptoms",
-    defaut: "symptoms",
-    symptome: "symptoms",
-    symptoms: "symptoms",
-    description: "description",
-    severite: "severity",
-    severity: "severity",
-    rappel: "recall",
-    recall: "recall",
-    dtc: "dtc",
-    source: "sourceUrl",
-    url: "sourceUrl",
-    lien: "sourceUrl"
-  };
-
-  const inferKindFromHeaders = (headers) => {
-    const h = headers.map(norm).join("|");
-    if (/panne|defaut|symptome|rappel|dtc|fault|issue/.test(h)) return "defects";
-    if (/motorisation|moteur|engine|puissance|power/.test(h)) return "engines";
-    if (/modele|model|vehicule|vehicle/.test(h)) return "models";
-    if (/marque|brand|constructeur/.test(h)) return "brands";
-    return null;
-  };
-
-  const parseHtml = (html, sourceLabel) => {
-    let added = 0;
-
-    try {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-
-      doc.querySelectorAll('script[type="application/json"]').forEach((sc) => {
-        try {
-          const json = JSON.parse(sc.textContent || "{}");
-          added += mergePayload("auto", json, `${sourceLabel}:json-script`);
-        } catch {}
-      });
-
-      doc.querySelectorAll("script").forEach((sc) => {
-        const txt = sc.textContent || "";
-        if (!txt.trim()) return;
-
-        const arrayMatches = txt.match(/\[[\s\S]*?\]/g) || [];
-        const objectMatches = txt.match(/\{[\s\S]*?\}/g) || [];
-
-        [...arrayMatches.slice(0, 30), ...objectMatches.slice(0, 30)].forEach((m) => {
-          try {
-            const json = JSON.parse(m);
-            added += mergePayload("auto", json, `${sourceLabel}:inline-script`);
-          } catch {}
-        });
-      });
-
-      doc.querySelectorAll("table").forEach((table) => {
-        const rows = [...table.querySelectorAll("tr")];
-        if (rows.length < 2) return;
-
-        const headerCells = [...rows[0].querySelectorAll("th, td")].map((c) => norm(c.textContent || ""));
-        const kind = inferKindFromHeaders(headerCells);
-        if (!kind) return;
-
-        const bodyRows = rows.slice(1);
-
-        bodyRows.forEach((tr) => {
-          const cells = [...tr.querySelectorAll("td, th")].map((c) => c.textContent.trim());
-          if (!cells.length) return;
-
-          const obj = {};
-          headerCells.forEach((h, i) => {
-            const alias = headerAlias[h] || h;
-            obj[alias] = cells[i] || "";
-          });
-
-          added += mergeRow(kind, obj, `${sourceLabel}:table`);
-        });
-      });
-
-      doc.querySelectorAll("[data-brand], [data-marque], [data-model], [data-modele], [data-engine], [data-motorisation], [data-defect], [data-panne]").forEach((el) => {
-        const obj = {
-          brand: el.getAttribute("data-brand") || el.getAttribute("data-marque") || "",
-          model: el.getAttribute("data-model") || el.getAttribute("data-modele") || "",
-          engine: el.getAttribute("data-engine") || el.getAttribute("data-motorisation") || "",
-          power: el.getAttribute("data-power") || el.getAttribute("data-puissance") || "",
-          fuel: el.getAttribute("data-fuel") || el.getAttribute("data-energie") || "",
-          transmission: el.getAttribute("data-transmission") || el.getAttribute("data-boite") || "",
-          code: el.getAttribute("data-code") || "",
-          symptoms: el.getAttribute("data-defect") || el.getAttribute("data-panne") || "",
-          description: el.textContent || ""
-        };
-
-        if (obj.symptoms) {
-          added += mergeRow("defects", obj, `${sourceLabel}:data-attrs`);
-        } else if (obj.engine) {
-          added += mergeRow("engines", obj, `${sourceLabel}:data-attrs`);
-        } else if (obj.model) {
-          added += mergeRow("models", obj, `${sourceLabel}:data-attrs`);
-        } else if (obj.brand) {
-          added += mergeRow("brands", obj, `${sourceLabel}:data-attrs`);
-        }
-      });
-    } catch (e) {
-      console.warn("[EXPERT-AUTO] Parse HTML distant échoué:", e);
-    }
-
-    return added;
-  };
-
-  const updateFromEndpoints = async (setStatus, setProgress) => {
-    let totalAdded = 0;
-    let step = 0;
-    const totalSteps = ENDPOINT_GROUPS.reduce((acc, g) => acc + g.paths.length, 0) + 3;
-
-    for (const group of ENDPOINT_GROUPS) {
-      let gotForGroup = 0;
-
-      for (const path of group.paths) {
-        step++;
-        setStatus(`Endpoint ${group.kind} : ${path}`);
-        setProgress(Math.round((step / totalSteps) * 70));
-
-        const url = REMOTE_BASE + path;
-        const direct = await fetchUrl(url, "json", 8000);
-
-        if (direct) {
-          const added = mergePayload(group.kind, direct, `auto-diagnostic-direct:${path}`);
-          totalAdded += added;
-          if (added) gotForGroup++;
-        }
-      }
-
-      if (!gotForGroup) {
-        for (const proxy of PROXIES) {
-          for (const path of group.paths.slice(0, 2)) {
-            step++;
-            setStatus(`Proxy ${group.kind} : ${path}`);
-            setProgress(Math.round((step / totalSteps) * 70));
-
-            const url = proxy(REMOTE_BASE + path);
-            const data = await fetchUrl(url, "json", 12000);
-
-            if (data) {
-              const added = mergePayload(group.kind, data, `auto-diagnostic-proxy:${path}`);
-              totalAdded += added;
-              if (added) break;
-            }
-          }
-
-          if (gotForGroup) break;
-        }
-      }
-    }
-
-    return totalAdded;
-  };
-
-  const updateFromHtmlPage = async (setStatus, setProgress) => {
-    setStatus("Analyse page HTML Auto-Diagnostic...");
-    setProgress(80);
-
-    const res = await smartFetch(REMOTE_BASE, "text");
-    if (!res) return 0;
-
-    return parseHtml(res.data, `auto-diagnostic-page:${res.source}`);
-  };
-
-  const updateFromLocalApkBase = async (setStatus, setProgress) => {
-    setStatus("Chargement apk-base.json local si disponible...");
-    setProgress(90);
-
-    try {
-      const res = await fetch("./apk-base.json", { cache: "no-store" });
-      if (!res.ok) return 0;
-      const json = await res.json();
-      return mergePayload("auto", json, "apk-base.json-local");
-    } catch {
-      return 0;
-    }
-  };
-
-  /* =========================================================
-     ÉTAT / UI / ADMIN
+     ÉTAT GLOBAL
      ========================================================= */
   let currentUser = null;
   let vehicleData = {};
@@ -1421,7 +1180,7 @@
   let deferredPrompt = null;
   let swRegistration = null;
   let adminPollTimer = null;
-  let liveSyncTimer = null;
+  let autoSyncTimer = null;
   let lastPendingSignature = "";
   let broadcast = null;
   let syncBusy = false;
@@ -1430,11 +1189,14 @@
   let engineFuelFilter = "all";
 
   try {
-    if ("BroadcastChannel" in window) broadcast = new BroadcastChannel("arex_expert_channel_v31");
+    if ("BroadcastChannel" in window) broadcast = new BroadcastChannel("arex_expert_channel_v35");
   } catch {
     broadcast = null;
   }
 
+  /* =========================================================
+     AUTH / USERS / REQUESTS
+     ========================================================= */
   const normIdentity = (v) => norm(String(v == null ? "" : v)).replace(/\s+/g, " ").trim();
   const userEmailKey = (email) => normIdentity(email).replace(/\s/g, "");
   const userNameKey = (name) => normIdentity(name);
@@ -1538,14 +1300,14 @@
   };
 
   const updateCounter = () => {
-    const el = q("#dailyCounter");
+    const el = $("#dailyCounter");
     if (!el) return;
     const info = dailyInfo();
     el.textContent = info.unlimited ? "👑 Admin illimité" : `📊 ${info.remaining}/${MAX_DAILY_ANALYSES}`;
   };
 
   const authMessage = (msg, type) => {
-    const el = q("#authMsg");
+    const el = $("#authMsg");
     if (el) {
       el.textContent = msg;
       el.className = "auth-msg " + (type || "");
@@ -1554,7 +1316,7 @@
     }
   };
 
-  const getSettings = () => loadWithMigration(KEYS.SETTINGS, "arex_settings_v30", { adminEmail: "" }) || { adminEmail: "" };
+  const getSettings = () => loadWithMigration(KEYS.SETTINGS, OLD_KEYS.SETTINGS, { adminEmail: "", wallpaperOpacity: 35 }) || { adminEmail: "", wallpaperOpacity: 35 };
   const saveSettings = (s) => save(KEYS.SETTINGS, s);
 
   const makeAccessGrantUrl = (user) => {
@@ -1591,42 +1353,12 @@
     }
   };
 
-  const processIncomingAccessRequestFromUrl = () => {
-    try {
-      const raw = getQueryParam("access_request");
-      if (!raw) return false;
-      const payload = JSON.parse(b64UrlToUtf8(raw));
-      if (!payload || !payload.email) return false;
-
-      const req = migrateRequest({
-        id: uid(),
-        name: payload.name || payload.email,
-        email: payload.email,
-        reason: payload.reason || "Demande via lien partagé",
-        status: "pending",
-        date: new Date().toLocaleString("fr-FR"),
-        ts: Date.now(),
-        source: "lien-partage"
-      });
-
-      const requests = getRequests();
-      requests.push(req);
-      saveRequests(requests);
-      publishAccessRequest(req);
-      cleanUrlAfterParam();
-      toast("Demande importée.", "success");
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
   const pendingRequests = () => getRequests().filter((r) => r.status === "pending");
   const pendingSignature = () => pendingRequests().map((r) => r.id).sort().join("|");
 
   const updateNotificationBell = () => {
-    const bell = q("#notifBellBtn");
-    const badge = q("#notifBadge");
+    const bell = $("#notifBellBtn");
+    const badge = $("#notifBadge");
     if (!bell) return;
 
     if (!currentUser || currentUser.role !== "admin") {
@@ -1649,7 +1381,7 @@
   };
 
   const updateNotificationState = () => {
-    const el = q("#notifState");
+    const el = $("#notifState");
     const state = notificationPermissionState();
     const labels = {
       granted: "✅ Notifications autorisées",
@@ -1810,7 +1542,7 @@
   };
 
   const refreshSavedPasswordButton = () => {
-    const btn = q("#useSavedPwdBtn");
+    const btn = $("#useSavedPwdBtn");
     const saved = loadWithMigration(KEYS.ADMIN_PWD_HASH, OLD_KEYS.ADMIN_PWD_HASH, null);
     if (btn) btn.classList.toggle("hidden", !saved);
   };
@@ -1829,24 +1561,22 @@
   };
 
   const showApp = () => {
-    const login = q("#loginScreen");
+    const login = $("#loginScreen");
     if (login) login.classList.add("hidden");
 
-    const app = q("#mainApp");
+    const app = $("#mainApp");
     if (app) app.classList.remove("hidden");
 
-    const badge = q("#userBadge");
+    const badge = $("#userBadge");
     if (badge) badge.textContent = currentUser.role === "admin" ? "👑 Admin" : "👤 " + currentUser.name;
 
-    const adminBtn = q("#adminPanelBtn");
+    const adminBtn = $("#adminPanelBtn");
     if (adminBtn) adminBtn.classList.toggle("hidden", currentUser.role !== "admin");
 
     updateCounter();
     updateNotificationBell();
     updateNotificationState();
     updateSelectionSummary();
-    injectUpdateBar();
-    injectAdminApkBlock();
 
     if (currentUser && currentUser.role === "admin") {
       startAdminPolling();
@@ -1859,13 +1589,13 @@
   };
 
   const showLogin = () => {
-    const login = q("#loginScreen");
+    const login = $("#loginScreen");
     if (login) login.classList.remove("hidden");
 
-    const app = q("#mainApp");
+    const app = $("#mainApp");
     if (app) app.classList.add("hidden");
 
-    const admin = q("#adminPanel");
+    const admin = $("#adminPanel");
     if (admin) admin.classList.add("hidden");
 
     stopAdminPolling();
@@ -1874,384 +1604,129 @@
     refreshSavedPasswordButton();
   };
 
-  const updateDataStatus = (msg) => {
-    const el = q("#dataStatus");
+  /* =========================================================
+     STATUT / STATS / REFRESH DATA
+     ========================================================= */
+  const setStatus = (msg) => {
+    const el = $("#dataStatus");
     if (el) el.textContent = msg;
   };
 
-  const setApkStatus = (msg) => {
-    const el = q("#apkSyncStatus");
-    if (el) el.textContent = msg;
-    updateDataStatus(msg);
-  };
-
-  const setApkProgress = (percent) => {
-    const el = q("#apkSyncProgressInner");
-    if (el) el.style.width = `${Math.max(0, Math.min(100, percent))}%`;
-  };
-
-  const injectUpdateBar = () => {
-    if (q("#apkUpdateBar")) return;
-
-    const mount = q("#dataStatus");
-    const html = `
-      <div id="apkUpdateBar" class="apk-update-bar">
-        <div class="apk-update-row">
-          <span class="apk-update-title">🧰 Base APK Ingénieur</span>
-          <button id="updateApkBaseBtn" class="btn apk-action">🔄 Mettre à jour la base APK</button>
-          <button id="exportApkBaseBtn" class="btn apk-export">⬇️ Exporter apk-base.json</button>
-          <span id="apkCountBrands" class="apk-mini-stat">Marques: 0</span>
-          <span id="apkCountModels" class="apk-mini-stat">Modèles: 0</span>
-          <span id="apkCountEngines" class="apk-mini-stat">Motorisations: 0</span>
-          <span id="apkCountDefects" class="apk-mini-stat">Pannes: 0</span>
-        </div>
-        <div id="apkSyncStatus" class="apk-update-status">Base locale initialisée.</div>
-        <div class="apk-progress"><div id="apkSyncProgressInner" class="apk-progress-inner"></div></div>
-      </div>
-    `;
-
-    if (mount) {
-      mount.insertAdjacentHTML("afterend", html);
-    } else if (q("#mainApp")) {
-      q("#mainApp").insertAdjacentHTML("afterbegin", html);
-    } else {
-      document.body.insertAdjacentHTML("afterbegin", html);
-    }
-
-    on("#updateApkBaseBtn", "click", () => runApkBaseUpdate(true));
-    on("#exportApkBaseBtn", "click", exportApkBase);
-    updateApkCounters();
-  };
-
-  const injectAdminApkBlock = () => {
-    if (q("#apkAdminBlock")) return;
-
-    const pane = q("#statsPane") || q("#dataPane") || q("#adminPanel");
-    if (!pane) return;
-
-    const html = `
-      <div id="apkAdminBlock" class="apk-admin-block">
-        <h4>📦 Base APK / Auto-Diagnostic</h4>
-        <p class="muted">Mise à jour robuste, export pour intégration APK, import JSON massif.</p>
-        <div class="row-actions">
-          <button id="adminUpdateApkBaseBtn" class="btn apk-action">🔄 Mettre à jour maintenant</button>
-          <button id="adminExportApkBaseBtn" class="btn apk-export">⬇️ Exporter base APK</button>
-          <label class="btn ghost file-btn">
-            ⬆️ Importer apk-base.json
-            <input id="adminImportApkBaseInput" type="file" accept=".json" hidden />
-          </label>
-          <button id="adminResetLocalBaseBtn" class="btn apk-danger">♻ Réinitialiser base locale</button>
-        </div>
-      </div>
-    `;
-
-    pane.insertAdjacentHTML("beforeend", html);
-
-    on("#adminUpdateApkBaseBtn", "click", () => runApkBaseUpdate(true));
-    on("#adminExportApkBaseBtn", "click", exportApkBase);
-    on("#adminResetLocalBaseBtn", "click", resetLocalBase);
-
-    on("#adminImportApkBaseInput", "change", async (e) => {
-      const file = e.target.files && e.target.files[0];
-      if (!file) return;
-      try {
-        const txt = await readFileAsText(file);
-        const json = JSON.parse(txt);
-        const added = mergePayload("auto", json, "import-apk-base.json");
-        await persistMemory();
-        refreshSelectionLists();
-        updateAdminStats();
-        toast(`Import réussi : ${added} entrée(s) fusionnée(s).`, "success");
-      } catch {
-        toast("Import échoué : JSON invalide.", "error");
-      }
-      e.target.value = "";
-    });
-  };
-
-  const updateApkCounters = () => {
-    const c = counts();
-    const b = q("#apkCountBrands");
-    const m = q("#apkCountModels");
-    const e = q("#apkCountEngines");
-    const d = q("#apkCountDefects");
-    if (b) b.textContent = `Marques: ${c.brands}`;
-    if (m) m.textContent = `Modèles: ${c.models}`;
-    if (e) e.textContent = `Motorisations: ${c.engines}`;
-    if (d) d.textContent = `Pannes: ${c.defects}`;
-  };
-
-  const updateAdminStats = () => {
+  const updateStats = () => {
     const c = counts();
 
-    if (q("#statBrands")) q("#statBrands").textContent = c.brands;
-    if (q("#statModels")) q("#statModels").textContent = c.models;
-    if (q("#statEngines")) q("#statEngines").textContent = c.engines;
-    if (q("#statEntries")) q("#statEntries").textContent = c.defects;
+    if ($("#statBrands")) $("#statBrands").textContent = c.brands;
+    if ($("#statModels")) $("#statModels").textContent = c.models;
+    if ($("#statEngines")) $("#statEngines").textContent = c.engines;
+    if ($("#statEntries")) $("#statEntries").textContent = c.defects;
 
-    updateApkCounters();
-
-    const last = loadWithMigration(KEYS.AUTO_LAST_SYNC, OLD_KEYS.AUTO_LAST_SYNC, 0);
-    if (q("#lastSyncText")) {
-      q("#lastSyncText").textContent = last
+    const last = loadWithMigration(KEYS.LAST_SYNC, OLD_KEYS.LAST_SYNC, 0);
+    if ($("#lastSyncText")) {
+      $("#lastSyncText").textContent = last
         ? `Dernière synchro : ${new Date(last).toLocaleString("fr-FR")}`
         : "Dernière synchro : jamais.";
     }
 
-    if (q("#remoteStatus")) {
-      q("#remoteStatus").textContent = `Version ${VERSION} • IndexedDB ${idb ? "actif" : "indisponible"} • Base locale massive`;
+    if ($("#remoteStatus")) {
+      $("#remoteStatus").textContent = `Version ${VERSION} • IA locale active • IndexedDB ${db ? "actif" : "indisponible"} • Marques ${c.brands} / Modèles ${c.models} / Motorisations ${c.engines} / Pannes ${c.defects}`;
     }
   };
 
-  const renderAdminIfOpen = () => {
-    const panel = q("#adminPanel");
-    if (!panel || panel.classList.contains("hidden")) return;
-    if (!currentUser || currentUser.role !== "admin") return;
-    renderAdmin();
+  const refreshSelectionLists = () => {
+    if (selection.brand) renderModelList($("#modelSearch") ? $("#modelSearch").value : "");
+    if (selection.brand && selection.model) renderEngineList($("#engineSearch") ? $("#engineSearch").value : "");
+    updateSelectionSummary();
   };
 
-  const renderAdmin = () => {
-    updateAdminStats();
-    renderPendingRequests();
-    renderUsers();
-    renderWallpaperPreview();
-
-    const settings = getSettings();
-    const emailInput = q("#adminEmailInput");
-    if (emailInput) emailInput.value = settings.adminEmail || "";
-  };
-
-  const renderPendingRequests = () => {
-    const wrap = q("#pendingRequestsList");
-    if (!wrap) return;
-
-    const reqs = pendingRequests();
-    if (!reqs.length) {
-      wrap.innerHTML = '<div class="empty">Aucune demande en attente.</div>';
-      return;
+  const fetchText = async (url) => {
+    try {
+      const sep = url.includes("?") ? "&" : "?";
+      const finalUrl = url + sep + "v=" + Date.now();
+      const res = await fetch(finalUrl, { cache: "no-store", mode: "cors" });
+      if (!res.ok) return null;
+      const text = await res.text();
+      if (!text.trim()) return null;
+      if (text.trim().startsWith("<")) return null;
+      return text;
+    } catch {
+      return null;
     }
-
-    wrap.innerHTML = reqs.map((r) => `
-      <div class="admin-item">
-        <div class="admin-item-head">
-          <div>
-            <strong>${esc(r.name)}</strong><br/>
-            <span class="muted">${esc(r.email)}</span>
-          </div>
-          <span class="pill soft">${esc(r.date)}</span>
-        </div>
-        <div class="muted">${esc(r.reason)}</div>
-        <div class="admin-actions">
-          <button class="small-btn" data-action="approve" data-id="${esc(r.id)}">✔ Accepter</button>
-          <button class="small-btn" data-action="refuse" data-id="${esc(r.id)}">✖ Refuser</button>
-          <button class="small-btn" data-action="mail-admin" data-id="${esc(r.id)}">✉ Mail admin</button>
-        </div>
-      </div>
-    `).join("");
   };
 
-  const renderUsers = () => {
-    const wrap = q("#approvedUsersList");
-    if (!wrap) return;
-
-    const users = getUsers().filter((u) => u.role !== "admin");
-    if (!users.length) {
-      wrap.innerHTML = '<div class="empty">Aucun compte tiers.</div>';
-      return;
-    }
-
-    wrap.innerHTML = users.map((u) => {
-      const grantUrl = makeAccessGrantUrl(u);
-      return `
-        <div class="admin-item">
-          <div class="admin-item-head">
-            <div>
-              <strong>${esc(u.name)}</strong><br/>
-              <span class="muted">${esc(u.email)}</span>
-            </div>
-            <span class="pill ${u.status === "approved" ? "" : "soft"}">${esc(u.status)}</span>
-          </div>
-          <div class="admin-actions">
-            <button class="small-btn" data-action="copy-link" data-url="${esc(grantUrl)}">🔗 Copier lien</button>
-            <button class="small-btn" data-action="mail-user" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-url="${esc(grantUrl)}">✉ Mail utilisateur</button>
-            ${u.status === "approved"
-              ? `<button class="small-btn" data-action="revoke" data-email="${esc(u.email)}">⛔ Révoquer</button>`
-              : `<button class="small-btn" data-action="restore" data-email="${esc(u.email)}">♻ Rétablir</button>`}
-          </div>
-        </div>
-      `;
-    }).join("");
-  };
-
-  const applyBackground = (dataUrl, persist = true) => {
-    if (dataUrl) {
-      document.body.classList.add("has-custom-bg");
-      document.documentElement.style.setProperty("--custom-bg", `url(${dataUrl})`);
-      if (persist) {
-        try { save(KEYS.BACKGROUND, dataUrl); } catch { toast("Fond trop lourd à sauvegarder.", "warning"); }
-      }
-    } else {
-      document.body.classList.remove("has-custom-bg");
-      document.documentElement.style.removeProperty("--custom-bg");
-      if (persist) del(KEYS.BACKGROUND);
-    }
-    renderWallpaperPreview();
-  };
-
-  const renderWallpaperPreview = () => {
-    const preview = q("#wallpaperPreview");
-    if (!preview) return;
-    const bg = load(KEYS.BACKGROUND, null);
-    preview.style.backgroundImage = bg ? `url(${bg})` : "";
-  };
-
-  const generateDefaultWallpaper = () => {
-    const c = document.createElement("canvas");
-    c.width = 1080;
-    c.height = 1920;
-    const ctx = c.getContext("2d");
-
-    const g = ctx.createLinearGradient(0, 0, c.width, c.height);
-    g.addColorStop(0, "#07101f");
-    g.addColorStop(0.45, "#0f172a");
-    g.addColorStop(1, "#111827");
-    ctx.fillStyle = g;
-    ctx.fillRect(0, 0, c.width, c.height);
-
-    const glow = ctx.createRadialGradient(220, 240, 20, 220, 240, 520);
-    glow.addColorStop(0, "rgba(59,130,246,0.45)");
-    glow.addColorStop(1, "rgba(59,130,246,0)");
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, c.width, c.height);
-
-    const glow2 = ctx.createRadialGradient(860, 360, 20, 860, 360, 500);
-    glow2.addColorStop(0, "rgba(139,92,246,0.35)");
-    glow2.addColorStop(1, "rgba(139,92,246,0)");
-    ctx.fillStyle = glow2;
-    ctx.fillRect(0, 0, c.width, c.height);
-
-    ctx.fillStyle = "rgba(255,255,255,0.08)";
-    for (let i = 0; i < 90; i++) {
-      const x = Math.random() * c.width;
-      const y = Math.random() * c.height;
-      const r = Math.random() * 2.2 + 0.4;
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-
-    ctx.fillStyle = "rgba(255,255,255,0.95)";
-    ctx.font = "bold 82px Inter, Arial, sans-serif";
-    ctx.fillText("Expert Auto", 80, 300);
-
-    ctx.fillStyle = "rgba(148,163,184,0.95)";
-    ctx.font = "36px Inter, Arial, sans-serif";
-    ctx.fillText("Base APK ingénieur", 82, 370);
-    ctx.fillText("Marques • Modèles • Motorisations • Pannes", 82, 420);
-
-    return c.toDataURL("image/png");
-  };
-
-  const downloadWallpaper = () => {
-    const bg = load(KEYS.BACKGROUND, null) || generateDefaultWallpaper();
-    downloadDataUrl(bg, "wallpaper.png");
-    toast("Fond d’écran téléchargé pour intégration APK.", "success");
-  };
-
-  const exportApkBase = () => {
-    const data = {
-      version: VERSION,
-      generatedAt: new Date().toISOString(),
-      counts: counts(),
-      brands: [...mem.brands.values()],
-      models: [...mem.models.values()],
-      engines: [...mem.engines.values()],
-      defects: [...mem.defects.values()]
-    };
-
-    downloadText(JSON.stringify(data, null, 2), "apk-base.json");
-    toast("Base APK exportée. Intégrez apk-base.json dans l’APK / PWA.", "success");
-  };
-
-  const resetLocalBase = async () => {
-    if (!confirm("Réinitialiser la base locale ? Les données distantes synchronisées seront perdues et remplacées par la base de secours.")) return;
-
-    mem.brands.clear();
-    mem.models.clear();
-    mem.engines.clear();
-    mem.defects.clear();
-
-    seedLocal();
-    await persistMemory();
-    refreshSelectionLists();
-    updateAdminStats();
-    toast("Base locale réinitialisée.", "success");
-  };
-
-  const runApkBaseUpdate = async (manual = false) => {
-    if (syncBusy) {
-      toast("Mise à jour déjà en cours...", "warning");
-      return;
-    }
-
-    syncBusy = true;
-    injectUpdateBar();
-    injectAdminApkBlock();
-
-    const before = counts();
-    setApkProgress(5);
-    setApkStatus("Démarrage mise à jour base APK...");
-
-    const setStatus = (msg) => setApkStatus(msg);
+  const tryLoadUrl = async (url, kind, stats, sources) => {
+    const text = await fetchText(url);
+    if (!text) return false;
 
     try {
-      await updateFromEndpoints(setStatus, setApkProgress);
-      await updateFromHtmlPage(setStatus, setApkProgress);
-      await updateFromLocalApkBase(setStatus, setApkProgress);
-
-      setApkStatus("Sauvegarde IndexedDB...");
-      setApkProgress(95);
-
-      recomputeCounts();
-      await persistMemory();
-
-      const after = counts();
-      const diff = {
-        brands: after.brands - before.brands,
-        models: after.models - before.models,
-        engines: after.engines - before.engines,
-        defects: after.defects - before.defects
-      };
-
-      setApkProgress(100);
-      setApkStatus(
-        `Base APK mise à jour • +${diff.brands} marques, +${diff.models} modèles, +${diff.engines} motorisations, +${diff.defects} pannes`
-      );
-
-      refreshSelectionLists();
-      updateAdminStats();
-
-      if (manual) toast("Base APK mise à jour.", "success");
+      const json = JSON.parse(text);
+      const s = ingestPayload(json, url, kind);
+      addStats(stats, s);
+      sources.push(url);
+      return true;
     } catch (e) {
-      console.warn("[EXPERT-AUTO] Mise à jour base APK échouée:", e);
-      setApkStatus("Échec partiel. Base locale conservée.");
-      if (manual) toast("Mise à jour échouée ou partiellement disponible.", "error");
-    } finally {
-      syncBusy = false;
+      console.warn("[Expert Auto] JSON invalide:", url, e);
+      return false;
     }
   };
 
-  const startLiveSync = () => {
-    stopLiveSync();
-    liveSyncTimer = setInterval(() => {
-      if (!document.hidden && navigator.onLine) runApkBaseUpdate(false);
-    }, 15 * 60 * 1000);
+  const refreshData = async (manual = false) => {
+    if (syncBusy) return;
+    syncBusy = true;
+
+    setStatus(manual ? "Mise à jour manuelle des bases..." : "Mise à jour automatique des bases...");
+
+    const stats = { brands: 0, models: 0, engines: 0, defects: 0, invalid: 0, duplicates: 0 };
+    const sources = [];
+
+    for (const path of LOCAL_DATA_PATHS) {
+      await tryLoadUrl(path, "auto", stats, sources);
+    }
+
+    for (const [path, kind] of SEPARATE_DATA_PATHS) {
+      await tryLoadUrl(path, kind, stats, sources);
+    }
+
+    for (const base of REMOTE_DATA_BASES) {
+      const cleanBase = base.replace(/\/$/, "");
+      for (const path of LOCAL_DATA_PATHS) {
+        await tryLoadUrl(cleanBase + path.replace(/^\.\//, "/"), "auto", stats, sources);
+      }
+      for (const [path, kind] of SEPARATE_DATA_PATHS) {
+        await tryLoadUrl(cleanBase + path.replace(/^\.\//, "/"), kind, stats, sources);
+      }
+    }
+
+    if (mem.brands.size === 0) {
+      seedLocal();
+    }
+
+    recomputeCounts();
+    await persistMemory();
+    save(KEYS.LAST_SYNC, Date.now());
+
+    updateStats();
+    refreshSelectionLists();
+
+    const summary = `+${stats.brands} marques, +${stats.models} modèles, +${stats.engines} motorisations, +${stats.defects} pannes`;
+    const src = sources.length ? `Sources : ${sources.length}` : "Aucune source JSON distante trouvée, base locale utilisée.";
+
+    setStatus(`Mise à jour terminée • ${summary} • ${src}`);
+    if (manual) toast("Mise à jour manuelle terminée.", "success");
+
+    syncBusy = false;
   };
 
-  const stopLiveSync = () => {
-    if (liveSyncTimer) {
-      clearInterval(liveSyncTimer);
-      liveSyncTimer = null;
+  const startAutoSync = () => {
+    stopAutoSync();
+    autoSyncTimer = setInterval(() => {
+      if (!document.hidden && navigator.onLine) refreshData(false);
+    }, 10 * 60 * 1000);
+  };
+
+  const stopAutoSync = () => {
+    if (autoSyncTimer) {
+      clearInterval(autoSyncTimer);
+      autoSyncTimer = null;
     }
   };
 
@@ -2318,14 +1793,14 @@
   const closeAllCombos = (exceptId) => {
     ["brandPanel", "modelPanel", "enginePanel"].forEach((id) => {
       if (id === exceptId) return;
-      const el = q("#" + id);
+      const el = $("#" + id);
       if (el) el.classList.add("hidden");
     });
   };
 
   const renderBrandPanel = () => {
-    const input = q("#brandInput");
-    const panel = q("#brandPanel");
+    const input = $("#brandInput");
+    const panel = $("#brandPanel");
     if (!input || !panel) return;
 
     const brands = predictBrands(input.value);
@@ -2350,7 +1825,7 @@
     selection.engine = null;
     engineFuelFilter = "all";
 
-    const input = q("#brandInput");
+    const input = $("#brandInput");
     if (input) input.value = name;
 
     closeAllCombos();
@@ -2361,7 +1836,7 @@
   };
 
   const updateModelButton = () => {
-    const btn = q("#modelButton");
+    const btn = $("#modelButton");
     if (!btn) return;
 
     if (!selection.brand) {
@@ -2375,7 +1850,7 @@
   };
 
   const updateEngineButton = () => {
-    const btn = q("#engineButton");
+    const btn = $("#engineButton");
     if (!btn) return;
 
     if (!selection.brand || !selection.model) {
@@ -2400,7 +1875,7 @@
   };
 
   const renderModelList = (filter) => {
-    const list = q("#modelList");
+    const list = $("#modelList");
     if (!list) return;
 
     if (!selection.brand) {
@@ -2425,7 +1900,7 @@
   };
 
   const renderEngineFilters = (engines) => {
-    const wrap = q("#engineFilters");
+    const wrap = $("#engineFilters");
     if (!wrap) return;
 
     const fuels = unique(engines.map((e) => e.fuel).filter(Boolean));
@@ -2437,7 +1912,7 @@
   };
 
   const renderEngineList = (filter) => {
-    const list = q("#engineList");
+    const list = $("#engineList");
     if (!list) return;
 
     if (!selection.brand || !selection.model) {
@@ -2490,9 +1965,9 @@
   };
 
   const getSelectedVehicleData = () => {
-    const brandEl = q("#brandInput");
-    const kmEl = q("#vehicleKilometrage");
-    const vinEl = q("#vehicleVin");
+    const brandEl = $("#brandInput");
+    const kmEl = $("#vehicleKilometrage");
+    const vinEl = $("#vehicleVin");
 
     return {
       marque: selection.brand ? selection.brand.name : (brandEl ? brandEl.value.trim() : ""),
@@ -2510,7 +1985,7 @@
   };
 
   const updateSelectionSummary = () => {
-    const el = q("#selectionSummary");
+    const el = $("#selectionSummary");
     if (!el) return;
 
     const v = getSelectedVehicleData();
@@ -2532,18 +2007,17 @@
     el.textContent = "Sélection retenue : " + parts.join(" • ");
   };
 
-  const refreshSelectionLists = () => {
-    if (selection.brand) renderModelList(q("#modelSearch")?.value || "");
-    if (selection.brand && selection.model) renderEngineList(q("#engineSearch")?.value || "");
-    updateSelectionSummary();
-  };
-
   /* =========================================================
-     ANALYSE CROISÉE TECHNIQUE + JURIDIQUE
+     IA LOCALE / ANALYSE
      ========================================================= */
   const addTerm = (...args) => {
     args.forEach((t) => termesMobilises.add(t));
     return `<span class="term">(${args.join(", ")})</span>`;
+  };
+
+  const extractDtcCodes = (text) => {
+    const m = String(text || "").match(/\b[PCBU][0-9A-F]{3,4}\b/gi) || [];
+    return unique(m.map((x) => x.toUpperCase()));
   };
 
   const matchDefects = (v, text) => {
@@ -2607,7 +2081,7 @@
     const q2 = encodeURIComponent(`${brand} ${model}`);
 
     return [
-      { label: "Auto-Diagnostic", url: REMOTE_BASE },
+      { label: "Auto-Diagnostic", url: "https://expertkevin06-cell.github.io/auto-diagnostic/" },
       { label: "Recherche technique", url: "https://www.google.com/search?q=" + q1 },
       { label: "Rappel Conso France", url: "https://www.rappel.conso.gouv.fr/recherche/?search=" + q2 },
       { label: "NHTSA Recalls", url: "https://www.nhtsa.gov/recalls?search=" + q2 },
@@ -2617,7 +2091,7 @@
     ];
   };
 
-  const orientationContext = (objective, sellerType, flags, matches) => {
+  const orientationContext = (objective, flags, matches) => {
     const obj = norm(objective);
 
     if (obj.includes("annulation") || obj.includes("résolution") || obj.includes("remboursement total")) {
@@ -2672,7 +2146,7 @@
 
   const secTechnique = (matches, flags, vData) => {
     const km = parseKm(vData.kilometrage);
-    let h = `<div class="box info"><strong>Objet :</strong> croisement dynamique avec la base technique Auto-Diagnostic ${addTerm("défauts connus", "rappels", "TSB", "DTC", "motorisation", "pannes récurrentes")}.</div>`;
+    let h = `<div class="box info"><strong>Objet :</strong> IA locale gratuite sans clé API : croisement technique dynamique ${addTerm("défauts connus", "rappels", "TSB", "DTC", "motorisation", "pannes récurrentes")}.</div>`;
 
     if (!matches.length) {
       h += `<div class="box medium">
@@ -2737,7 +2211,7 @@
   };
 
   const secJuridique = (flags, matches) => {
-    let h = `<div class="box info"><strong>Objet :</strong> qualification juridique renforcée par l’analyse technique croisée ${addTerm("qualification juridique", "responsabilité", "garantie")}.</div>`;
+    let h = `<div class="box info"><strong>Objet :</strong> IA locale juridique gratuite sans clé API : qualification renforcée par l’analyse technique ${addTerm("qualification juridique", "responsabilité", "garantie")}.</div>`;
 
     if (flags.professional && !flags.privateSeller) {
       h += `<div class="box high"><p>Vendeur présumé professionnel ${addTerm("vendeur professionnel")}. Protection consommateur renforcée : garantie légale de conformité, charge de la preuve allégée, obligation d’information et de vérification des rappels.</p></div>`;
@@ -2821,7 +2295,7 @@
     if (matches.some((m) => m.severite === "critique")) h += `<li>Signalement DGCCRF / préfet / NHTSA / KBA si danger collectif</li>`;
     h += `</ol>`;
 
-    const links = researchLinks(vehicleData.marque, vehicleData.modele, matches[0]?.moteur || vehicleData.engine, matches[0]?.symptomes || [], vehicleData.fuel);
+    const links = researchLinks(vehicleData.marque, vehicleData.modele, matches[0] ? matches[0].moteur : vehicleData.engine, matches[0] ? matches[0].symptomes : [], vehicleData.fuel);
     h += `<h4>Pistes de recherche externe</h4><ul>`;
     links.forEach((l) => { h += `<li><a href="${esc(l.url)}" target="_blank" rel="noopener noreferrer">${esc(l.label)}</a></li>`; });
     h += `</ul>`;
@@ -2833,7 +2307,7 @@
   const secConclusion = (objective, matches, flags, vData) => {
     const high = matches.some((m) => m.confiance === "Haute");
     const critical = matches.some((m) => m.severite === "critique");
-    const orientation = orientationContext(objective, flags.professional ? "professional" : flags.privateSeller ? "private" : "unknown", flags, matches);
+    const orientation = orientationContext(objective, flags, matches);
 
     let score = 20;
     score += matches.reduce((acc, m) => acc + Math.min(m.score, 8), 0);
@@ -2872,7 +2346,7 @@
       h += `<p><strong>Si vendeur particulier :</strong> privilégier expertise amiable puis action en vices cachés.</p>`;
     }
 
-    h += `<p class="muted"><strong>Avertissement :</strong> document d’aide à la rédaction. Ne constitue pas un avis juridique définitif.</p></div>`;
+    h += `<p class="muted"><strong>Avertissement :</strong> document d’aide à la rédaction généré par IA locale gratuite sans clé API. Ne constitue pas un avis juridique définitif.</p></div>`;
     return h;
   };
 
@@ -2890,12 +2364,12 @@
       html += `<h3>${title}</h3>${body}`;
     });
 
-    html += `<div class="box medium"><strong>Rappel méthodologique :</strong> ce rapport effectue un croisement local/dynamique technique + juridique + motorisation + Auto-Diagnostic. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>`;
+    html += `<div class="box medium"><strong>Rappel méthodologique :</strong> ce rapport utilise une IA locale gratuite sans clé API, croisant base technique, motorisation, symptômes, DTC et qualification juridique. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>`;
 
-    const result = q("#analysisResult");
+    const result = $("#analysisResult");
     if (result) result.innerHTML = html;
 
-    const section = q("#analysisSection");
+    const section = $("#analysisSection");
     if (section) {
       section.classList.remove("hidden");
       section.scrollIntoView({ behavior: "smooth" });
@@ -2914,7 +2388,7 @@
       ev: isElectricLike(fuelNorm) || containsAny(all, ["batterie", "charge", "autonomie", "electrique", "hybride", "BMS"]),
       diesel: fuelNorm.includes("diesel") || containsAny(allNorm, ["diesel", "egr", "fap", "adblue", "nox"]),
       electricLike: isElectricLike(fuelNorm),
-      dtc: /\bp[0-9a-z]{3,5}\b/i.test(all) || allNorm.includes("dtc") || allNorm.includes("code défaut"),
+      dtc: extractDtcCodes(all).length > 0 || allNorm.includes("dtc") || allNorm.includes("code défaut"),
       invoice: all.includes("facture"),
       controlTech: all.includes("contrôle technique") || all.includes(" ct ")
     };
@@ -2931,8 +2405,8 @@
 
     const S = [];
     S.push(["I. IDENTIFICATION DU VÉHICULE", secIdentification(text, context)]);
-    S.push(["II. ANALYSE TECHNIQUE CROISÉE AUTO-DIAGNOSTIC", secTechnique(matches, flags, vehicleData)]);
-    S.push(["III. ANALYSE JURIDIQUE RENFORCÉE", secJuridique(flags, matches)]);
+    S.push(["II. ANALYSE TECHNIQUE IA LOCALE", secTechnique(matches, flags, vehicleData)]);
+    S.push(["III. ANALYSE JURIDIQUE IA LOCALE", secJuridique(flags, matches)]);
     S.push(["IV. PREUVE, STRATÉGIE ET VÉRIFICATIONS", secPreuve(matches, flags, objective)]);
     S.push(["V. CONCLUSION ORIENTÉE SELON LE LITIGE", secConclusion(objective, matches, flags, vehicleData)]);
     S.push(["VI. LEXIQUE TECHNIQUE ET JURIDIQUE MOBILISÉ", secLexique()]);
@@ -2942,7 +2416,352 @@
   };
 
   /* =========================================================
-     SERVICE WORKER / INSTALLATION
+     ADMIN RENDER
+     ========================================================= */
+  const renderAdminIfOpen = () => {
+    const panel = $("#adminPanel");
+    if (!panel || panel.classList.contains("hidden")) return;
+    if (!currentUser || currentUser.role !== "admin") return;
+    renderAdmin();
+  };
+
+  const renderAdmin = () => {
+    updateStats();
+    renderPendingRequests();
+    renderUsers();
+    renderWallpaperPreview();
+
+    const settings = getSettings();
+    const emailInput = $("#adminEmailInput");
+    if (emailInput) emailInput.value = settings.adminEmail || "";
+
+    const opacityInput = $("#wallpaperOpacity");
+    if (opacityInput) opacityInput.value = settings.wallpaperOpacity || 35;
+
+    const opacityValue = $("#wallpaperValue");
+    if (opacityValue) opacityValue.textContent = (settings.wallpaperOpacity || 35) + "%";
+  };
+
+  const renderPendingRequests = () => {
+    const wrap = $("#pendingRequestsList");
+    if (!wrap) return;
+
+    const reqs = pendingRequests();
+    if (!reqs.length) {
+      wrap.innerHTML = '<div class="empty">Aucune demande en attente.</div>';
+      return;
+    }
+
+    wrap.innerHTML = reqs.map((r) => `
+      <div class="admin-item">
+        <div class="admin-item-head">
+          <div>
+            <strong>${esc(r.name)}</strong><br/>
+            <span class="muted">${esc(r.email)}</span>
+          </div>
+          <span class="pill soft">${esc(r.date)}</span>
+        </div>
+        <div class="muted">${esc(r.reason)}</div>
+        <div class="admin-actions">
+          <button class="small-btn" data-action="approve" data-id="${esc(r.id)}">✔ Accepter</button>
+          <button class="small-btn" data-action="refuse" data-id="${esc(r.id)}">✖ Refuser</button>
+          <button class="small-btn" data-action="mail-admin" data-id="${esc(r.id)}">✉ Mail admin</button>
+        </div>
+      </div>
+    `).join("");
+  };
+
+  const renderUsers = () => {
+    const wrap = $("#approvedUsersList");
+    if (!wrap) return;
+
+    const users = getUsers().filter((u) => u.role !== "admin");
+    if (!users.length) {
+      wrap.innerHTML = '<div class="empty">Aucun compte tiers.</div>';
+      return;
+    }
+
+    wrap.innerHTML = users.map((u) => {
+      const grantUrl = makeAccessGrantUrl(u);
+      return `
+        <div class="admin-item">
+          <div class="admin-item-head">
+            <div>
+              <strong>${esc(u.name)}</strong><br/>
+              <span class="muted">${esc(u.email)}</span>
+            </div>
+            <span class="pill ${u.status === "approved" ? "" : "soft"}">${esc(u.status)}</span>
+          </div>
+          <div class="admin-actions">
+            <button class="small-btn" data-action="copy-link" data-url="${esc(grantUrl)}">🔗 Copier lien</button>
+            <button class="small-btn" data-action="mail-user" data-email="${esc(u.email)}" data-name="${esc(u.name)}" data-url="${esc(grantUrl)}">✉ Mail utilisateur</button>
+            ${u.status === "approved"
+              ? `<button class="small-btn" data-action="revoke" data-email="${esc(u.email)}">⛔ Révoquer</button>`
+              : `<button class="small-btn" data-action="restore" data-email="${esc(u.email)}">♻ Rétablir</button>`}
+          </div>
+        </div>
+      `;
+    }).join("");
+  };
+
+  /* =========================================================
+     FOND D'ÉCRAN + OPACITÉ
+     ========================================================= */
+  const applyWallpaper = (dataUrl, opacity) => {
+    const el = $("#bgWallpaper");
+    const settings = getSettings();
+
+    const op = Math.max(0, Math.min(100, Number(opacity != null ? opacity : settings.wallpaperOpacity || 35)));
+    settings.wallpaperOpacity = op;
+    saveSettings(settings);
+
+    document.documentElement.style.setProperty("--wallpaper-opacity", String(op / 100));
+
+    if (el) {
+      if (dataUrl) {
+        el.style.backgroundImage = `url(${dataUrl})`;
+        el.classList.add("active");
+      } else {
+        el.style.backgroundImage = "";
+        el.classList.remove("active");
+      }
+    }
+
+    const range = $("#wallpaperOpacity");
+    if (range) range.value = op;
+
+    const val = $("#wallpaperValue");
+    if (val) val.textContent = op + "%";
+
+    renderWallpaperPreview(dataUrl);
+  };
+
+  const renderWallpaperPreview = (dataUrl) => {
+    const preview = $("#wallpaperPreview");
+    if (!preview) return;
+    const bg = dataUrl || load(KEYS.SETTINGS + "_wallpaper_preview", null);
+    preview.style.backgroundImage = bg ? `url(${bg})` : "";
+  };
+
+  const saveWallpaperToDb = async (dataUrl) => {
+    await idbSetAsset({
+      key: "wallpaper",
+      type: "image",
+      dataUrl,
+      updatedAt: Date.now()
+    });
+    save(KEYS.SETTINGS + "_wallpaper_preview", dataUrl);
+    applyWallpaper(dataUrl, getSettings().wallpaperOpacity || 35);
+  };
+
+  const loadWallpaper = async () => {
+    const asset = await idbGetAsset("wallpaper");
+    const settings = getSettings();
+    applyWallpaper(asset ? asset.dataUrl : "", settings.wallpaperOpacity || 35);
+  };
+
+  const resetWallpaper = async () => {
+    await idbDeleteAsset("wallpaper");
+    del(KEYS.SETTINGS + "_wallpaper_preview");
+    applyWallpaper("", getSettings().wallpaperOpacity || 35);
+    toast("Fond réinitialisé.", "info");
+  };
+
+  const generateDefaultWallpaper = () => {
+    const c = document.createElement("canvas");
+    c.width = 1080;
+    c.height = 1920;
+    const ctx = c.getContext("2d");
+
+    const g = ctx.createLinearGradient(0, 0, c.width, c.height);
+    g.addColorStop(0, "#07101f");
+    g.addColorStop(0.45, "#0f172a");
+    g.addColorStop(1, "#111827");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, c.width, c.height);
+
+    const glow = ctx.createRadialGradient(220, 240, 20, 220, 240, 520);
+    glow.addColorStop(0, "rgba(59,130,246,0.45)");
+    glow.addColorStop(1, "rgba(59,130,246,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, c.width, c.height);
+
+    const glow2 = ctx.createRadialGradient(860, 360, 20, 860, 360, 500);
+    glow2.addColorStop(0, "rgba(139,92,246,0.35)");
+    glow2.addColorStop(1, "rgba(139,92,246,0)");
+    ctx.fillStyle = glow2;
+    ctx.fillRect(0, 0, c.width, c.height);
+
+    ctx.fillStyle = "rgba(255,255,255,0.08)";
+    for (let i = 0; i < 90; i++) {
+      const x = Math.random() * c.width;
+      const y = Math.random() * c.height;
+      const r = Math.random() * 2.2 + 0.4;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "rgba(255,255,255,0.95)";
+    ctx.font = "bold 82px Inter, Arial, sans-serif";
+    ctx.fillText("Expert Auto", 80, 300);
+
+    ctx.fillStyle = "rgba(148,163,184,0.95)";
+    ctx.font = "36px Inter, Arial, sans-serif";
+    ctx.fillText("IA locale gratuite sans clé API", 82, 370);
+    ctx.fillText("Fond d’écran + opacité admin", 82, 420);
+
+    return c.toDataURL("image/png");
+  };
+
+  const downloadWallpaper = async () => {
+    const asset = await idbGetAsset("wallpaper");
+    const dataUrl = asset && asset.dataUrl ? asset.dataUrl : generateDefaultWallpaper();
+    downloadDataUrl(dataUrl, "wallpaper.png");
+    toast("Fond d’écran téléchargé.", "success");
+  };
+
+  /* =========================================================
+     IMPORT JSON ADMIN
+     ========================================================= */
+  let selectedJsonFile = null;
+
+  const setJsonStatus = (msg) => {
+    const el = $("#jsonStatus");
+    if (el) el.textContent = msg;
+  };
+
+  const setJsonProgress = (p) => {
+    const el = $("#jsonProgress");
+    if (el) el.value = Math.max(0, Math.min(100, Number(p) || 0));
+  };
+
+  const setJsonReport = (text) => {
+    const el = $("#jsonReport");
+    if (el) el.textContent = text || "";
+  };
+
+  const setSelectedJsonFile = (file) => {
+    selectedJsonFile = file || null;
+    const nameEl = $("#jsonFileName");
+    if (nameEl) {
+      nameEl.textContent = selectedJsonFile
+        ? `${selectedJsonFile.name} • ${formatBytes(selectedJsonFile.size)}`
+        : "Aucun fichier sélectionné.";
+    }
+
+    const validateBtn = $("#validateJsonBtn");
+    const importBtn = $("#importJsonBtn");
+    if (validateBtn) validateBtn.disabled = !selectedJsonFile;
+    if (importBtn) importBtn.disabled = !selectedJsonFile;
+
+    setJsonProgress(0);
+    setJsonStatus(selectedJsonFile ? "Fichier prêt. Vérifie puis importe." : "Prêt.");
+    setJsonReport("");
+  };
+
+  const formatJsonReport = (stats, imported) => {
+    const lines = [];
+    lines.push(`Marques : ${stats.brands}`);
+    lines.push(`Modèles : ${stats.models}`);
+    lines.push(`Motorisations : ${stats.engines}`);
+    lines.push(`Pannes / rappels : ${stats.defects}`);
+    if (stats.invalid) lines.push(`Lignes invalides : ${stats.invalid}`);
+    if (imported) {
+      lines.push("");
+      lines.push("Import réalisé dans la base locale IndexedDB.");
+      lines.push("Les listes Marque / Modèle / Motorisation sont immédiatement actualisées.");
+    } else {
+      lines.push("");
+      lines.push("Vérification seulement : aucune écriture effectuée.");
+    }
+    return lines.join("\n");
+  };
+
+  const handleJsonAction = async (doImport) => {
+    if (!selectedJsonFile) {
+      setJsonStatus("Aucun fichier sélectionné.");
+      return;
+    }
+
+    try {
+      setJsonProgress(10);
+      setJsonStatus("Lecture du fichier JSON...");
+
+      const text = await readFileAsText(selectedJsonFile);
+
+      setJsonProgress(35);
+      setJsonStatus("Validation du JSON...");
+
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch (e) {
+        throw new Error("JSON invalide : " + e.message);
+      }
+
+      setJsonProgress(60);
+
+      if (!doImport) {
+        const preview = validatePayloadPreview(payload);
+        setJsonProgress(100);
+        setJsonStatus("Vérification terminée.");
+        setJsonReport(formatJsonReport(preview, false));
+        return;
+      }
+
+      setJsonStatus("Import dans la base locale...");
+
+      const stats = ingestPayload(payload, "import-admin:" + selectedJsonFile.name, "auto");
+
+      setJsonProgress(85);
+      recomputeCounts();
+      await persistMemory();
+
+      setJsonProgress(100);
+      setJsonStatus("Import terminé.");
+      setJsonReport(formatJsonReport(stats, true));
+
+      updateStats();
+      refreshSelectionLists();
+      toast("Import JSON réussi.", "success");
+    } catch (e) {
+      setJsonProgress(100);
+      setJsonStatus("Échec de l’import.");
+      setJsonReport("Erreur :\n" + String(e && e.message ? e.message : e));
+      toast("Import JSON échoué.", "error");
+    }
+  };
+
+  const exportBase = () => {
+    const data = {
+      version: VERSION,
+      generatedAt: new Date().toISOString(),
+      counts: counts(),
+      brands: [...mem.brands.values()],
+      models: [...mem.models.values()],
+      engines: [...mem.engines.values()],
+      defects: [...mem.defects.values()]
+    };
+
+    downloadText(JSON.stringify(data, null, 2), "auto-diagnostic-export.json");
+    toast("Base exportée.", "success");
+  };
+
+  const exportUserData = () => {
+    const data = {
+      exportedAt: new Date().toISOString(),
+      users: getUsers(),
+      requests: getRequests(),
+      catalogStats: counts()
+    };
+
+    downloadText(JSON.stringify(data, null, 2), "expert-auto-users-v35.json");
+    toast("Données utilisateurs exportées.", "success");
+  };
+
+  /* =========================================================
+     SERVICE WORKER / INSTALL
      ========================================================= */
   const registerServiceWorker = () => {
     try {
@@ -2954,12 +2773,12 @@
           })
           .then((reg) => {
             swRegistration = reg;
-            console.log("[EXPERT-AUTO] SW prêt V31.");
+            console.log("[Expert Auto] SW prêt V35.");
           })
-          .catch((err) => console.warn("[EXPERT-AUTO] SW non enregistré:", err));
+          .catch((err) => console.warn("[Expert Auto] SW non enregistré:", err));
       }
     } catch (e) {
-      console.warn("[EXPERT-AUTO] SW impossible:", e);
+      console.warn("[Expert Auto] SW impossible:", e);
     }
   };
 
@@ -2978,8 +2797,8 @@
   };
 
   const updateInstallUI = () => {
-    const btn = q("#installBtn");
-    const hint = q("#installHint");
+    const btn = $("#installBtn");
+    const hint = $("#installHint");
     if (!btn) return;
 
     if (deferredPrompt) {
@@ -2989,28 +2808,35 @@
     } else {
       btn.disabled = false;
       btn.textContent = "📲 Instructions d’installation";
-      if (hint) hint.textContent = "Sur Android Chrome : menu ⋮ → “Ajouter à l’écran d’accueil”. Pour un APK natif, utiliser Capacitor et exporter apk-base.json.";
+      if (hint) hint.textContent = "Sur Android Chrome : menu ⋮ → “Ajouter à l’écran d’accueil”. Pour APK natif, inclure data/auto-diagnostic-export.json dans www/data/.";
     }
+  };
+
+  const downloadManifest = () => {
+    fetch("./manifest.json", { cache: "no-store" })
+      .then((r) => r.text())
+      .then((txt) => downloadText(txt, "manifest.json"))
+      .catch(() => toast("manifest.json indisponible.", "error"));
   };
 
   /* =========================================================
      BIND UI
      ========================================================= */
   const bindUi = () => {
-    qa(".tab-btn[data-auth-tab]").forEach((btn) => {
+    $$(".tab-btn[data-auth-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        qa(".tab-btn[data-auth-tab]").forEach((b) => b.classList.remove("active"));
-        qa(".auth-pane").forEach((p) => p.classList.add("hidden"));
+        $$(".tab-btn[data-auth-tab]").forEach((b) => b.classList.remove("active"));
+        $$(".auth-pane").forEach((p) => p.classList.add("hidden"));
         btn.classList.add("active");
-        const pane = q("#" + btn.dataset.authTab + "Pane");
+        const pane = $("#" + btn.dataset.authTab + "Pane");
         if (pane) pane.classList.remove("hidden");
         authMessage("", "");
       });
     });
 
     on("#adminLoginBtn", "click", async () => {
-      const pwdEl = q("#adminPassword");
-      const rememberEl = q("#rememberAdminPwd");
+      const pwdEl = $("#adminPassword");
+      const rememberEl = $("#rememberAdminPwd");
       const pwd = pwdEl ? pwdEl.value : "";
       const remember = rememberEl ? rememberEl.checked : false;
 
@@ -3048,13 +2874,13 @@
 
       setSession({ id: "admin", name: "Administrateur", email: "admin@local", role: "admin", status: "approved" });
       showApp();
-      toast("Connexion admin via mot de passe enregistré.", "success");
+      toast("Connexion admin via mot de passe mémorisé.", "success");
     });
 
     on("#requestBtn", "click", () => {
-      const nameEl = q("#reqName");
-      const emailEl = q("#reqEmail");
-      const reasonEl = q("#reqReason");
+      const nameEl = $("#reqName");
+      const emailEl = $("#reqEmail");
+      const reasonEl = $("#reqReason");
 
       const name = nameEl ? nameEl.value.trim() : "";
       const email = emailEl ? emailEl.value.trim() : "";
@@ -3100,8 +2926,8 @@
     });
 
     on("#thirdLoginBtn", "click", () => {
-      const nameEl = q("#loginName");
-      const emailEl = q("#loginEmail");
+      const nameEl = $("#loginName");
+      const emailEl = $("#loginEmail");
       const name = nameEl ? nameEl.value.trim() : "";
       const email = emailEl ? emailEl.value.trim() : "";
 
@@ -3153,14 +2979,14 @@
     on("#modelButton", "click", () => {
       if (!selection.brand) return;
 
-      const panel = q("#modelPanel");
+      const panel = $("#modelPanel");
       const isOpen = panel && !panel.classList.contains("hidden");
       closeAllCombos("modelPanel");
 
       if (!isOpen && panel) {
         panel.classList.remove("hidden");
         renderModelList("");
-        const search = q("#modelSearch");
+        const search = $("#modelSearch");
         if (search) setTimeout(() => search.focus(), 30);
       }
     });
@@ -3183,14 +3009,14 @@
     on("#engineButton", "click", () => {
       if (!selection.brand || !selection.model) return;
 
-      const panel = q("#enginePanel");
+      const panel = $("#enginePanel");
       const isOpen = panel && !panel.classList.contains("hidden");
       closeAllCombos("enginePanel");
 
       if (!isOpen && panel) {
         panel.classList.remove("hidden");
         renderEngineList("");
-        const search = q("#engineSearch");
+        const search = $("#engineSearch");
         if (search) setTimeout(() => search.focus(), 30);
       }
     });
@@ -3203,7 +3029,7 @@
       const chip = e.target.closest("[data-fuel-filter]");
       if (!chip) return;
       engineFuelFilter = chip.getAttribute("data-fuel-filter");
-      renderEngineList(q("#engineSearch")?.value || "");
+      renderEngineList($("#engineSearch") ? $("#engineSearch").value : "");
     });
 
     on("#engineList", "mousedown", (e) => {
@@ -3230,15 +3056,15 @@
         return;
       }
 
-      const textEl = q("#textInput");
-      const contextEl = q("#contextInfo");
-      const objectiveEl = q("#objectiveInfo");
-      const goalEl = q("#goalSelect");
-      const sellerEl = q("#sellerType");
+      const textEl = $("#textInput");
+      const contextEl = $("#contextInfo");
+      const objectiveEl = $("#objectiveInfo");
+      const goalEl = $("#goalSelect");
+      const sellerEl = $("#sellerType");
 
-      const text = (textEl && textEl.value ? textEl.value : "").trim();
-      const context = (contextEl && contextEl.value ? contextEl.value : "").trim();
-      const objective = ((objectiveEl && objectiveEl.value ? objectiveEl.value : "").trim()) || ((goalEl && goalEl.value) ? goalEl.value : "");
+      const text = textEl ? textEl.value.trim() : "";
+      const context = contextEl ? contextEl.value.trim() : "";
+      const objective = (objectiveEl && objectiveEl.value.trim()) || (goalEl ? goalEl.value : "") || "";
       const sellerType = sellerEl ? sellerEl.value : "unknown";
 
       vehicleData = getSelectedVehicleData();
@@ -3250,10 +3076,10 @@
 
       termesMobilises = new Set();
 
-      const btn = q("#analyzeBtn");
+      const btn = $("#analyzeBtn");
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span> Analyse croisée dynamique en cours...';
+        btn.innerHTML = '<span class="spinner"></span> Analyse IA locale en cours...';
       }
 
       setTimeout(() => {
@@ -3267,30 +3093,30 @@
         } finally {
           if (btn) {
             btn.disabled = false;
-            btn.innerHTML = "🔍 Lancer l’analyse croisée technique + juridique + Auto-Diagnostic";
+            btn.innerHTML = "🔍 Lancer l’analyse IA locale technique + juridique";
           }
         }
-      }, 500);
+      }, 400);
     });
 
     on("#adminPanelBtn", "click", () => {
       if (!currentUser || currentUser.role !== "admin") return;
-      const panel = q("#adminPanel");
+      const panel = $("#adminPanel");
       if (panel) panel.classList.remove("hidden");
       renderAdmin();
     });
 
     on("#closeAdminBtn", "click", () => {
-      const panel = q("#adminPanel");
+      const panel = $("#adminPanel");
       if (panel) panel.classList.add("hidden");
     });
 
-    qa(".tab-btn[data-admin-tab]").forEach((btn) => {
+    $$(".tab-btn[data-admin-tab]").forEach((btn) => {
       btn.addEventListener("click", () => {
-        qa(".tab-btn[data-admin-tab]").forEach((b) => b.classList.remove("active"));
-        qa(".admin-pane").forEach((p) => p.classList.add("hidden"));
+        $$(".tab-btn[data-admin-tab]").forEach((b) => b.classList.remove("active"));
+        $$(".admin-pane").forEach((p) => p.classList.add("hidden"));
         btn.classList.add("active");
-        const pane = q("#" + btn.dataset.adminTab + "Pane");
+        const pane = $("#" + btn.dataset.adminTab + "Pane");
         if (pane) pane.classList.remove("hidden");
       });
     });
@@ -3371,29 +3197,33 @@
       }
     });
 
-    on("#syncNowBtn", "click", () => runApkBaseUpdate(true));
+    on("#syncNowBtn", "click", () => refreshData(true));
     on("#clearCacheBtn", "click", clearCacheAndReload);
 
-    on("#exportDataBtn", "click", () => {
-      const data = {
-        exportedAt: new Date().toISOString(),
-        users: getUsers(),
-        requests: getRequests(),
-        catalogStats: counts()
-      };
-
-      downloadText(JSON.stringify(data, null, 2), "expert-auto-data-v31.json");
-      toast("Données exportées.", "success");
+    on("#importJsonInput", "change", (e) => {
+      const file = e.target.files && e.target.files[0];
+      setSelectedJsonFile(file);
+      e.target.value = "";
     });
+
+    on("#validateJsonBtn", "click", () => handleJsonAction(false));
+    on("#importJsonBtn", "click", () => handleJsonAction(true));
+
+    on("#exportBaseBtn", "click", exportBase);
+    on("#exportDataBtn", "click", exportUserData);
 
     on("#wallpaperInput", "change", async (e) => {
       const file = e.target.files && e.target.files[0];
       if (!file) return;
 
       try {
+        if (file.size > 8 * 1024 * 1024) {
+          toast("Image trop lourde. Max conseillé : 8 Mo.", "warning");
+        }
+
         const dataUrl = await readFileAsDataUrl(file);
-        applyBackground(dataUrl, true);
-        toast("Fond d’écran appliqué.", "success");
+        await saveWallpaperToDb(dataUrl);
+        toast("Fond d’écran appliqué et sauvegardé.", "success");
       } catch {
         toast("Impossible de lire l’image.", "error");
       }
@@ -3401,17 +3231,26 @@
       e.target.value = "";
     });
 
-    on("#resetWallpaperBtn", "click", () => {
-      applyBackground(null, true);
-      toast("Fond réinitialisé.", "info");
+    on("#wallpaperOpacity", "input", (e) => {
+      applyWallpaper(null, e.target.value);
     });
 
+    on("#saveWallpaperBtn", "click", async () => {
+      const asset = await idbGetAsset("wallpaper");
+      applyWallpaper(asset ? asset.dataUrl : "", $("#wallpaperOpacity") ? $("#wallpaperOpacity").value : 35);
+      toast("Fond d’écran sauvegardé.", "success");
+    });
+
+    on("#resetWallpaperBtn", "click", resetWallpaper);
     on("#downloadWallpaperBtn", "click", downloadWallpaper);
     on("#downloadWallpaperBtn2", "click", downloadWallpaper);
+    on("#downloadManifestBtn", "click", downloadManifest);
 
     on("#saveSettingsBtn", "click", () => {
-      const email = (q("#adminEmailInput")?.value || "").trim();
-      saveSettings({ adminEmail: email });
+      const email = $("#adminEmailInput") ? $("#adminEmailInput").value.trim() : "";
+      const settings = getSettings();
+      settings.adminEmail = email;
+      saveSettings(settings);
       toast("Paramètres enregistrés.", "success");
     });
 
@@ -3423,7 +3262,7 @@
         deferredPrompt = null;
         updateInstallUI();
       } else {
-        alert("Pour installer :\n- Android Chrome : menu ⋮ → Ajouter à l’écran d’accueil\n- iOS Safari : Partager → Sur l’écran d’accueil\n- APK natif : exporter apk-base.json et suivre la procédure Capacitor.");
+        alert("Pour installer :\n- Android Chrome : menu ⋮ → Ajouter à l’écran d’accueil\n- iOS Safari : Partager → Sur l’écran d’accueil\n- APK natif : inclure data/auto-diagnostic-export.json dans www/data/.");
       }
     });
 
@@ -3439,12 +3278,12 @@
       toast("Application installée.", "success");
     });
 
-    window.addEventListener("online", () => runApkBaseUpdate(false));
+    window.addEventListener("online", () => refreshData(false));
 
     document.addEventListener("visibilitychange", () => {
       if (!document.hidden) {
         enforceTierAccess();
-        runApkBaseUpdate(false);
+        refreshData(false);
       }
     });
   };
@@ -3453,11 +3292,10 @@
      INIT
      ========================================================= */
   const init = async () => {
-    injectCss();
-    purgeYearControls();
+    setStatus("Démarrage IA locale...");
 
-    idb = await openIdb();
-    await loadMemoryFromIdb();
+    db = await openDb();
+    await loadMemoryFromDb();
 
     if (mem.brands.size === 0) {
       seedLocal();
@@ -3467,20 +3305,17 @@
     }
 
     bindUi();
-    injectUpdateBar();
-    injectAdminApkBlock();
-
-    updateAdminStats();
+    updateStats();
     updateNotificationState();
     registerServiceWorker();
     refreshSavedPasswordButton();
     updateInstallUI();
 
-    processIncomingAccessRequestFromUrl();
+    await loadWallpaper();
 
     if (processIncomingAccessGrantFromUrl()) {
       updateNotificationBell();
-      startLiveSync();
+      startAutoSync();
       return;
     }
 
@@ -3491,22 +3326,30 @@
     updateEngineButton();
     updateSelectionSummary();
 
-    await runApkBaseUpdate(false);
-    startLiveSync();
+    await refreshData(false);
+    startAutoSync();
 
-    toast("V31 prête. Touche de mise à jour base APK active.", "success");
+    setStatus("Prêt. IA locale gratuite sans clé API active. Mise à jour automatique active.");
+    toast("Application prête.", "success");
   };
 
   const boot = () => {
     try {
-      init();
+      init().catch((e) => {
+        console.error("[Expert Auto] Erreur init:", e);
+        setStatus("Mode dégradé : " + (e && e.message ? e.message : "erreur inconnue"));
+        const login = $("#loginScreen");
+        if (login) login.classList.remove("hidden");
+        const app = $("#mainApp");
+        if (app) app.classList.add("hidden");
+      });
     } catch (e) {
-      console.warn("[EXPERT-AUTO] Boot dégradé:", e);
-      const status = q("#dataStatus");
+      console.error("[Expert Auto] Boot dégradé:", e);
+      const status = $("#dataStatus");
       if (status) status.textContent = "Mode dégradé actif";
-      const login = q("#loginScreen");
+      const login = $("#loginScreen");
       if (login) login.classList.remove("hidden");
-      const app = q("#mainApp");
+      const app = $("#mainApp");
       if (app) app.classList.add("hidden");
     }
   };
