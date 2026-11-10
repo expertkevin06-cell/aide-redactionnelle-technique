@@ -1,41 +1,41 @@
-const CACHE_NAME = "expert-auto-v33-admin-json-robust";
+const CACHE_NAME = "expert-auto-v35-ai-locale";
 
 const CORE_ASSETS = [
   "./",
   "./index.html",
   "./styles.css",
   "./app.js",
-  "./admin-json-import.js",
   "./manifest.json",
   "./icon.svg"
 ];
 
-const DATA_PATH_PATTERNS = [
+const DATA_PATTERNS = [
   "/data/",
+  "/auto-diagnostic-export.json",
   "/apk-base.json",
+  "/base.json",
   "/brands.json",
-  "/models.json",
-  "/engines.json",
-  "/defects.json",
-  "/motorisations.json",
-  "/modeles.json",
   "/marques.json",
+  "/models.json",
+  "/modeles.json",
+  "/vehicles.json",
+  "/engines.json",
+  "/motorisations.json",
+  "/moteurs.json",
+  "/defects.json",
   "/pannes.json",
   "/rappels.json",
   "/recalls.json",
-  "/technical-updates.json",
-  "/catalog-manifest.json"
+  "/technical-updates.json"
 ];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return Promise.all(
-        CORE_ASSETS.map((url) => {
-          return cache.add(url).catch(() => {
-            console.warn("[SW] Asset absent ou non caché :", url);
-          });
-        })
+        CORE_ASSETS.map((url) => cache.add(url).catch(() => {
+          console.warn("[SW] Asset absent ou non caché :", url);
+        }))
       );
     })
   );
@@ -44,13 +44,9 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => caches.delete(key))
-      );
-    })
+    caches.keys().then((keys) => Promise.all(
+      keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+    ))
   );
   self.clients.claim();
 });
@@ -59,12 +55,11 @@ function isSameOrigin(url) {
   return url.origin === self.location.origin;
 }
 
-function isAppShellRequest(url) {
+function isAppShell(url) {
   return (
     url.pathname === "/" ||
     url.pathname.endsWith("/index.html") ||
     url.pathname.endsWith("/app.js") ||
-    url.pathname.endsWith("/admin-json-import.js") ||
     url.pathname.endsWith("/styles.css") ||
     url.pathname.endsWith("/sw.js") ||
     url.pathname.endsWith("/manifest.json")
@@ -73,11 +68,7 @@ function isAppShellRequest(url) {
 
 function isDataRequest(url) {
   const path = url.pathname.toLowerCase();
-  return DATA_PATH_PATTERNS.some((pattern) => path.includes(pattern.toLowerCase())) || path.endsWith(".json");
-}
-
-function isNavigationRequest(event) {
-  return event.request.mode === "navigate" || event.request.destination === "document";
+  return path.endsWith(".json") || DATA_PATTERNS.some((p) => path.includes(p.toLowerCase()));
 }
 
 async function networkFirst(request, cacheName, fallbackUrl = null) {
@@ -117,7 +108,7 @@ async function cacheFirst(request, cacheName) {
 
     return response;
   } catch (error) {
-    if (isNavigationRequest({ request })) {
+    if (request.mode === "navigate" || request.destination === "document") {
       const fallback = await caches.match("./index.html");
       if (fallback) return fallback;
     }
@@ -130,18 +121,10 @@ self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);
 
-  // Ne pas intercepter les requêtes externes (proxys CORS, Google, etc.)
-  if (!isSameOrigin(url)) {
-    return;
-  }
+  if (!isSameOrigin(url)) return;
+  if (request.method !== "GET") return;
 
-  // Les requêtes non GET ne sont pas mises en cache
-  if (request.method !== "GET") {
-    return;
-  }
-
-  // App shell : réseau d'abord pour éviter de rester bloqué sur une ancienne version cassée
-  if (isAppShellRequest(url)) {
+  if (isAppShell(url)) {
     event.respondWith(
       networkFirst(request, CACHE_NAME, "./index.html").catch(() => {
         return caches.match("./index.html").then((cached) => {
@@ -155,20 +138,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Données JSON : réseau d'abord, puis cache
   if (isDataRequest(url)) {
     event.respondWith(
-      networkFirst(request, CACHE_NAME).catch(() => {
-        return caches.match(request);
-      })
+      networkFirst(request, CACHE_NAME).catch(() => caches.match(request))
     );
     return;
   }
 
-  // Autres ressources : cache d'abord, puis réseau
   event.respondWith(
     cacheFirst(request, CACHE_NAME).catch(() => {
-      if (isNavigationRequest(event)) {
+      if (request.mode === "navigate" || request.destination === "document") {
         return caches.match("./index.html");
       }
 
@@ -190,9 +169,7 @@ self.addEventListener("message", (event) => {
         tag: data.tag || "expert-auto-notification",
         icon: data.icon || "./icon.svg",
         badge: data.badge || "./icon.svg",
-        data: {
-          url: "./index.html"
-        }
+        data: { url: "./index.html" }
       })
     );
   }
@@ -212,14 +189,10 @@ self.addEventListener("notificationclick", (event) => {
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
       for (const client of clientList) {
-        if ("focus" in client) {
-          return client.focus();
-        }
+        if ("focus" in client) return client.focus();
       }
 
-      if (clients.openWindow) {
-        return clients.openWindow("./index.html");
-      }
+      if (clients.openWindow) return clients.openWindow("./index.html");
     })
   );
 });
@@ -227,13 +200,9 @@ self.addEventListener("notificationclick", (event) => {
 self.addEventListener("sync", (event) => {
   if (event.tag === "catalog-sync") {
     event.waitUntil(
-      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
-        return Promise.all(
-          clientList.map((client) => {
-            return client.postMessage({ type: "periodic-sync" });
-          })
-        );
-      })
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientsList) =>
+        Promise.all(clientsList.map((client) => client.postMessage({ type: "periodic-sync" })))
+      )
     );
   }
 });
