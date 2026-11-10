@@ -1,13 +1,13 @@
 {
-  "name": "Expert Auto – Analyse Croisée Dynamique",
+  "name": "Expert Auto – IA Locale + Admin",
   "short_name": "Expert Auto",
-  "description": "Aide rédactionnelle expert auto : analyse technique et juridique croisée, synchronisation dynamique Auto-Diagnostic, contrôle d'accès, PWA/APK.",
+  "description": "Aide rédactionnelle expert auto avec IA locale gratuite sans clé API, analyse technique et juridique croisée, import JSON admin, fond d'écran avec opacité, PWA/APK.",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#07101f",
+  "theme_color": "#07101f",
   "lang": "fr",
   "dir": "ltr",
   "icons": [
