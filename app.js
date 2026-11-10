@@ -1,15 +1,24 @@
 (() => {
   "use strict";
 
-  const VERSION = "v35-ai-locale-wallpaper-admin";
+  const VERSION = "v36-predictive-fix";
   const ADMIN_PASSWORD = "Kevin83600";
   const MAX_DAILY_ANALYSES = 10;
 
-  const DB_NAME = "expert_auto_ai_v35";
+  const DB_NAME = "expert_auto_v36_predictive";
   const DB_VERSION = 1;
   const STORES = ["meta", "brands", "models", "engines", "defects", "assets"];
 
   const KEYS = {
+    SESSION: "arex_session_v36",
+    USERS: "arex_users_v36",
+    REQUESTS: "arex_requests_v36",
+    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v36",
+    SETTINGS: "arex_settings_v36",
+    LAST_SYNC: "arex_last_sync_v36"
+  };
+
+  const OLD_KEYS = {
     SESSION: "arex_session_v35",
     USERS: "arex_users_v35",
     REQUESTS: "arex_requests_v35",
@@ -17,24 +26,6 @@
     SETTINGS: "arex_settings_v35",
     LAST_SYNC: "arex_last_sync_v35"
   };
-
-  const OLD_KEYS = {
-    SESSION: "arex_session_v34",
-    USERS: "arex_users_v34",
-    REQUESTS: "arex_requests_v34",
-    ADMIN_PWD_HASH: "arex_admin_pwd_hash_v34",
-    SETTINGS: "arex_settings_v34",
-    LAST_SYNC: "arex_last_sync_v34"
-  };
-
-  const BRAND_KEYS = ["brand", "marque", "b", "constructeur", "make", "brandName", "brand_name", "name", "nom", "label"];
-  const MODEL_KEYS = ["model", "modele", "modèle", "m", "vehicle", "vehicule", "modelName", "model_name", "name", "nom", "label"];
-  const ENGINE_KEYS = ["engine", "motorisation", "moteur", "e", "version", "variant", "powertrain", "engineName", "engine_name"];
-  const POWER_KEYS = ["power", "puissance", "p", "ch", "kw", "hp"];
-  const FUEL_KEYS = ["fuel", "energie", "énergie", "type", "t", "carburant", "engineType", "energy"];
-  const TRANS_KEYS = ["transmission", "boite", "boîte", "gearbox", "tr"];
-  const CODE_KEYS = ["code", "engineCode", "codeMoteur", "codemoteur", "cylindree", "cylindrée", "displacement", "d", "cyl"];
-  const SYMPTOM_KEYS = ["symptoms", "symptomes", "s", "pannes", "panne", "defauts", "defaut", "problemes", "probleme", "faults", "issue", "issues"];
 
   const LOCAL_DATA_PATHS = [
     "./data/auto-diagnostic-export.json",
@@ -58,12 +49,12 @@
     ["./data/technical-updates.json", "defects"]
   ];
 
-  const REMOTE_DATA_BASES = [
+  const REMOTE_BASES = [
     "https://expertkevin06-cell.github.io/auto-diagnostic/"
   ];
 
   /* =========================================================
-     HELPERS
+     HELPERS DOM / TEXTE / STOCKAGE
      ========================================================= */
   const $ = (sel) => {
     try { return document.querySelector(sel); } catch { return null; }
@@ -130,6 +121,12 @@
 
   const normKey = (s) => norm(s).replace(/[^a-z0-9]+/g, "");
 
+  const normSearch = (s) => {
+    let v = String(s == null ? "" : s).toLowerCase();
+    if (v.normalize) v = v.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    return v.replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+  };
+
   const splitList = (v) => String(v == null ? "" : v)
     .split(/[|,;\n]/)
     .map((x) => String(x || "").trim())
@@ -159,46 +156,12 @@
 
   const isElectricLike = (fuel) => /electrique|bev|ev|hybride rechargeable|plug.in|phev/.test(norm(fuel));
 
-  const brandMatches = (a, b) => {
-    const na = normKey(a), nb = normKey(b);
-    if (!na || !nb) return false;
-    if (na === nb) return true;
-
-    const aliases = {
-      volkswagen: ["vw"],
-      mercedesbenz: ["mercedes", "mb"],
-      landrover: ["land rover"],
-      rangerover: ["range rover"],
-      alfaromeo: ["alfa"],
-      chevrolet: ["chevy"],
-      tesla: ["tesla motors"],
-      byd: ["build your dreams"],
-      mg: ["morris garages"],
-      hyundai: ["hyundai motor"],
-      kia: ["kia motors"],
-      toyota: ["toyota motor corp"],
-      honda: ["honda motor co"],
-      ford: ["ford motor co"],
-      opel: ["adam opel ag"],
-      psa: ["peugeot citroen"],
-      stellantis: ["psa fca"],
-      vag: ["volkswagen audi group"]
+  const debounce = (fn, ms) => {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), ms);
     };
-
-    if (aliases[na] && aliases[na].includes(nb)) return true;
-    if (aliases[nb] && aliases[nb].includes(na)) return true;
-    if (na.length > 3 && nb.includes(na)) return true;
-    if (nb.length > 3 && na.includes(nb)) return true;
-    return false;
-  };
-
-  const nameMatch = (a, b) => {
-    const na = normKey(a), nb = normKey(b);
-    if (!na || !nb) return false;
-    if (na === nb) return true;
-    if (na.length > 2 && nb.includes(na)) return true;
-    if (nb.length > 2 && na.includes(nb)) return true;
-    return false;
   };
 
   const ensureToast = () => {
@@ -268,8 +231,6 @@
     if (history.replaceState) history.replaceState({}, document.title, clean);
   };
 
-  const valToString = (v) => Array.isArray(v) ? v.join("|") : (v == null ? "" : String(v));
-
   const downloadText = (text, filename, mime = "application/json") => {
     const blob = new Blob([text], { type: mime });
     const url = URL.createObjectURL(blob);
@@ -311,6 +272,79 @@
     const units = ["o", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(n) / Math.log(1024));
     return (n / Math.pow(1024, i)).toFixed(i ? 1 : 0) + " " + units[i];
+  };
+
+  /* =========================================================
+     RECHERCHE PRÉDICTIVE ROBUSTE
+     ========================================================= */
+  const BRAND_ALIASES = {
+    volkswagen: ["vw", "volkswagen"],
+    mercedesbenz: ["mercedes", "mb", "mercedes benz"],
+    landrover: ["land rover"],
+    rangerover: ["range rover"],
+    alfaromeo: ["alfa", "alfa romeo"],
+    chevrolet: ["chevy"],
+    tesla: ["tesla motors"],
+    byd: ["build your dreams"],
+    mg: ["morris garages"],
+    hyundai: ["hyundai motor"],
+    kia: ["kia motors"],
+    toyota: ["toyota motor corp"],
+    honda: ["honda motor co"],
+    ford: ["ford motor co"],
+    opel: ["adam opel ag"],
+    psa: ["peugeot citroen"],
+    stellantis: ["psa fca"],
+    vag: ["volkswagen audi group"],
+    peugeot: ["peugeot france"],
+    renault: ["renault sa"],
+    citroen: ["citroen france"],
+    bmw: ["bayerische motoren werke"],
+    audi: ["audi ag"],
+    skoda: ["skoda auto"],
+    seat: ["sociedad espanola de automoviles"],
+    volvo: ["volvo cars"]
+  };
+
+  const brandFields = (name) => {
+    const nk = normKey(name);
+    const list = [name];
+    const aliases = BRAND_ALIASES[nk];
+    if (aliases && aliases.length) list.push(...aliases);
+    return list;
+  };
+
+  const scoreFields = (fields, query) => {
+    const q = normSearch(query);
+    const tokens = q ? q.split(" ").filter(Boolean) : [];
+    const cleanFields = (fields || []).map(normSearch).filter(Boolean);
+
+    if (!q) return 1;
+    if (!cleanFields.length) return 0;
+
+    let matched = 0;
+    tokens.forEach((t) => {
+      if (cleanFields.some((f) => f.includes(t))) matched++;
+    });
+
+    if (tokens.length && matched === 0) return 0;
+
+    let score = matched * 100;
+    if (tokens.length && matched === tokens.length) score += 200;
+
+    cleanFields.forEach((f) => {
+      if (f === q) score += 1000;
+      else if (f.startsWith(q)) score += 500;
+      else if (f.includes(q)) score += 250;
+    });
+
+    return score;
+  };
+
+  const rankFuel = (fuel) => {
+    const order = ["Essence", "Diesel", "Hybride", "Hybride rechargeable", "Hybride léger 48V", "GPL", "Électrique"];
+    const i = order.indexOf(fuel);
+    return i === -1 ? 99 : i;
   };
 
   /* =========================================================
@@ -673,7 +707,7 @@
   };
 
   /* =========================================================
-     NORMALISATION JSON
+     NORMALISATION JSON / IMPORT
      ========================================================= */
   const getField = (obj, keys) => {
     if (!obj || typeof obj !== "object") return "";
@@ -719,6 +753,8 @@
     return [];
   };
 
+  const pickString = (row, keys) => getField(row, keys);
+
   const toArrayStrings = (value) => {
     if (Array.isArray(value)) {
       return value
@@ -735,8 +771,6 @@
     if (value == null) return [];
     return splitList(value);
   };
-
-  const pickString = (row, keys) => getField(row, keys);
 
   const pickArray = (row, keys) => {
     const arr = getArray(row, keys);
@@ -792,13 +826,13 @@
 
     const kind = forcedKind && forcedKind !== "auto" ? forcedKind : (inferKind(row) || "auto");
 
-    const brand = pickString(row, BRAND_KEYS);
-    const model = pickString(row, MODEL_KEYS);
-    const engine = pickString(row, ENGINE_KEYS);
-    const power = pickString(row, POWER_KEYS);
-    const fuel = pickString(row, FUEL_KEYS);
-    const transmission = pickString(row, TRANS_KEYS);
-    const code = pickString(row, CODE_KEYS);
+    const brand = pickString(row, ["brand", "marque", "b", "constructeur", "make", "brandName", "brand_name", "name", "nom", "label"]);
+    const model = pickString(row, ["model", "modele", "modèle", "m", "vehicle", "vehicule", "modelName", "model_name", "name", "nom", "label"]);
+    const engine = pickString(row, ["engine", "motorisation", "moteur", "e", "version", "variant", "powertrain", "engineName", "engine_name"]);
+    const power = pickString(row, ["power", "puissance", "p", "ch", "kw", "hp"]);
+    const fuel = pickString(row, ["fuel", "energie", "énergie", "type", "t", "carburant", "engineType", "energy"]);
+    const transmission = pickString(row, ["transmission", "boite", "boîte", "gearbox", "tr"]);
+    const code = pickString(row, ["code", "engineCode", "codeMoteur", "codemoteur", "cylindree", "cylindrée", "displacement", "d", "cyl"]);
 
     if (kind === "brands" || (kind === "auto" && brand && !model && !engine)) {
       if (brand) {
@@ -849,7 +883,7 @@
       const fuels = pickArray(row, ["fuels", "energies", "fuel", "energie", "type", "t", "carburants", "carburant"]);
       if (!fuels.length && fuel) fuels.push(fuel);
 
-      const symptoms = pickArray(row, SYMPTOM_KEYS);
+      const symptoms = pickArray(row, ["symptoms", "symptomes", "s", "pannes", "panne", "defauts", "defaut", "problemes", "probleme", "faults", "issue", "issues"]);
 
       const description = pickString(row, [
         "description", "fiche", "expertise", "note", "n", "details", "resume", "résumé"
@@ -890,7 +924,6 @@
       return stats;
     }
 
-    // Secours
     if (brand && model && engine) {
       const added = addEngine(brand, model, engine, power, fuel, transmission, code, source);
       stats.engines += added;
@@ -1021,9 +1054,9 @@
       }
 
       const kind = inferKind(row) || "auto";
-      const brand = pickString(row, BRAND_KEYS);
-      const model = pickString(row, MODEL_KEYS);
-      const engine = pickString(row, ENGINE_KEYS);
+      const brand = pickString(row, ["brand", "marque", "b", "constructeur", "make", "name", "nom", "label"]);
+      const model = pickString(row, ["model", "modele", "modèle", "m", "vehicle", "vehicule", "name", "nom", "label"]);
+      const engine = pickString(row, ["engine", "motorisation", "moteur", "e", "version", "variant"]);
 
       if (kind === "defects" && brand) stats.defects++;
       else if ((kind === "engines" || (kind === "auto" && brand && model && engine)) && brand && model && engine) stats.engines++;
@@ -1057,7 +1090,7 @@
   };
 
   /* =========================================================
-     SEED LOCAL
+     SEED LOCAL MINIMALISTE MAIS FONCTIONNEL
      ========================================================= */
   const SEED_BRANDS = [
     "Peugeot", "Citroen", "Renault", "Volkswagen", "Audi", "BMW", "Mercedes-Benz",
@@ -1184,12 +1217,13 @@
   let lastPendingSignature = "";
   let broadcast = null;
   let syncBusy = false;
+  let selectedJsonFile = null;
 
   const selection = { brand: null, model: null, engine: null };
   let engineFuelFilter = "all";
 
   try {
-    if ("BroadcastChannel" in window) broadcast = new BroadcastChannel("arex_expert_channel_v35");
+    if ("BroadcastChannel" in window) broadcast = new BroadcastChannel("arex_expert_channel_v36");
   } catch {
     broadcast = null;
   }
@@ -1605,7 +1639,7 @@
   };
 
   /* =========================================================
-     STATUT / STATS / REFRESH DATA
+     STATUT / STATS
      ========================================================= */
   const setStatus = (msg) => {
     const el = $("#dataStatus");
@@ -1628,16 +1662,400 @@
     }
 
     if ($("#remoteStatus")) {
-      $("#remoteStatus").textContent = `Version ${VERSION} • IA locale active • IndexedDB ${db ? "actif" : "indisponible"} • Marques ${c.brands} / Modèles ${c.models} / Motorisations ${c.engines} / Pannes ${c.defects}`;
+      $("#remoteStatus").textContent = `Version ${VERSION} • Recherche prédictive corrigée • Marques ${c.brands} / Modèles ${c.models} / Motorisations ${c.engines} / Pannes ${c.defects}`;
     }
   };
 
-  const refreshSelectionLists = () => {
-    if (selection.brand) renderModelList($("#modelSearch") ? $("#modelSearch").value : "");
-    if (selection.brand && selection.model) renderEngineList($("#engineSearch") ? $("#engineSearch").value : "");
+  /* =========================================================
+     RECHERCHE PRÉDICTIVE / UI
+     ========================================================= */
+  const engineLabel = (e) => {
+    const parts = [];
+    if (e.fuel) parts.push(e.fuel);
+    if (e.engine) parts.push(e.engine);
+    if (e.displacement) parts.push(e.displacement);
+    if (e.power) parts.push(e.power);
+    if (e.transmission) parts.push(e.transmission);
+    if (e.code) parts.push(e.code);
+    return parts.filter(Boolean).join(" • ");
+  };
+
+  const getEnginesByModel = (modelKey) => [...mem.engines.values()].filter((e) => e.modelKey === modelKey);
+
+  const searchBrands = (query) => {
+    const q = normSearch(query);
+    const arr = [...mem.brands.values()].map((b) => ({
+      key: b.key,
+      name: b.name,
+      modelCount: b.modelCount || 0,
+      score: scoreFields(brandFields(b.name), q)
+    }));
+
+    if (!q) {
+      return arr.sort((a, b) => a.name.localeCompare(b.name, "fr")).slice(0, 300);
+    }
+
+    return arr
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "fr"))
+      .slice(0, 300);
+  };
+
+  const searchModels = (brandKey, query) => {
+    const q = normSearch(query);
+    const arr = [...mem.models.values()]
+      .filter((m) => m.brandKey === brandKey)
+      .map((m) => ({
+        key: m.key,
+        brandKey: m.brandKey,
+        name: m.name,
+        engineCount: m.engineCount || 0,
+        score: scoreFields([m.name, m.brandName], q)
+      }));
+
+    if (!q) {
+      return arr.sort((a, b) => a.name.localeCompare(b.name, "fr")).slice(0, 300);
+    }
+
+    return arr
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name, "fr"))
+      .slice(0, 300);
+  };
+
+  const searchEngines = (modelKey, query, fuelFilter) => {
+    const q = normSearch(query);
+    const all = getEnginesByModel(modelKey);
+
+    const arr = all
+      .map((e) => {
+        if (fuelFilter && fuelFilter !== "all" && normSearch(e.fuel) !== normSearch(fuelFilter)) return null;
+        return {
+          ...e,
+          score: scoreFields([engineLabel(e), e.engine, e.power, e.fuel, e.transmission, e.code], q)
+        };
+      })
+      .filter(Boolean);
+
+    const sortEngines = (a, b) => {
+      const rf = rankFuel(a.fuel) - rankFuel(b.fuel);
+      if (rf !== 0) return rf;
+      return getPowerValue(b.power) - getPowerValue(a.power);
+    };
+
+    if (!q) {
+      return arr.sort(sortEngines).slice(0, 500);
+    }
+
+    return arr
+      .filter((x) => x.score > 0)
+      .sort((a, b) => b.score - a.score || sortEngines(a, b))
+      .slice(0, 500);
+  };
+
+  const closeAllCombos = (exceptId) => {
+    ["brandPanel", "modelPanel", "enginePanel"].forEach((id) => {
+      if (id === exceptId) return;
+      const el = $("#" + id);
+      if (el) el.classList.add("hidden");
+    });
+  };
+
+  const renderBrandPanel = () => {
+    const input = $("#brandInput");
+    const panel = $("#brandPanel");
+    if (!input || !panel) return;
+
+    const options = searchBrands(input.value);
+    panel.__options = options;
+
+    if (!options.length) {
+      panel.innerHTML = '<div class="empty">Aucune marque trouvée.</div>';
+      panel.classList.remove("hidden");
+      return;
+    }
+
+    panel.innerHTML = options.map((b, i) => `
+      <button type="button" class="suggest-item" data-index="${i}">
+        ${esc(b.name)}
+        <small>${b.modelCount} modèle(s)</small>
+      </button>
+    `).join("");
+
+    panel.classList.remove("hidden");
+  };
+
+  const renderModelList = (filter) => {
+    const list = $("#modelList");
+    if (!list) return;
+
+    if (!selection.brand) {
+      list.innerHTML = '<div class="empty">Sélectionnez une marque d’abord.</div>';
+      list.__options = [];
+      return;
+    }
+
+    const options = searchModels(selection.brand.key, filter || "");
+    list.__options = options;
+
+    if (!options.length) {
+      list.innerHTML = '<div class="empty">Aucun modèle trouvé.</div>';
+      return;
+    }
+
+    list.innerHTML = options.map((m, i) => `
+      <button type="button" class="list-item" data-index="${i}">
+        ${esc(m.name)}
+        <small>${m.engineCount} motorisation(s)</small>
+      </button>
+    `).join("");
+  };
+
+  const renderEngineFilters = (engines) => {
+    const wrap = $("#engineFilters");
+    if (!wrap) return;
+
+    const fuels = unique(engines.map((e) => e.fuel).filter(Boolean));
+    const chips = [{ id: "all", label: "Toutes" }].concat(fuels.map((f) => ({ id: f, label: f })));
+
+    wrap.innerHTML = chips.map((c) => `
+      <button type="button" class="chip ${engineFuelFilter === c.id ? "active" : ""}" data-fuel-filter="${esc(c.id)}">${esc(c.label)}</button>
+    `).join("");
+  };
+
+  const renderEnginePanel = (filter) => {
+    const list = $("#engineList");
+    if (!list) return;
+
+    if (!selection.brand || !selection.model) {
+      list.innerHTML = '<div class="empty">Sélectionnez un modèle d’abord.</div>';
+      list.__options = [];
+      if ($("#engineFilters")) $("#engineFilters").innerHTML = "";
+      return;
+    }
+
+    const allEngines = getEnginesByModel(selection.model.key);
+    renderEngineFilters(allEngines);
+
+    const options = searchEngines(selection.model.key, filter || "", engineFuelFilter);
+    list.__options = options;
+
+    if (!options.length) {
+      list.innerHTML = '<div class="empty">Aucune motorisation trouvée pour ce filtre.</div>';
+      return;
+    }
+
+    list.innerHTML = options.map((e, i) => `
+      <button type="button" class="list-item" data-index="${i}">
+        ${esc(engineLabel(e))}
+        <small>${esc((e.sources || []).join(", ") || "local")}</small>
+      </button>
+    `).join("");
+  };
+
+  const updateModelButton = () => {
+    const btn = $("#modelButton");
+    if (!btn) return;
+
+    if (!selection.brand) {
+      btn.disabled = true;
+      btn.textContent = "Choisir d’abord une marque";
+      return;
+    }
+
+    btn.disabled = false;
+    btn.textContent = selection.model ? selection.model.name : "Choisir un modèle";
+  };
+
+  const updateEngineButton = () => {
+    const btn = $("#engineButton");
+    if (!btn) return;
+
+    if (!selection.brand || !selection.model) {
+      btn.disabled = true;
+      btn.textContent = !selection.brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle";
+      return;
+    }
+
+    btn.disabled = false;
+    btn.textContent = selection.engine ? engineLabel(selection.engine) : "Choisir une motorisation";
+  };
+
+  const getSelectedVehicleData = () => {
+    const kmEl = $("#vehicleKilometrage");
+    const vinEl = $("#vehicleVin");
+
+    return {
+      marque: selection.brand ? selection.brand.name : "",
+      modele: selection.model ? selection.model.name : "",
+      engine: selection.engine ? selection.engine.engine : "",
+      displacement: selection.engine ? selection.engine.displacement : "",
+      power: selection.engine ? selection.engine.power : "",
+      fuel: selection.engine ? selection.engine.fuel : "",
+      transmission: selection.engine ? selection.engine.transmission : "",
+      code: selection.engine ? selection.engine.code : "",
+      engineSource: selection.engine ? ((selection.engine.sources || []).join(", ") || "local") : "",
+      kilometrage: kmEl ? kmEl.value.trim() : "",
+      vin: vinEl ? vinEl.value.trim() : ""
+    };
+  };
+
+  const updateSelectionSummary = () => {
+    const el = $("#selectionSummary");
+    if (!el) return;
+
+    const v = getSelectedVehicleData();
+    if (!v.marque && !v.modele && !v.engine) {
+      el.textContent = "Aucune sélection véhicule complète.";
+      return;
+    }
+
+    const parts = [];
+    if (v.marque) parts.push(v.marque);
+    if (v.modele) parts.push(v.modele);
+    if (v.engine) parts.push(v.engine);
+    if (v.displacement) parts.push(v.displacement);
+    if (v.power) parts.push(v.power);
+    if (v.fuel) parts.push(v.fuel);
+    if (v.transmission) parts.push(v.transmission);
+    if (v.code) parts.push(v.code);
+
+    el.textContent = "Sélection retenue : " + parts.join(" • ");
+  };
+
+  const selectBrand = (opt) => {
+    if (!opt) return;
+
+    selection.brand = { key: opt.key, name: opt.name };
+    selection.model = null;
+    selection.engine = null;
+    engineFuelFilter = "all";
+
+    const input = $("#brandInput");
+    if (input) input.value = opt.name;
+
+    closeAllCombos();
+    updateModelButton();
+    updateEngineButton();
     updateSelectionSummary();
   };
 
+  const selectModel = (opt) => {
+    if (!opt) return;
+
+    selection.model = { key: opt.key, brandKey: opt.brandKey, name: opt.name };
+    selection.engine = null;
+    engineFuelFilter = "all";
+
+    closeAllCombos();
+    updateModelButton();
+    updateEngineButton();
+    updateSelectionSummary();
+  };
+
+  const selectEngine = (opt) => {
+    if (!opt) return;
+
+    selection.engine = {
+      key: opt.key,
+      modelKey: opt.modelKey,
+      brandKey: opt.brandKey,
+      brandName: opt.brandName,
+      modelName: opt.modelName,
+      engine: opt.engine,
+      power: opt.power,
+      fuel: opt.fuel,
+      transmission: opt.transmission,
+      code: opt.code,
+      displacement: opt.displacement || "",
+      sources: opt.sources || ["local"]
+    };
+
+    closeAllCombos();
+    updateEngineButton();
+    updateSelectionSummary();
+  };
+
+  const preserveSelection = () => {
+    if (selection.brand) {
+      const b = mem.brands.get(selection.brand.key) ||
+        [...mem.brands.values()].find((x) => normSearch(x.name) === normSearch(selection.brand.name));
+
+      if (!b) {
+        selection.brand = null;
+        selection.model = null;
+        selection.engine = null;
+      } else {
+        selection.brand = { key: b.key, name: b.name };
+      }
+    }
+
+    if (!selection.brand) {
+      selection.model = null;
+      selection.engine = null;
+    }
+
+    if (selection.brand && selection.model) {
+      const m = mem.models.get(selection.model.key) ||
+        [...mem.models.values()].find((x) => x.brandKey === selection.brand.key && normSearch(x.name) === normSearch(selection.model.name));
+
+      if (!m) {
+        selection.model = null;
+        selection.engine = null;
+      } else {
+        selection.model = { key: m.key, brandKey: m.brandKey, name: m.name };
+      }
+    }
+
+    if (!selection.model) {
+      selection.engine = null;
+    }
+
+    if (selection.model && selection.engine) {
+      const e = mem.engines.get(selection.engine.key) ||
+        [...mem.engines.values()].find((x) =>
+          x.modelKey === selection.model.key &&
+          x.engine === selection.engine.engine &&
+          x.power === selection.engine.power &&
+          x.fuel === selection.engine.fuel &&
+          x.transmission === selection.engine.transmission &&
+          x.code === selection.engine.code
+        );
+
+      if (!e) {
+        selection.engine = null;
+      } else {
+        selection.engine = { ...e };
+      }
+    }
+
+    updateModelButton();
+    updateEngineButton();
+    updateSelectionSummary();
+  };
+
+  const rerenderOpenPanels = () => {
+    const brandPanel = $("#brandPanel");
+    if (brandPanel && !brandPanel.classList.contains("hidden")) renderBrandPanel();
+
+    const modelPanel = $("#modelPanel");
+    if (modelPanel && !modelPanel.classList.contains("hidden")) {
+      renderModelList($("#modelSearch") ? $("#modelSearch").value : "");
+    }
+
+    const enginePanel = $("#enginePanel");
+    if (enginePanel && !enginePanel.classList.contains("hidden")) {
+      renderEnginePanel($("#engineSearch") ? $("#engineSearch").value : "");
+    }
+  };
+
+  const scheduleBrandRender = debounce(renderBrandPanel, 120);
+  const scheduleModelRender = debounce(() => renderModelList($("#modelSearch") ? $("#modelSearch").value : ""), 120);
+  const scheduleEngineRender = debounce(() => renderEnginePanel($("#engineSearch") ? $("#engineSearch").value : ""), 120);
+
+  /* =========================================================
+     CHARGEMENT / MISE À JOUR DES DONNÉES
+     ========================================================= */
   const fetchText = async (url) => {
     try {
       const sep = url.includes("?") ? "&" : "?";
@@ -1686,7 +2104,7 @@
       await tryLoadUrl(path, kind, stats, sources);
     }
 
-    for (const base of REMOTE_DATA_BASES) {
+    for (const base of REMOTE_BASES) {
       const cleanBase = base.replace(/\/$/, "");
       for (const path of LOCAL_DATA_PATHS) {
         await tryLoadUrl(cleanBase + path.replace(/^\.\//, "/"), "auto", stats, sources);
@@ -1704,8 +2122,9 @@
     await persistMemory();
     save(KEYS.LAST_SYNC, Date.now());
 
+    preserveSelection();
     updateStats();
-    refreshSelectionLists();
+    rerenderOpenPanels();
 
     const summary = `+${stats.brands} marques, +${stats.models} modèles, +${stats.engines} motorisations, +${stats.defects} pannes`;
     const src = sources.length ? `Sources : ${sources.length}` : "Aucune source JSON distante trouvée, base locale utilisée.";
@@ -1731,284 +2150,7 @@
   };
 
   /* =========================================================
-     PRÉDICTION / UI VÉHICULE
-     ========================================================= */
-  const predictBrands = (query) => {
-    const qq = norm(query);
-    return [...mem.brands.values()]
-      .filter((b) => !qq || norm(b.name).includes(qq))
-      .map((b) => ({ name: b.name, id: b.key, modelCount: b.modelCount || 0 }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .slice(0, 300);
-  };
-
-  const predictModels = (brandName, query) => {
-    if (!brandName) return [];
-    const bk = normKey(brandName);
-    const brand = mem.brands.get(bk);
-    if (!brand) return [];
-
-    const qq = norm(query);
-    return [...mem.models.values()]
-      .filter((m) => m.brandKey === bk && (!qq || norm(m.name).includes(qq)))
-      .map((m) => ({
-        id: m.key,
-        brand: m.brandName,
-        name: m.name,
-        engineCount: m.engineCount || 0,
-        source: (m.sources || []).join(", ") || "local"
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .slice(0, 300);
-  };
-
-  const predictEngines = (brandName, modelName) => {
-    if (!brandName || !modelName) return [];
-    const modelKey = `${normKey(brandName)}|${normKey(modelName)}`;
-
-    return [...mem.engines.values()]
-      .filter((e) => e.modelKey === modelKey)
-      .map((e) => ({
-        id: e.key,
-        brand: e.brandName,
-        model: e.modelName,
-        engine: e.engine,
-        power: e.power,
-        fuel: e.fuel,
-        transmission: e.transmission,
-        code: e.code,
-        displacement: e.displacement,
-        source: (e.sources || []).join(", ") || "local",
-        confidence: e.confidence
-      }))
-      .sort((a, b) => {
-        const rank = ["Essence", "Diesel", "Hybride", "Hybride rechargeable", "Hybride léger 48V", "GPL", "Électrique"];
-        const ra = rank.indexOf(a.fuel);
-        const rb = rank.indexOf(b.fuel);
-        if (ra !== rb) return (ra === -1 ? 99 : ra) - (rb === -1 ? 99 : rb);
-        return getPowerValue(b.power) - getPowerValue(a.power);
-      });
-  };
-
-  const closeAllCombos = (exceptId) => {
-    ["brandPanel", "modelPanel", "enginePanel"].forEach((id) => {
-      if (id === exceptId) return;
-      const el = $("#" + id);
-      if (el) el.classList.add("hidden");
-    });
-  };
-
-  const renderBrandPanel = () => {
-    const input = $("#brandInput");
-    const panel = $("#brandPanel");
-    if (!input || !panel) return;
-
-    const brands = predictBrands(input.value);
-    if (!brands.length) {
-      panel.innerHTML = '<div class="empty">Aucune marque trouvée.</div>';
-      panel.classList.remove("hidden");
-      return;
-    }
-
-    panel.innerHTML = brands.map((b) => `
-      <button type="button" class="suggest-item" data-brand="${esc(b.name)}">
-        ${esc(b.name)}
-        <small>${b.modelCount} modèle(s)</small>
-      </button>
-    `).join("");
-    panel.classList.remove("hidden");
-  };
-
-  const selectBrand = (name) => {
-    selection.brand = { name };
-    selection.model = null;
-    selection.engine = null;
-    engineFuelFilter = "all";
-
-    const input = $("#brandInput");
-    if (input) input.value = name;
-
-    closeAllCombos();
-    updateModelButton();
-    updateEngineButton();
-    updateSelectionSummary();
-    renderModelList("");
-  };
-
-  const updateModelButton = () => {
-    const btn = $("#modelButton");
-    if (!btn) return;
-
-    if (!selection.brand) {
-      btn.disabled = true;
-      btn.textContent = "Choisir d’abord une marque";
-      return;
-    }
-
-    btn.disabled = false;
-    btn.textContent = selection.model ? selection.model.name : "Choisir un modèle";
-  };
-
-  const updateEngineButton = () => {
-    const btn = $("#engineButton");
-    if (!btn) return;
-
-    if (!selection.brand || !selection.model) {
-      btn.disabled = true;
-      btn.textContent = !selection.brand ? "Choisir d’abord une marque" : "Choisir d’abord un modèle";
-      return;
-    }
-
-    btn.disabled = false;
-    btn.textContent = selection.engine ? engineLabel(selection.engine) : "Choisir une motorisation";
-  };
-
-  const engineLabel = (o) => {
-    const parts = [];
-    if (o.fuel) parts.push(o.fuel);
-    if (o.engine) parts.push(o.engine);
-    if (o.displacement) parts.push(o.displacement);
-    if (o.power) parts.push(o.power);
-    if (o.transmission) parts.push(o.transmission);
-    if (o.code) parts.push(o.code);
-    return parts.filter(Boolean).join(" • ");
-  };
-
-  const renderModelList = (filter) => {
-    const list = $("#modelList");
-    if (!list) return;
-
-    if (!selection.brand) {
-      list.innerHTML = '<div class="empty">Sélectionnez une marque d’abord.</div>';
-      return;
-    }
-
-    const models = predictModels(selection.brand.name, filter);
-    if (!models.length) {
-      list.innerHTML = '<div class="empty">Aucun modèle trouvé.</div>';
-      return;
-    }
-
-    list.innerHTML = models.map((m, i) => `
-      <button type="button" class="list-item" data-model-index="${i}">
-        ${esc(m.name)}
-        <small>${m.engineCount} motorisation(s)</small>
-      </button>
-    `).join("");
-
-    window.__tempModelOptions = models;
-  };
-
-  const renderEngineFilters = (engines) => {
-    const wrap = $("#engineFilters");
-    if (!wrap) return;
-
-    const fuels = unique(engines.map((e) => e.fuel).filter(Boolean));
-    const chips = [{ id: "all", label: "Toutes" }].concat(fuels.map((f) => ({ id: f, label: f })));
-
-    wrap.innerHTML = chips.map((c) => `
-      <button type="button" class="chip ${engineFuelFilter === c.id ? "active" : ""}" data-fuel-filter="${esc(c.id)}">${esc(c.label)}</button>
-    `).join("");
-  };
-
-  const renderEngineList = (filter) => {
-    const list = $("#engineList");
-    if (!list) return;
-
-    if (!selection.brand || !selection.model) {
-      list.innerHTML = '<div class="empty">Sélectionnez un modèle d’abord.</div>';
-      return;
-    }
-
-    const engines = predictEngines(selection.brand.name, selection.model.name);
-    renderEngineFilters(engines);
-
-    const f = norm(filter || "");
-    const filtered = engines.filter((e) => {
-      const fuelOk = engineFuelFilter === "all" || norm(e.fuel) === norm(engineFuelFilter);
-      const textOk = !f || norm(engineLabel(e)).includes(f);
-      return fuelOk && textOk;
-    });
-
-    if (!filtered.length) {
-      list.innerHTML = '<div class="empty">Aucune motorisation trouvée pour ce filtre.</div>';
-      return;
-    }
-
-    list.innerHTML = filtered.map((e, i) => `
-      <button type="button" class="list-item" data-engine-index="${i}">
-        ${esc(engineLabel(e))}
-        <small>${esc(e.source || "local")}</small>
-      </button>
-    `).join("");
-
-    window.__tempEngineOptions = filtered;
-  };
-
-  const selectModel = (opt) => {
-    if (!opt) return;
-    selection.model = opt;
-    selection.engine = null;
-    engineFuelFilter = "all";
-    closeAllCombos();
-    updateModelButton();
-    renderEngineList("");
-    updateSelectionSummary();
-  };
-
-  const selectEngine = (opt) => {
-    if (!opt) return;
-    selection.engine = opt;
-    closeAllCombos();
-    updateEngineButton();
-    updateSelectionSummary();
-  };
-
-  const getSelectedVehicleData = () => {
-    const brandEl = $("#brandInput");
-    const kmEl = $("#vehicleKilometrage");
-    const vinEl = $("#vehicleVin");
-
-    return {
-      marque: selection.brand ? selection.brand.name : (brandEl ? brandEl.value.trim() : ""),
-      modele: selection.model ? selection.model.name : "",
-      engine: selection.engine ? selection.engine.engine : "",
-      displacement: selection.engine ? selection.engine.displacement : "",
-      power: selection.engine ? selection.engine.power : "",
-      fuel: selection.engine ? selection.engine.fuel : "",
-      transmission: selection.engine ? selection.engine.transmission : "",
-      code: selection.engine ? selection.engine.code : "",
-      engineSource: selection.engine ? selection.engine.source : "",
-      kilometrage: kmEl ? kmEl.value.trim() : "",
-      vin: vinEl ? vinEl.value.trim() : ""
-    };
-  };
-
-  const updateSelectionSummary = () => {
-    const el = $("#selectionSummary");
-    if (!el) return;
-
-    const v = getSelectedVehicleData();
-    if (!v.marque && !v.modele && !v.engine) {
-      el.textContent = "Aucune sélection véhicule complète.";
-      return;
-    }
-
-    const parts = [];
-    if (v.marque) parts.push(v.marque);
-    if (v.modele) parts.push(v.modele);
-    if (v.engine) parts.push(v.engine);
-    if (v.displacement) parts.push(v.displacement);
-    if (v.power) parts.push(v.power);
-    if (v.fuel) parts.push(v.fuel);
-    if (v.transmission) parts.push(v.transmission);
-    if (v.code) parts.push(v.code);
-
-    el.textContent = "Sélection retenue : " + parts.join(" • ");
-  };
-
-  /* =========================================================
-     IA LOCALE / ANALYSE
+     ANALYSE CROISÉE
      ========================================================= */
   const addTerm = (...args) => {
     args.forEach((t) => termesMobilises.add(t));
@@ -2018,6 +2160,50 @@
   const extractDtcCodes = (text) => {
     const m = String(text || "").match(/\b[PCBU][0-9A-F]{3,4}\b/gi) || [];
     return unique(m.map((x) => x.toUpperCase()));
+  };
+
+  const brandMatches = (a, b) => {
+    const na = normKey(a);
+    const nb = normKey(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+
+    const aliases = {
+      volkswagen: ["vw"],
+      mercedesbenz: ["mercedes", "mb"],
+      landrover: ["land rover"],
+      rangerover: ["range rover"],
+      alfaromeo: ["alfa"],
+      chevrolet: ["chevy"],
+      tesla: ["tesla motors"],
+      byd: ["build your dreams"],
+      mg: ["morris garages"],
+      hyundai: ["hyundai motor"],
+      kia: ["kia motors"],
+      toyota: ["toyota motor corp"],
+      honda: ["honda motor co"],
+      ford: ["ford motor co"],
+      opel: ["adam opel ag"],
+      psa: ["peugeot citroen"],
+      stellantis: ["psa fca"],
+      vag: ["volkswagen audi group"]
+    };
+
+    if (aliases[na] && aliases[na].includes(nb)) return true;
+    if (aliases[nb] && aliases[nb].includes(na)) return true;
+    if (na.length > 3 && nb.includes(na)) return true;
+    if (nb.length > 3 && na.includes(nb)) return true;
+    return false;
+  };
+
+  const nameMatch = (a, b) => {
+    const na = normKey(a);
+    const nb = normKey(b);
+    if (!na || !nb) return false;
+    if (na === nb) return true;
+    if (na.length > 2 && nb.includes(na)) return true;
+    if (nb.length > 2 && na.includes(nb)) return true;
+    return false;
   };
 
   const matchDefects = (v, text) => {
@@ -2146,7 +2332,7 @@
 
   const secTechnique = (matches, flags, vData) => {
     const km = parseKm(vData.kilometrage);
-    let h = `<div class="box info"><strong>Objet :</strong> IA locale gratuite sans clé API : croisement technique dynamique ${addTerm("défauts connus", "rappels", "TSB", "DTC", "motorisation", "pannes récurrentes")}.</div>`;
+    let h = `<div class="box info"><strong>Objet :</strong> croisement technique dynamique ${addTerm("défauts connus", "rappels", "TSB", "DTC", "motorisation", "pannes récurrentes")}.</div>`;
 
     if (!matches.length) {
       h += `<div class="box medium">
@@ -2211,7 +2397,7 @@
   };
 
   const secJuridique = (flags, matches) => {
-    let h = `<div class="box info"><strong>Objet :</strong> IA locale juridique gratuite sans clé API : qualification renforcée par l’analyse technique ${addTerm("qualification juridique", "responsabilité", "garantie")}.</div>`;
+    let h = `<div class="box info"><strong>Objet :</strong> qualification juridique renforcée par l’analyse technique ${addTerm("qualification juridique", "responsabilité", "garantie")}.</div>`;
 
     if (flags.professional && !flags.privateSeller) {
       h += `<div class="box high"><p>Vendeur présumé professionnel ${addTerm("vendeur professionnel")}. Protection consommateur renforcée : garantie légale de conformité, charge de la preuve allégée, obligation d’information et de vérification des rappels.</p></div>`;
@@ -2346,7 +2532,7 @@
       h += `<p><strong>Si vendeur particulier :</strong> privilégier expertise amiable puis action en vices cachés.</p>`;
     }
 
-    h += `<p class="muted"><strong>Avertissement :</strong> document d’aide à la rédaction généré par IA locale gratuite sans clé API. Ne constitue pas un avis juridique définitif.</p></div>`;
+    h += `<p class="muted"><strong>Avertissement :</strong> document d’aide à la rédaction. Ne constitue pas un avis juridique définitif.</p></div>`;
     return h;
   };
 
@@ -2364,7 +2550,7 @@
       html += `<h3>${title}</h3>${body}`;
     });
 
-    html += `<div class="box medium"><strong>Rappel méthodologique :</strong> ce rapport utilise une IA locale gratuite sans clé API, croisant base technique, motorisation, symptômes, DTC et qualification juridique. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>`;
+    html += `<div class="box medium"><strong>Rappel méthodologique :</strong> ce rapport effectue un croisement local/dynamique technique + juridique + motorisation. Il ne remplace ni une expertise contradictoire, ni un avocat, ni un expert judiciaire.</div>`;
 
     const result = $("#analysisResult");
     if (result) result.innerHTML = html;
@@ -2405,8 +2591,8 @@
 
     const S = [];
     S.push(["I. IDENTIFICATION DU VÉHICULE", secIdentification(text, context)]);
-    S.push(["II. ANALYSE TECHNIQUE IA LOCALE", secTechnique(matches, flags, vehicleData)]);
-    S.push(["III. ANALYSE JURIDIQUE IA LOCALE", secJuridique(flags, matches)]);
+    S.push(["II. ANALYSE TECHNIQUE CROISÉE", secTechnique(matches, flags, vehicleData)]);
+    S.push(["III. ANALYSE JURIDIQUE RENFORCÉE", secJuridique(flags, matches)]);
     S.push(["IV. PREUVE, STRATÉGIE ET VÉRIFICATIONS", secPreuve(matches, flags, objective)]);
     S.push(["V. CONCLUSION ORIENTÉE SELON LE LITIGE", secConclusion(objective, matches, flags, vehicleData)]);
     S.push(["VI. LEXIQUE TECHNIQUE ET JURIDIQUE MOBILISÉ", secLexique()]);
@@ -2507,8 +2693,40 @@
   /* =========================================================
      FOND D'ÉCRAN + OPACITÉ
      ========================================================= */
+  const injectEssentialStyles = () => {
+    if ($("#essentialPredictiveStyles")) return;
+    const st = document.createElement("style");
+    st.id = "essentialPredictiveStyles";
+    st.textContent = `
+      .bg-wallpaper{
+        position:fixed;
+        inset:0;
+        z-index:-1;
+        pointer-events:none;
+        background-size:cover;
+        background-position:center;
+        background-repeat:no-repeat;
+        opacity:var(--wallpaper-opacity,0.35);
+        transition:opacity .2s ease, background-image .2s ease;
+      }
+      .hidden{display:none !important;}
+    `;
+    document.head.appendChild(st);
+  };
+
+  const ensureWallpaperLayer = () => {
+    let el = $("#bgWallpaper");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "bgWallpaper";
+      el.className = "bg-wallpaper";
+      document.body.prepend(el);
+    }
+    return el;
+  };
+
   const applyWallpaper = (dataUrl, opacity) => {
-    const el = $("#bgWallpaper");
+    const el = ensureWallpaperLayer();
     const settings = getSettings();
 
     const op = Math.max(0, Math.min(100, Number(opacity != null ? opacity : settings.wallpaperOpacity || 35)));
@@ -2517,14 +2735,10 @@
 
     document.documentElement.style.setProperty("--wallpaper-opacity", String(op / 100));
 
-    if (el) {
-      if (dataUrl) {
-        el.style.backgroundImage = `url(${dataUrl})`;
-        el.classList.add("active");
-      } else {
-        el.style.backgroundImage = "";
-        el.classList.remove("active");
-      }
+    if (dataUrl) {
+      el.style.backgroundImage = `url(${dataUrl})`;
+    } else {
+      el.style.backgroundImage = "";
     }
 
     const range = $("#wallpaperOpacity");
@@ -2608,8 +2822,8 @@
 
     ctx.fillStyle = "rgba(148,163,184,0.95)";
     ctx.font = "36px Inter, Arial, sans-serif";
-    ctx.fillText("IA locale gratuite sans clé API", 82, 370);
-    ctx.fillText("Fond d’écran + opacité admin", 82, 420);
+    ctx.fillText("Recherche prédictive corrigée", 82, 370);
+    ctx.fillText("Marque • Modèle • Motorisation", 82, 420);
 
     return c.toDataURL("image/png");
   };
@@ -2624,8 +2838,6 @@
   /* =========================================================
      IMPORT JSON ADMIN
      ========================================================= */
-  let selectedJsonFile = null;
-
   const setJsonStatus = (msg) => {
     const el = $("#jsonStatus");
     if (el) el.textContent = msg;
@@ -2718,12 +2930,14 @@
       recomputeCounts();
       await persistMemory();
 
+      preserveSelection();
+      updateStats();
+      rerenderOpenPanels();
+
       setJsonProgress(100);
       setJsonStatus("Import terminé.");
       setJsonReport(formatJsonReport(stats, true));
 
-      updateStats();
-      refreshSelectionLists();
       toast("Import JSON réussi.", "success");
     } catch (e) {
       setJsonProgress(100);
@@ -2756,7 +2970,7 @@
       catalogStats: counts()
     };
 
-    downloadText(JSON.stringify(data, null, 2), "expert-auto-users-v35.json");
+    downloadText(JSON.stringify(data, null, 2), "expert-auto-users-v36.json");
     toast("Données utilisateurs exportées.", "success");
   };
 
@@ -2773,7 +2987,7 @@
           })
           .then((reg) => {
             swRegistration = reg;
-            console.log("[Expert Auto] SW prêt V35.");
+            console.log("[Expert Auto] SW prêt V36.");
           })
           .catch((err) => console.warn("[Expert Auto] SW non enregistré:", err));
       }
@@ -2817,6 +3031,49 @@
       .then((r) => r.text())
       .then((txt) => downloadText(txt, "manifest.json"))
       .catch(() => toast("manifest.json indisponible.", "error"));
+  };
+
+  /* =========================================================
+     PURGE ANNÉE
+     ========================================================= */
+  const purgeYearControls = () => {
+    try {
+      const remove = () => {
+        const selectors = [
+          "#vehicleYear",
+          "[id*='year' i]",
+          "[name*='annee' i]",
+          "[data-field='year']",
+          "[placeholder*='année' i]",
+          "[placeholder*='millésime' i]"
+        ];
+
+        document.querySelectorAll(selectors.join(",")).forEach((el) => {
+          const group = el.closest(".field, .input-group, .form-grid > div, .two-cols > div, div");
+          if (group && /année|millésime|mise en circulation/i.test(group.textContent || "")) {
+            group.remove();
+          } else {
+            el.remove();
+          }
+        });
+
+        document.querySelectorAll("label").forEach((label) => {
+          if (/année|millésime|mise en circulation/i.test(label.textContent || "")) {
+            const group = label.closest(".field, .input-group, .form-grid > div, .two-cols > div, div");
+            if (group) group.remove();
+            else label.remove();
+          }
+        });
+      };
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", remove);
+      } else {
+        remove();
+      }
+    } catch (e) {
+      console.warn("[Expert Auto] Purge année ignorée:", e);
+    }
   };
 
   /* =========================================================
@@ -2956,26 +3213,50 @@
       toast("Déconnexion effectuée.", "info");
     });
 
+    /* ===== BRAND ===== */
     on("#brandInput", "input", () => {
-      selection.brand = null;
-      selection.model = null;
-      selection.engine = null;
-      engineFuelFilter = "all";
-      updateModelButton();
-      updateEngineButton();
-      updateSelectionSummary();
-      renderBrandPanel();
+      const input = $("#brandInput");
+      const val = input ? input.value : "";
+
+      if (!selection.brand || normSearch(val) !== normSearch(selection.brand.name)) {
+        selection.brand = null;
+        selection.model = null;
+        selection.engine = null;
+        engineFuelFilter = "all";
+        updateModelButton();
+        updateEngineButton();
+        updateSelectionSummary();
+      }
+
+      scheduleBrandRender();
     });
 
     on("#brandInput", "focus", renderBrandPanel);
 
-    on("#brandPanel", "mousedown", (e) => {
-      const btn = e.target.closest("[data-brand]");
-      if (!btn) return;
-      e.preventDefault();
-      selectBrand(btn.getAttribute("data-brand"));
+    on("#brandInput", "keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const panel = $("#brandPanel");
+        if (panel && !panel.classList.contains("hidden") && panel.__options && panel.__options.length) {
+          selectBrand(panel.__options[0]);
+        } else {
+          const input = $("#brandInput");
+          const opts = searchBrands(input ? input.value : "");
+          if (opts.length) selectBrand(opts[0]);
+        }
+      }
     });
 
+    on("#brandPanel", "click", (e) => {
+      const btn = e.target.closest("button[data-index]");
+      if (!btn) return;
+      const panel = $("#brandPanel");
+      const idx = Number(btn.dataset.index);
+      const opt = panel && panel.__options ? panel.__options[idx] : null;
+      if (opt) selectBrand(opt);
+    });
+
+    /* ===== MODEL ===== */
     on("#modelButton", "click", () => {
       if (!selection.brand) return;
 
@@ -2991,21 +3272,28 @@
       }
     });
 
-    on("#modelSearch", "input", function () {
-      renderModelList(this.value);
-    });
+    on("#modelSearch", "input", scheduleModelRender);
 
-    on("#modelList", "mousedown", (e) => {
-      const btn = e.target.closest("[data-model-index]");
-      if (!btn) return;
-      e.preventDefault();
-
-      const idx = parseInt(btn.getAttribute("data-model-index"), 10);
-      if (window.__tempModelOptions && window.__tempModelOptions[idx]) {
-        selectModel(window.__tempModelOptions[idx]);
+    on("#modelSearch", "keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const list = $("#modelList");
+        if (list && list.__options && list.__options.length) {
+          selectModel(list.__options[0]);
+        }
       }
     });
 
+    on("#modelList", "click", (e) => {
+      const btn = e.target.closest("button[data-index]");
+      if (!btn) return;
+      const list = $("#modelList");
+      const idx = Number(btn.dataset.index);
+      const opt = list && list.__options ? list.__options[idx] : null;
+      if (opt) selectModel(opt);
+    });
+
+    /* ===== ENGINE ===== */
     on("#engineButton", "click", () => {
       if (!selection.brand || !selection.model) return;
 
@@ -3015,38 +3303,49 @@
 
       if (!isOpen && panel) {
         panel.classList.remove("hidden");
-        renderEngineList("");
+        renderEnginePanel("");
         const search = $("#engineSearch");
         if (search) setTimeout(() => search.focus(), 30);
       }
     });
 
-    on("#engineSearch", "input", function () {
-      renderEngineList(this.value);
+    on("#engineSearch", "input", scheduleEngineRender);
+
+    on("#engineSearch", "keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const list = $("#engineList");
+        if (list && list.__options && list.__options.length) {
+          selectEngine(list.__options[0]);
+        }
+      }
     });
 
     on("#engineFilters", "click", (e) => {
       const chip = e.target.closest("[data-fuel-filter]");
       if (!chip) return;
       engineFuelFilter = chip.getAttribute("data-fuel-filter");
-      renderEngineList($("#engineSearch") ? $("#engineSearch").value : "");
+      renderEnginePanel($("#engineSearch") ? $("#engineSearch").value : "");
     });
 
-    on("#engineList", "mousedown", (e) => {
-      const btn = e.target.closest("[data-engine-index]");
+    on("#engineList", "click", (e) => {
+      const btn = e.target.closest("button[data-index]");
       if (!btn) return;
-      e.preventDefault();
-
-      const idx = parseInt(btn.getAttribute("data-engine-index"), 10);
-      if (window.__tempEngineOptions && window.__tempEngineOptions[idx]) {
-        selectEngine(window.__tempEngineOptions[idx]);
-      }
+      const list = $("#engineList");
+      const idx = Number(btn.dataset.index);
+      const opt = list && list.__options ? list.__options[idx] : null;
+      if (opt) selectEngine(opt);
     });
 
     document.addEventListener("click", (e) => {
       if (!e.target.closest(".combo")) closeAllCombos();
     });
 
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") closeAllCombos();
+    });
+
+    /* ===== ANALYZE ===== */
     on("#analyzeBtn", "click", () => {
       if (!currentUser) { toast("Connectez-vous.", "error"); return; }
 
@@ -3079,7 +3378,7 @@
       const btn = $("#analyzeBtn");
       if (btn) {
         btn.disabled = true;
-        btn.innerHTML = '<span class="spinner"></span> Analyse IA locale en cours...';
+        btn.innerHTML = '<span class="spinner"></span> Analyse croisée en cours...';
       }
 
       setTimeout(() => {
@@ -3093,12 +3392,13 @@
         } finally {
           if (btn) {
             btn.disabled = false;
-            btn.innerHTML = "🔍 Lancer l’analyse IA locale technique + juridique";
+            btn.innerHTML = "🔍 Lancer l’analyse croisée technique + juridique";
           }
         }
-      }, 400);
+      }, 350);
     });
 
+    /* ===== ADMIN ===== */
     on("#adminPanelBtn", "click", () => {
       if (!currentUser || currentUser.role !== "admin") return;
       const panel = $("#adminPanel");
@@ -3292,7 +3592,10 @@
      INIT
      ========================================================= */
   const init = async () => {
-    setStatus("Démarrage IA locale...");
+    injectEssentialStyles();
+    purgeYearControls();
+
+    setStatus("Démarrage recherche prédictive corrigée...");
 
     db = await openDb();
     await loadMemoryFromDb();
@@ -3329,7 +3632,7 @@
     await refreshData(false);
     startAutoSync();
 
-    setStatus("Prêt. IA locale gratuite sans clé API active. Mise à jour automatique active.");
+    setStatus("Prêt. Recherche prédictive marque / modèle / motorisation corrigée.");
     toast("Application prête.", "success");
   };
 
