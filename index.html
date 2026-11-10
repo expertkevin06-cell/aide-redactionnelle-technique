@@ -3,970 +3,50 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#0f172a" />
-  <meta name="description" content="Expert Auto - Analyse croisée technique et juridique, base APK ingénieur, import JSON admin, PWA." />
+  <meta name="theme-color" content="#07101f" />
+  <meta name="description" content="Expert Auto - IA locale gratuite sans clé API, analyse technique et juridique croisée, mise à jour admin, fond d'écran avec opacité, PWA/APK." />
 
-  <title>Expert Auto – Analyse Croisée Dynamique</title>
+  <title>Expert Auto – IA Locale + Admin + Fond d’écran</title>
 
   <link rel="manifest" href="./manifest.json" />
   <link rel="icon" href="./icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="./icon.svg" />
   <link rel="stylesheet" href="./styles.css" />
-
-  <style>
-    /* CSS critique de secours : même si styles.css tarde ou manque, l'app reste utilisable */
-    :root {
-      --bg-0: #07101f;
-      --bg-1: #0f172a;
-      --text: #e5eefc;
-      --muted: #94a3b8;
-      --line: rgba(148, 163, 184, 0.18);
-      --primary: #3b82f6;
-      --violet: #8b5cf6;
-      --cyan: #22d3ee;
-      --danger: #ef4444;
-      --success: #22c55e;
-      --warning: #f59e0b;
-      --radius: 18px;
-      --shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
-    }
-
-    * { box-sizing: border-box; }
-
-    html, body {
-      margin: 0;
-      padding: 0;
-      min-height: 100%;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      color: var(--text);
-      background: var(--bg-0);
-    }
-
-    body {
-      min-height: 100vh;
-      overflow-x: hidden;
-    }
-
-    .hidden { display: none !important; }
-    .muted { color: var(--muted); }
-    .full { width: 100%; }
-
-    .bg-layer,
-    .bg-noise {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: -1;
-    }
-
-    .bg-layer {
-      background:
-        radial-gradient(circle at top left, rgba(59,130,246,0.26), transparent 28%),
-        radial-gradient(circle at 80% 10%, rgba(139,92,246,0.22), transparent 24%),
-        radial-gradient(circle at 20% 80%, rgba(34,211,238,0.18), transparent 24%),
-        linear-gradient(160deg, #07101f 0%, #0f172a 45%, #111827 100%);
-    }
-
-    .bg-noise {
-      opacity: 0.06;
-      background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.35) 1px, transparent 0);
-      background-size: 3px 3px;
-    }
-
-    .screen {
-      min-height: 100vh;
-      padding: 18px;
-    }
-
-    .container {
-      width: min(1180px, 100%);
-      margin: 0 auto;
-      display: grid;
-      gap: 18px;
-      padding-bottom: 40px;
-    }
-
-    .glass {
-      background: linear-gradient(180deg, rgba(255,255,255,0.08), rgba(255,255,255,0.04));
-      border: 1px solid var(--line);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
-    }
-
-    .panel {
-      border-radius: var(--radius);
-      padding: 20px;
-    }
-
-    .panel-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: start;
-      gap: 16px;
-      margin-bottom: 16px;
-    }
-
-    .panel h2 {
-      margin: 0 0 6px;
-      font-size: 1.35rem;
-    }
-
-    .topbar {
-      position: sticky;
-      top: 10px;
-      z-index: 60;
-      width: min(1180px, calc(100% - 4px));
-      margin: 0 auto 14px;
-      border-radius: 999px;
-      padding: 10px 14px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .top-left, .top-right {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(59,130,246,0.14);
-      border: 1px solid rgba(59,130,246,0.22);
-      font-size: 0.92rem;
-      font-weight: 600;
-    }
-
-    .pill.soft {
-      background: rgba(148,163,184,0.10);
-      border-color: rgba(148,163,184,0.18);
-      color: var(--muted);
-    }
-
-    .icon-btn {
-      position: relative;
-      width: 42px;
-      height: 42px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.05);
-      color: var(--text);
-      cursor: pointer;
-      display: grid;
-      place-items: center;
-      transition: 0.2s ease;
-    }
-
-    .icon-btn:hover {
-      transform: translateY(-1px);
-      background: rgba(255,255,255,0.09);
-    }
-
-    .dot {
-      position: absolute;
-      top: -4px;
-      right: -4px;
-      min-width: 18px;
-      height: 18px;
-      padding: 0 5px;
-      border-radius: 999px;
-      background: var(--danger);
-      color: white;
-      font-size: 11px;
-      font-weight: 800;
-      display: grid;
-      place-items: center;
-    }
-
-    .status-strip {
-      width: min(1180px, 100%);
-      margin: 0 auto 16px;
-      padding: 10px 14px;
-      border-radius: 14px;
-      background: rgba(15,23,42,0.55);
-      border: 1px solid var(--line);
-      color: var(--muted);
-      font-size: 0.94rem;
-    }
-
-    .selector-grid,
-    .two-cols {
-      display: grid;
-      gap: 14px;
-    }
-
-    .selector-grid {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
-
-    .two-cols {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .field {
-      display: grid;
-      gap: 8px;
-    }
-
-    label {
-      font-weight: 650;
-      font-size: 0.95rem;
-    }
-
-    input[type="text"],
-    input[type="number"],
-    input[type="email"],
-    input[type="password"],
-    select,
-    textarea {
-      width: 100%;
-      padding: 12px 14px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(2,6,23,0.45);
-      color: var(--text);
-      outline: none;
-      font: inherit;
-      transition: 0.2s ease;
-    }
-
-    input:focus,
-    select:focus,
-    textarea:focus {
-      border-color: rgba(59,130,246,0.6);
-      box-shadow: 0 0 0 4px rgba(59,130,246,0.12);
-    }
-
-    textarea {
-      resize: vertical;
-      min-height: 90px;
-    }
-
-    .combo {
-      position: relative;
-    }
-
-    .select-btn {
-      width: 100%;
-      min-height: 46px;
-      padding: 12px 14px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(2,6,23,0.45);
-      color: var(--text);
-      text-align: left;
-      cursor: pointer;
-      font: inherit;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .select-btn::after {
-      content: "▾";
-      color: var(--muted);
-    }
-
-    .select-btn:disabled {
-      opacity: 0.65;
-      cursor: not-allowed;
-    }
-
-    .dropdown {
-      position: absolute;
-      top: calc(100% + 8px);
-      left: 0;
-      right: 0;
-      z-index: 80;
-      padding: 10px;
-      border-radius: 16px;
-      background: rgba(8, 15, 30, 0.96);
-      border: 1px solid var(--line);
-      box-shadow: var(--shadow);
-      backdrop-filter: blur(18px);
-      max-height: 340px;
-      overflow: hidden;
-      display: grid;
-      gap: 10px;
-    }
-
-    .list {
-      overflow: auto;
-      max-height: 260px;
-      display: grid;
-      gap: 6px;
-      padding-right: 4px;
-    }
-
-    .list.tall {
-      max-height: 320px;
-    }
-
-    .list-item,
-    .suggest-item {
-      width: 100%;
-      text-align: left;
-      padding: 11px 12px;
-      border-radius: 12px;
-      border: 1px solid transparent;
-      background: rgba(255,255,255,0.04);
-      color: var(--text);
-      cursor: pointer;
-      transition: 0.18s ease;
-    }
-
-    .list-item:hover,
-    .suggest-item:hover {
-      background: rgba(59,130,246,0.14);
-      border-color: rgba(59,130,246,0.22);
-      transform: translateX(2px);
-    }
-
-    .list-item small,
-    .meta {
-      display: block;
-      color: var(--muted);
-      font-size: 0.84rem;
-      margin-top: 3px;
-    }
-
-    .empty {
-      padding: 14px;
-      color: var(--muted);
-      text-align: center;
-    }
-
-    .chip-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .chip {
-      padding: 7px 10px;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.04);
-      color: var(--text);
-      cursor: pointer;
-      font-size: 0.86rem;
-      transition: 0.18s ease;
-    }
-
-    .chip.active {
-      background: rgba(59,130,246,0.18);
-      border-color: rgba(59,130,246,0.4);
-    }
-
-    .summary-box {
-      margin-top: 14px;
-      padding: 14px;
-      border-radius: 14px;
-      border: 1px dashed var(--line);
-      background: rgba(2,6,23,0.35);
-      color: var(--muted);
-    }
-
-    .btn {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 12px 16px;
-      cursor: pointer;
-      font: inherit;
-      font-weight: 700;
-      color: var(--text);
-      background: rgba(255,255,255,0.06);
-      transition: 0.2s ease;
-    }
-
-    .btn:hover {
-      transform: translateY(-1px);
-    }
-
-    .btn.primary {
-      background: linear-gradient(135deg, var(--primary), var(--violet));
-      border-color: transparent;
-      color: white;
-      box-shadow: 0 12px 30px rgba(59,130,246,0.24);
-    }
-
-    .btn.ghost {
-      background: rgba(255,255,255,0.04);
-    }
-
-    .btn.danger {
-      background: rgba(239,68,68,0.14);
-      border-color: rgba(239,68,68,0.28);
-      color: #fecaca;
-    }
-
-    .btn.analyze {
-      background: linear-gradient(135deg, #06b6d4, #3b82f6, #8b5cf6);
-      border-color: transparent;
-      color: white;
-      font-size: 1.02rem;
-      padding: 15px 18px;
-    }
-
-    .btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .auth-shell {
-      width: min(1180px, 100%);
-      margin: 40px auto;
-      display: grid;
-      grid-template-columns: 1.15fr 0.85fr;
-      gap: 20px;
-      align-items: start;
-    }
-
-    .hero-card,
-    .login-card {
-      border-radius: 24px;
-      padding: 26px;
-    }
-
-    .hero-badge {
-      display: inline-block;
-      padding: 8px 12px;
-      border-radius: 999px;
-      background: rgba(34,211,238,0.12);
-      border: 1px solid rgba(34,211,238,0.2);
-      color: #a5f3fc;
-      font-weight: 800;
-      font-size: 0.88rem;
-      margin-bottom: 14px;
-    }
-
-    .hero-badge.green {
-      background: rgba(34,197,94,0.12);
-      border-color: rgba(34,197,94,0.2);
-      color: #bbf7d0;
-    }
-
-    .hero-card h1 {
-      margin: 0 0 10px;
-      font-size: clamp(2rem, 4vw, 3.2rem);
-      line-height: 1.04;
-    }
-
-    .lead {
-      color: var(--muted);
-      font-size: 1.02rem;
-      line-height: 1.55;
-      margin: 0 0 18px;
-    }
-
-    .hero-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .mini-card {
-      padding: 14px;
-      border-radius: 16px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--line);
-    }
-
-    .mini-card strong {
-      display: block;
-      margin-bottom: 4px;
-    }
-
-    .mini-card span {
-      color: var(--muted);
-      font-size: 0.92rem;
-    }
-
-    .tabs {
-      display: flex;
-      gap: 8px;
-      padding: 6px;
-      border-radius: 14px;
-      background: rgba(2,6,23,0.35);
-      border: 1px solid var(--line);
-      margin-bottom: 16px;
-      overflow: auto;
-    }
-
-    .tab-btn {
-      flex: 1;
-      min-width: max-content;
-      padding: 10px 12px;
-      border: 0;
-      border-radius: 10px;
-      background: transparent;
-      color: var(--muted);
-      font-weight: 700;
-      cursor: pointer;
-    }
-
-    .tab-btn.active {
-      background: rgba(59,130,246,0.16);
-      color: var(--text);
-    }
-
-    .auth-pane {
-      display: grid;
-      gap: 12px;
-    }
-
-    .check-row {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      color: var(--muted);
-    }
-
-    .auth-msg {
-      min-height: 22px;
-      font-size: 0.95rem;
-    }
-
-    .auth-msg.success { color: #86efac; }
-    .auth-msg.error { color: #fca5a5; }
-    .auth-msg.warning { color: #fcd34d; }
-
-    .report {
-      display: grid;
-      gap: 16px;
-    }
-
-    .report h3 {
-      margin: 10px 0 8px;
-      color: #dbeafe;
-    }
-
-    .report h4 {
-      margin: 12px 0 6px;
-      color: #e2e8f0;
-    }
-
-    .report ul,
-    .report ol {
-      margin: 8px 0 0 20px;
-    }
-
-    .report li {
-      margin: 6px 0;
-    }
-
-    .term {
-      display: inline;
-      padding: 2px 6px;
-      border-radius: 8px;
-      background: rgba(245,158,11,0.14);
-      color: #fde68a;
-      font-weight: 700;
-      font-size: 0.92em;
-    }
-
-    .box {
-      padding: 14px;
-      border-radius: 14px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.04);
-    }
-
-    .box.high {
-      border-color: rgba(34,197,94,0.28);
-      background: rgba(34,197,94,0.08);
-    }
-
-    .box.medium {
-      border-color: rgba(245,158,11,0.28);
-      background: rgba(245,158,11,0.08);
-    }
-
-    .box.low {
-      border-color: rgba(239,68,68,0.28);
-      background: rgba(239,68,68,0.08);
-    }
-
-    .box.info {
-      border-color: rgba(59,130,246,0.28);
-      background: rgba(59,130,246,0.08);
-    }
-
-    .kv {
-      display: grid;
-      grid-template-columns: 180px 1fr;
-      gap: 8px 12px;
-    }
-
-    .kv div:nth-child(odd) {
-      color: var(--muted);
-      font-weight: 650;
-    }
-
-    .apk-showcase {
-      display: grid;
-      grid-template-columns: 1.2fr 0.8fr;
-      gap: 20px;
-      align-items: center;
-    }
-
-    .apk-copy h2 {
-      margin: 10px 0 8px;
-      font-size: 2rem;
-    }
-
-    .apk-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin: 16px 0;
-    }
-
-    .hint-box {
-      padding: 12px 14px;
-      border-radius: 14px;
-      background: rgba(2,6,23,0.38);
-      border: 1px dashed var(--line);
-      color: var(--muted);
-    }
-
-    .phone-mockup {
-      display: grid;
-      place-items: center;
-    }
-
-    .phone-frame {
-      width: 260px;
-      height: 520px;
-      border-radius: 40px;
-      padding: 14px;
-      background: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05));
-      border: 1px solid rgba(255,255,255,0.16);
-      box-shadow: 0 30px 80px rgba(0,0,0,0.45);
-      position: relative;
-      animation: float 6s ease-in-out infinite;
-    }
-
-    @keyframes float {
-      0%, 100% { transform: translateY(0) rotate(0deg); }
-      50% { transform: translateY(-10px) rotate(0.5deg); }
-    }
-
-    .phone-notch {
-      width: 110px;
-      height: 18px;
-      border-radius: 999px;
-      background: rgba(2,6,23,0.8);
-      margin: 0 auto 12px;
-    }
-
-    .phone-screen {
-      height: calc(100% - 30px);
-      border-radius: 28px;
-      padding: 16px;
-      background:
-        radial-gradient(circle at top, rgba(59,130,246,0.24), transparent 35%),
-        linear-gradient(180deg, #0b1220, #111827);
-      border: 1px solid rgba(255,255,255,0.08);
-      display: grid;
-      gap: 12px;
-      align-content: start;
-    }
-
-    .phone-header {
-      font-weight: 800;
-      font-size: 1.1rem;
-    }
-
-    .phone-card {
-      height: 110px;
-      border-radius: 18px;
-      background: rgba(255,255,255,0.07);
-      border: 1px solid rgba(255,255,255,0.08);
-    }
-
-    .phone-card.small {
-      height: 70px;
-    }
-
-    .phone-button {
-      height: 48px;
-      border-radius: 16px;
-      background: linear-gradient(135deg, var(--primary), var(--violet));
-      box-shadow: 0 12px 30px rgba(59,130,246,0.24);
-    }
-
-    .modal {
-      position: fixed;
-      inset: 0;
-      z-index: 120;
-      display: grid;
-      place-items: center;
-      padding: 18px;
-      background: rgba(2,6,23,0.72);
-      backdrop-filter: blur(10px);
-    }
-
-    .modal-card {
-      width: min(1100px, 100%);
-      max-height: 92vh;
-      overflow: auto;
-      border-radius: 24px;
-      padding: 20px;
-    }
-
-    .modal-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 12px;
-      margin-bottom: 14px;
-    }
-
-    .admin-tabs {
-      margin-bottom: 16px;
-    }
-
-    .admin-pane {
-      display: grid;
-      gap: 16px;
-    }
-
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .stat {
-      padding: 16px;
-      border-radius: 16px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid var(--line);
-    }
-
-    .stat span {
-      display: block;
-      color: var(--muted);
-      margin-bottom: 6px;
-    }
-
-    .stat strong {
-      font-size: 1.6rem;
-    }
-
-    .admin-block {
-      padding: 16px;
-      border-radius: 18px;
-      background: rgba(2,6,23,0.28);
-      border: 1px solid var(--line);
-    }
-
-    .admin-block h3 {
-      margin: 0 0 10px;
-    }
-
-    .row-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 12px;
-    }
-
-    .admin-list {
-      display: grid;
-      gap: 10px;
-    }
-
-    .admin-item {
-      padding: 14px;
-      border-radius: 16px;
-      background: rgba(255,255,255,0.04);
-      border: 1px solid var(--line);
-      display: grid;
-      gap: 10px;
-    }
-
-    .admin-item-head {
-      display: flex;
-      justify-content: space-between;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-
-    .admin-actions {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
-    .small-btn {
-      padding: 8px 10px;
-      border-radius: 10px;
-      border: 1px solid var(--line);
-      background: rgba(255,255,255,0.05);
-      color: var(--text);
-      cursor: pointer;
-      font-size: 0.88rem;
-    }
-
-    .file-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-
-    .file-btn {
-      position: relative;
-      overflow: hidden;
-    }
-
-    .wallpaper-tools {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
-      margin-bottom: 12px;
-    }
-
-    .wallpaper-preview {
-      min-height: 220px;
-      border-radius: 18px;
-      border: 1px dashed var(--line);
-      background:
-        radial-gradient(circle at top left, rgba(59,130,246,0.2), transparent 35%),
-        linear-gradient(160deg, #0b1220, #111827);
-      background-size: cover;
-      background-position: center;
-    }
-
-    .toast {
-      position: fixed;
-      right: 18px;
-      bottom: 18px;
-      z-index: 200;
-      max-width: 380px;
-      padding: 14px 16px;
-      border-radius: 16px;
-      border: 1px solid var(--line);
-      background: rgba(2,6,23,0.92);
-      box-shadow: var(--shadow);
-      animation: slideUp 0.25s ease;
-    }
-
-    .toast.success { border-color: rgba(34,197,94,0.35); }
-    .toast.error { border-color: rgba(239,68,68,0.35); }
-    .toast.warning { border-color: rgba(245,158,11,0.35); }
-
-    @keyframes slideUp {
-      from { transform: translateY(16px); opacity: 0; }
-      to { transform: translateY(0); opacity: 1; }
-    }
-
-    .spinner {
-      display: inline-block;
-      width: 14px;
-      height: 14px;
-      border: 2px solid rgba(255,255,255,0.35);
-      border-top-color: white;
-      border-radius: 50%;
-      animation: spin 0.8s linear infinite;
-      margin-right: 8px;
-      vertical-align: -2px;
-    }
-
-    @keyframes spin {
-      to { transform: rotate(360deg); }
-    }
-
-    @media (max-width: 1024px) {
-      .auth-shell,
-      .apk-showcase {
-        grid-template-columns: 1fr;
-      }
-
-      .selector-grid,
-      .two-cols,
-      .stats-grid {
-        grid-template-columns: 1fr 1fr;
-      }
-    }
-
-    @media (max-width: 720px) {
-      .screen { padding: 12px; }
-      .topbar { border-radius: 18px; }
-      .selector-grid,
-      .two-cols,
-      .stats-grid,
-      .hero-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .panel { padding: 16px; }
-      .hero-card, .login-card, .modal-card { padding: 18px; }
-      .phone-frame { width: 220px; height: 440px; }
-      .kv { grid-template-columns: 1fr; }
-    }
-
-    @media print {
-      body { background: white; color: black; }
-      .bg-layer, .bg-noise, .topbar, .status-strip, .selector-grid, .two-cols, .apk-showcase, .toast, .modal, .btn, .tabs, .panel-head button { display: none !important; }
-      .screen, .container, .panel, .glass { background: white !important; box-shadow: none !important; border: 0 !important; color: black !important; }
-      #analysisSection { display: block !important; }
-      .report { color: black; }
-      .term { background: #fff3cd; color: #7c2d12; }
-      .box { border: 1px solid #ddd !important; background: #fafafa !important; color: black !important; }
-    }
-  </style>
 </head>
 <body>
-  <div class="bg-layer" aria-hidden="true"></div>
+  <div class="bg-gradient" aria-hidden="true"></div>
+  <div id="bgWallpaper" class="bg-wallpaper" aria-hidden="true"></div>
   <div class="bg-noise" aria-hidden="true"></div>
 
   <div id="toast" class="toast hidden"></div>
 
-  <!--
-    IMPORTANT :
-    AUCUN CHAMP ANNÉE / MILLÉSIME / MISE EN CIRCULATION NE DOIT ÊTRE PRÉSENT ICI.
-    La sélection repose uniquement sur : Marque -> Modèle -> Motorisation.
-  -->
-
-  <!-- LOGIN SCREEN -->
+  <!-- LOGIN -->
   <section id="loginScreen" class="screen">
     <div class="auth-shell">
       <div class="hero-card glass">
-        <div class="hero-badge">Dynamic Auto-Diagnostic • APK Ready</div>
+        <div class="hero-badge">V35 • IA locale sans clé API</div>
         <h1>Aide Rédactionnelle Expert Auto</h1>
         <p class="lead">
-          Analyse croisée technique + juridique, base locale massive, import JSON admin,
-          contrôle d’accès tiers, notifications, partage sécurisé et préparation PWA/APK.
+          Analyse croisée technique + juridique par IA locale gratuite, mise à jour automatique des bases JSON,
+          import admin, contrôle tiers, notifications, fond d’écran personnalisable avec opacité, préparation PWA/APK.
         </p>
 
         <div class="hero-grid">
           <div class="mini-card">
-            <strong>Marque</strong>
-            <span>Filtre dynamique sans exception</span>
+            <strong>IA locale</strong>
+            <span>Sans clé API, hors ligne possible</span>
           </div>
           <div class="mini-card">
-            <strong>Modèle</strong>
-            <span>Toutes générations regroupées</span>
-          </div>
-          <div class="mini-card">
-            <strong>Motorisation</strong>
-            <span>Toutes puissances disponibles</span>
+            <strong>Marque / Modèle / Motorisation</strong>
+            <span>Sans champ année</span>
           </div>
           <div class="mini-card">
             <strong>Admin</strong>
-            <span>Import JSON massif IndexedDB</span>
+            <span>Import JSON + mise à jour manuelle</span>
+          </div>
+          <div class="mini-card">
+            <strong>Fond d’écran</strong>
+            <span>Upload + opacité réglable</span>
           </div>
         </div>
       </div>
@@ -1037,16 +117,16 @@
       </div>
     </header>
 
-    <div id="dataStatus" class="status-strip">Initialisation dynamique...</div>
+    <div id="dataStatus" class="status-strip">Initialisation IA locale...</div>
 
     <main class="container">
       <section class="panel glass">
         <div class="panel-head">
           <div>
             <h2>Identification véhicule</h2>
-            <p class="muted">Sélection sans filtre d’année. Toutes les motorisations et puissances du modèle sont exposées.</p>
+            <p class="muted">Sélection sans année. Marque → Modèle → Motorisation.</p>
           </div>
-          <div class="pulse-dot" title="Synchronisation dynamique"></div>
+          <div class="pulse-dot" title="Mise à jour automatique"></div>
         </div>
 
         <div class="selector-grid">
@@ -1093,7 +173,7 @@
         <div class="panel-head">
           <div>
             <h2>Contexte du litige</h2>
-            <p class="muted">Le compte rendu est orienté dynamiquement selon l’objectif et la nature du vendeur.</p>
+            <p class="muted">L’IA locale oriente le compte rendu selon l’objectif, le vendeur et les symptômes.</p>
           </div>
         </div>
 
@@ -1134,14 +214,14 @@
           <input id="objectiveInfo" type="text" placeholder="Ex. obtenir la résolution de la vente et le remboursement intégral" />
         </div>
 
-        <button id="analyzeBtn" class="btn analyze full">🔍 Lancer l’analyse croisée technique + juridique + Auto-Diagnostic</button>
+        <button id="analyzeBtn" class="btn analyze full">🔍 Lancer l’analyse IA locale technique + juridique</button>
       </section>
 
       <section id="analysisSection" class="panel glass hidden">
         <div class="panel-head">
           <div>
             <h2>Rapport d’expertise préliminaire</h2>
-            <p class="muted">Document d’aide à la rédaction. Ne remplace pas une expertise contradictoire ni un avis juridique définitif.</p>
+            <p class="muted">Généré par IA locale gratuite sans clé API. Ne remplace pas une expertise contradictoire ni un avis juridique définitif.</p>
           </div>
           <button onclick="window.print()" class="btn ghost">🖨️ PDF / Impression</button>
         </div>
@@ -1151,22 +231,20 @@
       <section class="panel glass apk-showcase">
         <div class="apk-copy">
           <div class="hero-badge green">PWA / APK Ready</div>
-          <h2>Application moderne, fluide, installable</h2>
+          <h2>Application installable avec fond d’écran</h2>
           <p class="muted">
-            L’application est pensée pour être utilisée en PWA et préparée pour un packaging APK.
-            L’administrateur peut importer une base JSON massive, personnaliser le fond d’écran,
-            le télécharger, puis l’intégrer dans la build Android.
+            Mode Admin : import JSON, mise à jour manuelle, fond d’écran téléchargeable, opacité réglable.
+            Mode automatique : recharge périodique des fichiers JSON embarqués.
           </p>
 
           <div class="apk-actions">
             <button id="installBtn" class="btn primary">📲 Installer l’application</button>
             <button id="downloadWallpaperBtn" class="btn ghost">⬇️ Télécharger le fond d’écran</button>
             <button id="downloadManifestBtn" class="btn ghost">⬇️ manifest.json</button>
-            <button id="downloadCapacitorBtn" class="btn ghost">⬇️ capacitor.config.json</button>
           </div>
 
           <div id="installHint" class="hint-box">
-            Astuce : sur Android Chrome, menu ⋮ → “Ajouter à l’écran d’accueil”. Pour l’APK complet, utiliser Capacitor et importer la base JSON en mode Admin.
+            Sur Android Chrome : menu ⋮ → “Ajouter à l’écran d’accueil”. Pour APK natif, utiliser Capacitor et inclure le dossier data/.
           </div>
         </div>
 
@@ -1198,7 +276,7 @@
         <button class="tab-btn" data-admin-tab="requests">Demandes</button>
         <button class="tab-btn" data-admin-tab="users">Tiers</button>
         <button class="tab-btn" data-admin-tab="data">Données</button>
-        <button class="tab-btn" data-admin-tab="apk">APK / Écran</button>
+        <button class="tab-btn" data-admin-tab="apk">Fond d’écran</button>
       </div>
 
       <div id="statsPane" class="admin-pane active">
@@ -1210,12 +288,11 @@
         </div>
 
         <div class="admin-block">
-          <h3>Synchronisation dynamique</h3>
-          <p id="remoteStatus" class="muted">État distant inconnu.</p>
+          <h3>Mise à jour automatique / manuelle</h3>
+          <p id="remoteStatus" class="muted">État : initialisation...</p>
           <p id="lastSyncText" class="muted">Dernière synchro : jamais.</p>
           <div class="row-actions">
-            <button id="syncNowBtn" class="btn primary">🔄 Synchroniser maintenant</button>
-            <button id="reloadCatalogBtn" class="btn ghost">📡 Recharger catalogue</button>
+            <button id="syncNowBtn" class="btn primary">🔄 Mettre à jour maintenant</button>
             <button id="clearCacheBtn" class="btn danger">🧹 Vider cache & reload</button>
           </div>
           <p id="notifState" class="muted">État notifications : inconnu</p>
@@ -1238,63 +315,71 @@
 
       <div id="dataPane" class="admin-pane hidden">
         <div class="admin-block">
-          <h3>Import / Export</h3>
+          <h3>Import JSON admin</h3>
           <p class="muted">
-            Permet d’importer manuellement des exports JSON si les endpoints distants ne sont pas encore exposés.
+            Importe un export Auto Diagnostic : marques, modèles, motorisations, pannes, rappels, DTC, fiches expert.
+            Clés françaises ou anglaises acceptées.
           </p>
 
-          <div class="file-row">
-            <label class="btn ghost file-btn">
-              Import modèles
-              <input id="importModelsInput" type="file" accept=".json,application/json,text/plain" hidden />
-            </label>
+          <label class="btn primary file-btn full">
+            Choisir un fichier JSON
+            <input id="importJsonInput" type="file" accept=".json,application/json,text/plain" hidden />
+          </label>
 
-            <label class="btn ghost file-btn">
-              Import motorisations
-              <input id="importEnginesInput" type="file" accept=".json,application/json,text/plain" hidden />
-            </label>
-
-            <label class="btn ghost file-btn">
-              Import pannes / rappels
-              <input id="importDefectsInput" type="file" accept=".json,application/json,text/plain" hidden />
-            </label>
-          </div>
+          <div id="jsonFileName" class="muted">Aucun fichier sélectionné.</div>
 
           <div class="row-actions">
-            <button id="exportDataBtn" class="btn primary">💾 Exporter les données locales</button>
+            <button id="validateJsonBtn" class="btn ghost" disabled>🔎 Vérifier sans importer</button>
+            <button id="importJsonBtn" class="btn primary" disabled>💾 Importer dans la base locale</button>
+          </div>
+
+          <progress id="jsonProgress" max="100" value="0"></progress>
+          <div id="jsonStatus" class="muted">Prêt.</div>
+          <pre id="jsonReport" class="json-report"></pre>
+        </div>
+
+        <div class="admin-block">
+          <h3>Export</h3>
+          <div class="row-actions">
+            <button id="exportBaseBtn" class="btn primary">⬇️ Exporter base APK JSON</button>
+            <button id="exportDataBtn" class="btn ghost">💾 Exporter utilisateurs/demandes</button>
           </div>
         </div>
       </div>
 
       <div id="apkPane" class="admin-pane hidden">
         <div class="admin-block">
-          <h3>Fond d’écran APK / PWA</h3>
+          <h3>Fond d’écran + opacité</h3>
           <p class="muted">
-            Téléversez une image de fond, visualisez-la, puis téléchargez le fichier à intégrer dans la build APK.
+            Téléverse une image, règle l’opacité, sauvegarde localement, puis télécharge le fichier pour l’APK.
           </p>
 
-          <div class="wallpaper-tools">
-            <label class="btn primary file-btn">
-              Téléverser une image
-              <input id="wallpaperInput" type="file" accept="image/*" hidden />
-            </label>
-            <button id="resetWallpaperBtn" class="btn ghost">Réinitialiser le fond</button>
+          <label class="btn primary file-btn">
+            Téléverser une image
+            <input id="wallpaperInput" type="file" accept="image/*" hidden />
+          </label>
+
+          <div class="opacity-control">
+            <label for="wallpaperOpacity">Opacité du fond d’écran</label>
+            <input id="wallpaperOpacity" type="range" min="0" max="100" step="1" value="35" />
+            <span id="wallpaperValue">35%</span>
           </div>
 
           <div id="wallpaperPreview" class="wallpaper-preview"></div>
 
           <div class="row-actions">
-            <button id="downloadWallpaperBtn2" class="btn primary">⬇️ Télécharger wallpaper.png</button>
+            <button id="saveWallpaperBtn" class="btn primary">💾 Appliquer / Sauvegarder</button>
+            <button id="resetWallpaperBtn" class="btn ghost">♻ Réinitialiser</button>
+            <button id="downloadWallpaperBtn2" class="btn ghost">⬇️ Télécharger wallpaper.png</button>
           </div>
         </div>
 
         <div class="admin-block">
           <h3>Notifications e-mail</h3>
           <p class="muted">
-            En statique GitHub Pages, l’envoi automatique réel nécessite un service tiers.
-            Ici, un fallback mailto: est fourni.
+            En statique, l’envoi automatique réel nécessite un service tiers. Fallback mailto: fourni.
           </p>
-          <label for="adminEmailInput">E-mail administrateur pour les notifications</label>
+          <label for="adminEmailInput">E-mail administrateur</label>
           <input id="adminEmailInput" type="email" placeholder="admin@domaine.fr" />
           <div class="row-actions">
             <button id="saveSettingsBtn" class="btn primary">💾 Enregistrer</button>
@@ -1304,7 +389,6 @@
     </div>
   </div>
 
-  <!-- Nettoyage défensif : supprime tout champ année restant dans un ancien HTML caché -->
   <script>
     (function purgeYearFields() {
       try {
@@ -1348,10 +432,5 @@
   </script>
 
   <script src="./app.js" defer></script>
-  <script
-    src="./admin-json-import.js"
-    defer
-    onerror="console.warn('[Expert Auto] admin-json-import.js non trouvé (facultatif).')"
-  ></script>
 </body>
 </html>
