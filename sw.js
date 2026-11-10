@@ -1,4 +1,4 @@
-const CACHE_NAME = "expert-auto-v35-ai-locale";
+const CACHE_NAME = "expert-auto-v36-predictive-fix";
 
 const CORE_ASSETS = [
   "./",
